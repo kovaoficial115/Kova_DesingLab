@@ -11,7 +11,8 @@ import { NumberField, Seg, Check as CheckBox, Select } from './components/contro
 import { commands, displayKeys, runCommand, openDialog } from './commands';
 import { closeDoc, zoomTo, fitToScreen } from '../core/actions';
 import { fromPx } from '../core/util';
-import { discardAutosave } from '../io/fileOps';
+import { discardAutosave } from '../io/fileOps';import { FontPicker } from './components/FontPicker';
+
 
 const toolList: (ToolId | '-')[] = ['move', 'artboard', '-', 'marquee', 'ellipseMarquee', 'lasso', 'wand', '-', 'crop', 'eyedropper', '-', 'brush', 'eraser', 'restore', 'fill', 'gradient', '-', 'text', 'shape', '-', 'hand', 'zoom'];
 const toolIcons: Record<ToolId, any> = {
@@ -108,7 +109,7 @@ export function OptionsBar() {
     <CheckBox checked={o.gradientToTransparent} onChange={v => setO({ gradientToTransparent: v })} label="Frontal → transparente" />
   </>;
   if (tool === 'text') content = <>
-    <Select value={o.fontFamily} onChange={v => setO({ fontFamily: v })} width={170} options={FONTS.map(f => ({ value: f, label: f.split(',')[0] }))} />
+    <FontPicker value={o.fontFamily} onChange={v => setO({ fontFamily: v })} width={190} />
     <OptNum label="Tamaño" value={o.fontSize} onChange={v => setO({ fontSize: v })} min={4} max={3000} suffix="px" />
     <Select value={String(o.fontWeight) as any} onChange={v => setO({ fontWeight: +v })} width={110} options={[300, 400, 500, 600, 700, 800, 900].map(w => ({ value: String(w), label: `Peso ${w}` }))} />
     <span className="muted small">Clic para crear · doble clic con Mover para editar</span>
@@ -164,11 +165,6 @@ function AlignIcon({ kind }: { kind: string }) {
 }
 export { AlignIcon };
 
-export const FONTS = [
-  'Inter, sans-serif', 'Arial, sans-serif', 'Helvetica, sans-serif', 'Impact, sans-serif', 'Georgia, serif', 'Times New Roman, serif',
-  'Courier New, monospace', 'Verdana, sans-serif', 'Trebuchet MS, sans-serif', 'Arial Black, sans-serif', 'Futura, sans-serif',
-  'Gill Sans, sans-serif', 'Didot, serif', 'Copperplate, serif', 'Brush Script MT, cursive', 'Marker Felt, fantasy', 'JetBrains Mono, monospace',
-];
 
 export function DocTabs() {
   const docs = useStore(s => s.docs);

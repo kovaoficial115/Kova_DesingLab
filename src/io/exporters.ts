@@ -6,6 +6,7 @@ import { renderArtboard, processedContent, ensureProcessed, renderLayerAlone } f
 import { childrenOf } from '../core/doc';
 import { pngSetDpi, jpegSetDpi, encodeTiff, encodeBmp } from './binary';
 import { rgbaToCmyk, cmsState, hasIcc } from '../engine/cms';
+import { fontFaceCss } from './fonts';
 
 export type ExportFormat = 'png' | 'jpg' | 'webp' | 'tiff' | 'tiff-cmyk' | 'bmp' | 'svg' | 'pdf' | 'psd';
 
@@ -123,6 +124,8 @@ async function buildSvg(state: DocState, ab: Artboard) {
   const wmm = (ab.w / ab.dpi) * 25.4, hmm = (ab.h / ab.dpi) * 25.4;
   const parts: string[] = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wmm.toFixed(3)}mm" height="${hmm.toFixed(3)}mm" viewBox="${ab.x} ${ab.y} ${ab.w} ${ab.h}">`);
+  const css = fontFaceCss(state.layers.filter(l => l.kind === 'text' && l.text).map(l => l.text!.fontFamily));
+  if (css) parts.push(`<defs><style>${css}</style></defs>`);
   if (ab.background) parts.push(`<rect x="${ab.x}" y="${ab.y}" width="${ab.w}" height="${ab.h}" fill="${ab.background}"/>`);
   const walk = async (list: Layer[]) => {
     for (const l of list) {

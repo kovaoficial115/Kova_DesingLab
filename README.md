@@ -12,6 +12,7 @@ Editor de imágenes de producción para impresión **DTF (Direct to Film)**. Fun
 - **Medidas físicas:** tamaño en px/cm/mm/in, cambio de ppp con o sin remuestreo, resolución efectiva por capa.
 - **Semitonos:** puntos, cuadrados, líneas, elipses; LPI, ángulo, transición a transparencia, modo CMYK con ángulos por canal.
 - **Eliminar fondo:** con IA (modelo local en el navegador), por color, varita mágica, refinado de bordes y limpieza de alfa para DTF.
+- **Tipografías propias:** sube TTF, OTF, WOFF, WOFF2 o el .zip de DaFont, o descarga cualquier fuente de Google Fonts (catálogo de Fontsource) desde la app. Se guardan en el navegador y viajan dentro de los proyectos `.kova` y los SVG exportados.
 - **Vectorización** a SVG con control de colores, precisión y reducción de nodos.
 - **Color:** espacios RGB/CMYK, conversión con perfiles ICC (LittleCMS), prueba de impresión, vista por canal, cobertura de tinta (TAC).
 - **Herramientas DTF:** base blanca y knockout de prenda, separación de canales, comprobación previa a la impresión, hoja de impresión (gang sheet) con acomodo automático, mockups sobre camiseta o foto propia.

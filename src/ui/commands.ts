@@ -28,6 +28,7 @@ export const commands: Record<string, Command> = {
   'file.save': { label: 'Guardar proyecto (.kova)', keys: 'mod+s', run: () => saveProject(false), enabled: hasDoc },
   'file.saveAs': { label: 'Guardar como…', keys: 'mod+shift+s', run: () => saveProject(true), enabled: hasDoc },
   'file.saveLib': { label: 'Guardar en biblioteca local', run: () => saveToBrowserLibrary(), enabled: hasDoc },
+  'file.fonts': { label: 'Tipografías…', keys: 'mod+alt+t', run: () => openDialog('fonts') },
   'file.export': { label: 'Exportar…', keys: 'mod+e', run: () => openDialog('export'), enabled: hasDoc },
   'file.exportPng': { label: 'Exportación rápida PNG DTF', keys: 'mod+shift+e', run: () => openDialog('export', { quick: 'png' }), enabled: hasDoc },
   'file.duplicate': { label: 'Duplicar documento', run: () => A.duplicateDoc(), enabled: hasDoc },

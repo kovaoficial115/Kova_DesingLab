@@ -281,3 +281,16 @@ input[type='checkbox'] { accent-color: var(--accent); width: 14px; height: 14px;
 .picker-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .picker-row:hover { background: var(--panel-3); border-color: var(--border-2); }
 .btn.active { border-color: var(--accent); color: var(--accent); }
+
+.font-trigger { display: flex; align-items: center; justify-content: space-between; gap: 6px; cursor: pointer; text-align: left; min-width: 0; }
+.font-pop { position: fixed; z-index: 1000; display: flex; flex-direction: column; background: #1a1a1f; border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 16px 44px rgba(0,0,0,.55); overflow: hidden; }
+.font-search { display: flex; align-items: center; gap: 6px; padding: 0 8px; height: 32px; border-bottom: 1px solid var(--border); }
+.font-search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text); font: inherit; font-size: 12px; }
+.font-list { overflow-y: auto; flex: 1; padding-bottom: 4px; }
+.font-item { display: block; width: 100%; text-align: left; padding: 6px 10px; font-size: 15px; background: transparent; border: 0; color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.font-item:hover { background: var(--panel-3); }
+.font-item.on { color: var(--accent); }
+.font-add { margin: 6px; justify-content: center; }
+.font-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px; border: 1.5px dashed var(--border-2); border-radius: 12px; color: var(--text-2); text-align: center; }
+.font-drop.over { border-color: var(--accent); background: rgba(215, 242, 92, .06); }
+.catalog-row.open { border-color: var(--border-2); }

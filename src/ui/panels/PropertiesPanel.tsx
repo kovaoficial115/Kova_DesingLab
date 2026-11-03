@@ -5,7 +5,8 @@ import type { Doc, Layer, Artboard } from '../../core/types';
 import { NumberField, Select, Seg, Check, ColorInput } from '../components/controls';
 import { fromPx, toPx, layerSize, layerBounds } from '../../core/util';
 import * as A from '../../core/actions';
-import { AlignIcon, FONTS } from '../Chrome';
+import { AlignIcon } from '../Chrome';
+import { FontPicker } from '../components/FontPicker';
 import { runCommand } from '../commands';
 
 const liveLayer = (id: string, patch: Partial<Layer> | ((l: Layer) => Partial<Layer>)) =>
@@ -122,7 +123,7 @@ function TextProps({ l }: { l: Layer }) {
     <>
       <div className="section-title">Texto</div>
       <textarea className="input" rows={2} value={t.text} onChange={e => up({ text: e.target.value }, false)} onBlur={() => finishLive('Editar texto')} onKeyDown={e => e.stopPropagation()} />
-      <Select value={t.fontFamily} onChange={v => up({ fontFamily: v })} options={FONTS.map(f => ({ value: f, label: f.split(',')[0] }))} />
+      <FontPicker value={t.fontFamily} onChange={v => up({ fontFamily: v })} width="100%" />
       <div className="row">
         <NumberField label="T" value={t.fontSize} min={1} max={5000} digits={0} suffix="px" onChange={v => up({ fontSize: v }, false)} onCommit={v => up({ fontSize: v })} />
         <Select value={String(t.fontWeight) as any} width={90} onChange={v => up({ fontWeight: +v })} options={[100, 200, 300, 400, 500, 600, 700, 800, 900].map(w => ({ value: String(w), label: String(w) }))} />

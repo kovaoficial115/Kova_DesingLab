@@ -216,6 +216,8 @@ export async function bakedLayerCanvas(l: Layer): Promise<HTMLCanvasElement | nu
   return processedContent(l);
 }
 
+/** Las fuentes disponibles cambiaron: re-rasterizar textos (y formas, que son baratas). */
+export function invalidateTextContent() { contentCache.clear(); }
 export function invalidateLayer(id: string) { procCache.delete(id); contentCache.delete(id); vectorCache.delete(id); }
 
 // ---------- composición ----------

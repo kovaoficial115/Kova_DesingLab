@@ -4,6 +4,7 @@
 import type { Doc, DocState, Layer } from '../core/types';
 import { canvasToBlob, blobToCanvas, uid, createCanvas, ctx2d, downloadBlob } from '../core/util';
 import { renderArtboard } from '../core/render';
+import { embedFonts, installEmbedded } from './fonts';
 
 interface SerialLayer extends Omit<Layer, 'canvas' | 'origin' | 'mask'> { canvas?: string; origin?: string; mask?: string }
 
@@ -34,12 +35,15 @@ export async function serializeDoc(doc: Doc): Promise<string> {
   return JSON.stringify({
     format: 'kova-designlab', version: 1, id: doc.id, name: doc.name, colorMode: doc.colorMode, createdAt: doc.createdAt,
     state: { ...st, layers }, assets,
+    // tipografías del usuario usadas por los textos, para abrir el proyecto en otro equipo
+    fonts: embedFonts(doc.state.layers.filter(l => l.kind === 'text' && l.text).map(l => l.text!.fontFamily)),
   });
 }
 
 export async function deserializeDoc(json: string): Promise<Doc> {
   const data = JSON.parse(json);
   if (data.format !== 'kova-designlab') throw new Error('Archivo de proyecto no reconocido');
+  await installEmbedded(data.fonts);
   const cache = new Map<string, HTMLCanvasElement>();
   const get = async (id?: string) => {
     if (!id) return undefined;

@@ -14,6 +14,7 @@ const dialogs: Record<string, React.LazyExoticComponent<any>> = {
   grid: lazy(() => import('./dialogs/BasicDialogs').then(m => ({ default: m.GridDialog }))),
   'color-settings': lazy(() => import('./dialogs/BasicDialogs').then(m => ({ default: m.ColorSettingsDialog }))),
   shortcuts: lazy(() => import('./dialogs/BasicDialogs').then(m => ({ default: m.ShortcutsDialog }))),
+  fonts: lazy(() => import('./dialogs/FontsDialog').then(m => ({ default: m.FontsDialog }))),
   about: lazy(() => import('./dialogs/BasicDialogs').then(m => ({ default: m.AboutDialog }))),
   outline: lazy(() => import('./dialogs/BasicDialogs').then(m => ({ default: m.OutlineDialog }))),
   export: lazy(() => import('./dialogs/ExportDialog').then(m => ({ default: m.ExportDialog }))),

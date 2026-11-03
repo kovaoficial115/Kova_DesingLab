@@ -12,6 +12,7 @@
   "dependencies": {
     "@imgly/background-removal": "^1.5.5",
     "ag-psd": "^22.0.2",
+    "fflate": "^0.8.2",
     "imagetracerjs": "^1.2.6",
     "jspdf": "^2.5.2",
     "lcms-wasm": "^1.0.5",
