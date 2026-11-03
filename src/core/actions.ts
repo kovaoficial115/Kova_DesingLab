@@ -7,7 +7,7 @@ import {
 } from './store';
 import {
   uid, createCanvas, ctx2d, cloneCanvas, layerSize, layerMatrix, layerBounds, unionRect, getImageData, canvasFromImageData,
-  resampleCanvas, rectsIntersect, type Rect, pointInLayer, hexToRgb,
+  resampleCanvas, rectsIntersect, type Rect, pointInLayer, hexToRgb, trimCanvas, fmtUnit,
 } from './util';
 import { rasterLayer, groupLayer, newDoc, fitIn, descendants, isEffectivelyLocked, isEffectivelyVisible, childrenOf } from './doc';
 import { bakedLayerCanvas, renderArtboard, renderLayerAlone, invalidateLayer, ensureProcessed, processedContent } from './render';
@@ -768,6 +768,70 @@ export function deleteArtboard(id: string) {
     const artboards = st.artboards.filter(a => a.id !== id);
     return { ...st, artboards, activeArtboardId: artboards[0].id };
   });
+}
+/** Caja de los píxeles visibles de las capas (sin márgenes transparentes); si no hay píxeles, su caja. */
+async function visibleBounds(st: DocState, list: Layer[]): Promise<Rect | null> {
+  const rects: Rect[] = [];
+  for (const l of list) {
+    const { canvas, bounds } = await renderLayerAlone(st, l, 1);
+    const t = trimCanvas(canvas);
+    if (t) rects.push({ x: bounds.x + t.x, y: bounds.y + t.y, w: t.canvas.width, h: t.canvas.height });
+    else if (bounds.w > 0 && bounds.h > 0) rects.push(bounds);
+  }
+  const u = unionRect(rects);
+  // alinear a píxeles enteros para que la mesa no corte medio píxel
+  if (!u) return null;
+  const x = Math.floor(u.x), y = Math.floor(u.y);
+  return { x, y, w: Math.ceil(u.x + u.w) - x, h: Math.ceil(u.y + u.h) - y };
+}
+
+/**
+ * Crea una mesa de trabajo del tamaño exacto de las capas seleccionadas, a la derecha de las
+ * demás, y mueve (o copia) ahí esas capas. Conserva los ppp de la mesa donde estaban.
+ */
+export async function artboardFromSelection(mode: 'move' | 'copy') {
+  const s = docState();
+  if (!s) return;
+  const selIds = new Set(s.selectedLayerIds);
+  // capas de nivel superior de la selección (si un grupo está seleccionado, sus hijos van con él)
+  const top = s.layers.filter(l => selIds.has(l.id) && !ancestorIds(s.layers, l).some(a => selIds.has(a)));
+  if (!top.length) return toast('Selecciona una o más capas', 'warn');
+  if (mode === 'move' && top.some(l => isEffectivelyLocked(s.layers, l))) return toast('Hay capas bloqueadas en la selección', 'warn');
+  const b = await visibleBounds(s, top);
+  if (!b) return toast('La selección está vacía', 'warn');
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  const src = s.artboards.find(a => cx >= a.x && cx <= a.x + a.w && cy >= a.y && cy <= a.y + a.h) ?? activeArtboard() ?? s.artboards[0];
+  const all = unionRect(s.artboards)!;
+  const name = top.length === 1 ? top[0].name : `Selección (${top.length} capas)`;
+  const nab: Artboard = { id: uid('ab'), name, x: Math.round(all.x + all.w + Math.max(200, src.dpi * 0.5)), y: Math.round(all.y), w: b.w, h: b.h, dpi: src.dpi, background: null, margin: 0 };
+  const dx = nab.x - b.x, dy = nab.y - b.y;
+  const shift = (l: Layer): Layer => (l.kind === 'group' ? l : { ...l, x: l.x + dx, y: l.y + dy });
+  commit(mode === 'move' ? 'Mesa desde selección' : 'Copiar a mesa nueva', st => {
+    let layers: Layer[];
+    let selected: string[];
+    if (mode === 'move') {
+      const moving = new Set(top.flatMap(l => [l.id, ...descendants(st.layers, l.id).map(d => d.id)]));
+      layers = st.layers.map(l => (moving.has(l.id) ? shift(l) : l));
+      selected = top.map(l => l.id);
+    } else {
+      layers = [...st.layers];
+      selected = [];
+      for (const l of top) {
+        const copies = cloneLayerDeep(l, st.layers, l.parentId).map(shift);
+        layers.splice(layers.findIndex(x => x.id === l.id) + 1, 0, ...copies);
+        selected.push(copies[0].id);
+      }
+    }
+    return { ...st, layers, artboards: [...st.artboards, nab], activeArtboardId: nab.id, selectedLayerIds: selected };
+  });
+  requestAnimationFrame(() => fitToScreen(nab));
+  toast(`Mesa «${name}» creada: ${fmtUnit(nab.w, 'cm', nab.dpi)} × ${fmtUnit(nab.h, 'cm', nab.dpi)} a ${nab.dpi} ppp`, 'ok', 4500);
+  return nab;
+}
+function ancestorIds(layers: Layer[], l: Layer): string[] {
+  const out: string[] = [];
+  for (let p = l.parentId; p; p = layers.find(x => x.id === p)?.parentId ?? null) out.push(p);
+  return out;
 }
 export function setActiveArtboard(id: string) { silent(s => ({ ...s, activeArtboardId: id })); }
 

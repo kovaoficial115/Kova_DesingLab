@@ -85,6 +85,8 @@ export const commands: Record<string, Command> = {
   'layer.new': { label: 'Nueva capa', keys: 'mod+shift+n', run: () => A.newEmptyLayer(), enabled: hasDoc },
   'layer.duplicate': { label: 'Duplicar capa', keys: 'mod+j', run: () => (docState()?.selection ? A.layerViaCopy() : A.duplicateSelectedLayers()), enabled: hasLayer },
   'layer.viaCut': { label: 'Capa vía cortar', keys: 'mod+shift+j', run: () => A.layerViaCopy(true), enabled: hasSel },
+  'artboard.fromSelection': { label: 'Crear mesa de trabajo con el tamaño de la imagen', keys: 'mod+alt+a', run: () => A.artboardFromSelection('move'), enabled: hasLayer },
+  'artboard.copyToNew': { label: 'Copiar a una mesa nueva del mismo tamaño', run: () => A.artboardFromSelection('copy'), enabled: hasLayer },
   'layer.delete': { label: 'Eliminar capa', run: () => A.deleteSelectedLayers(), enabled: hasLayer },
   'layer.group': { label: 'Agrupar capas', keys: 'mod+g', run: () => A.groupSelected(), enabled: hasLayer },
   'layer.ungroup': { label: 'Desagrupar', keys: 'mod+shift+g', run: () => A.ungroupSelected(), enabled: () => activeLayer()?.kind === 'group' },

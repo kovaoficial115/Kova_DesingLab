@@ -4,7 +4,7 @@ import { commands, displayKeys, runCommand } from './commands';
 import { useStore, set } from '../core/store';
 import type { PanelId } from '../core/store';
 
-type Item = string | '-' | { head: string } | { label: string; sub: Item[] } | { label: string; run: () => void; checked?: () => boolean };
+export type Item = string | '-' | { head: string } | { label: string; sub: Item[] } | { label: string; run: () => void; checked?: () => boolean };
 
 const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propiedades', adjustments: 'Ajustes', layers: 'Capas', history: 'Historial', artboards: 'Mesas de trabajo', channels: 'Canales y color' };
 
@@ -31,7 +31,7 @@ const menus: { label: string; items: Item[] }[] = [
     ],
   },
   {
-    label: 'Capa', items: ['layer.new', 'layer.duplicate', 'layer.viaCut', 'layer.delete', '-', 'layer.group', 'layer.ungroup', '-',
+    label: 'Capa', items: ['layer.new', 'layer.duplicate', 'layer.viaCut', 'layer.delete', '-', 'artboard.fromSelection', 'artboard.copyToNew', '-', 'layer.group', 'layer.ungroup', '-',
       { label: 'Máscara de capa', sub: ['layer.mask', 'layer.maskHide', 'layer.maskApply', 'layer.maskDelete'] }, 'layer.clip', '-',
       { label: 'Organizar', sub: ['layer.top', 'layer.up', 'layer.down', 'layer.bottom'] }, '-',
       'layer.rasterize', 'layer.resample', 'layer.outline', '-', 'layer.mergeDown', 'layer.flatten'],
@@ -52,7 +52,7 @@ const menus: { label: string; items: Item[] }[] = [
   { label: 'Ayuda', items: ['edit.shortcuts', 'help.about'] },
 ];
 
-function MenuList({ items, onClose, x, y }: { items: Item[]; onClose: () => void; x: number; y: number }) {
+export function MenuList({ items, onClose, x, y }: { items: Item[]; onClose: () => void; x: number; y: number }) {
   const [sub, setSub] = useState<{ i: number; x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });

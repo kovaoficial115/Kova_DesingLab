@@ -4,7 +4,8 @@ import type { Doc, Layer, Selection } from '../core/types';
 import { renderLayers } from '../core/render';
 import { layerMatrix, layerSize, createCanvas, ctx2d, fromPx, toPx, layerBounds } from '../core/util';
 import { tools, overlay, textEdit, setTextEdit, transformTarget, cropState, type ToolEvent } from '../tools/tools';
-import { zoomTo, fitToScreen, addGuide } from '../core/actions';
+import { zoomTo, fitToScreen, addGuide, hitTestLayers, selectLayers } from '../core/actions';
+import { MenuList, type Item } from './MenuBar';
 import { placeFiles } from '../io/fileOps';
 import { softProof, channelView } from '../engine/cms';
 import { Slider } from './components/controls';
@@ -515,6 +516,32 @@ export function Viewport({ doc }: { doc: Doc }) {
     window.addEventListener('pointerup', up);
   };
 
+  // clic derecho: seleccionar la capa bajo el cursor (si no lo estaba) y abrir el menú contextual
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: Item[] } | null>(null);
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const ev = toEvent(e);
+    const hit = hitTestLayers(ev.wx, ev.wy);
+    const sel = doc.state.selectedLayerIds;
+    if (hit && !sel.includes(hit.id)) selectLayers([hit.id]);
+    const hasSel = !!hit || sel.length > 0;
+    const items: Item[] = hasSel
+      ? ['artboard.fromSelection', 'artboard.copyToNew', '-', 'edit.copy', 'edit.paste', 'layer.duplicate', 'layer.delete', '-',
+        'layer.group', 'layer.ungroup', { label: 'Organizar', sub: ['layer.top', 'layer.up', 'layer.down', 'layer.bottom'] }, '-',
+        'dtf.bg', 'dtf.halftone', 'dtf.vectorize']
+      : ['edit.paste', 'file.place', '-', 'view.fit'];
+    setCtxMenu({ x: e.clientX, y: e.clientY, items });
+  };
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', key);
+    window.addEventListener('blur', close);
+    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', key); window.removeEventListener('blur', close); };
+  }, [ctxMenu]);
+
   const cursorCss = keys.space || panDrag.current ? 'grab' : tools[tool]?.cursor ?? 'default';
 
   return (
@@ -528,7 +555,7 @@ export function Viewport({ doc }: { doc: Doc }) {
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onPointerLeave={() => { set({ cursor: null }); tools[tool]?.leave?.(); }}
         onDoubleClick={onDbl}
-        onContextMenu={e => e.preventDefault()}
+        onContextMenu={onContextMenu}
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={e => {
@@ -543,6 +570,7 @@ export function Viewport({ doc }: { doc: Doc }) {
         <canvas ref={overRef} style={{ width: size.w, height: size.h, pointerEvents: 'none' }} />
         <TextEditPop size={size} />
       </div>
+      {ctxMenu && <MenuList items={ctxMenu.items} x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)} />}
     </div>
   );
 }
