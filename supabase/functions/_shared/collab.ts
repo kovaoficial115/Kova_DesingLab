@@ -172,9 +172,11 @@ export async function handle(req: Request, env: EnvGetter): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
   if (origin && !allowOrigin) return json({ error: 'Origen no permitido' }, 403);
 
-  const secret = env('LIVEBLOCKS_SECRET_KEY');
+  // (tolera espacios o comillas pegados por error alrededor de la clave)
+  const secret = (env('LIVEBLOCKS_SECRET_KEY') || '').trim().replace(/^["']+|["']+$/g, '').trim();
   if (!secret) return json({ error: 'El servidor de colaboración no está configurado (falta LIVEBLOCKS_SECRET_KEY).' }, 503);
   if (secret.startsWith('pk_')) return json({ error: 'LIVEBLOCKS_SECRET_KEY debe ser la clave secreta (sk_…), no la pública.' }, 503);
+  if (!secret.startsWith('sk_')) return json({ error: 'LIVEBLOCKS_SECRET_KEY no es válida: debe empezar por sk_ (copia la Secret key de Liveblocks → API keys).' }, 503);
   // Clave para firmar identidades e invitaciones: KOVA_COLLAB_SECRET si existe; si no, se deriva
   // de la clave secreta de Liveblocks (HMAC con una etiqueta fija), así basta con un solo secreto.
   // Cambiar cualquiera de las dos invalida las identidades y los enlaces de invitación emitidos.
