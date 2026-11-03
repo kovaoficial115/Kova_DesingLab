@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Shirt, Plus, Trash2, Download, ImagePlus, FilePlus2 } from 'lucide-react';
 import { Modal, Slider, Seg, Check, ColorInput, Select, NumberField } from '../components/controls';
-import { activeDoc, activeLayer, docState, withBusy, toast } from '../../core/store';
-import { renderLayerAlone } from '../../core/render';
+import { activeDoc, useStore, withBusy, toast } from '../../core/store';
 import { createCanvas, ctx2d, getImageData, canvasToBlob, downloadBlob, trimCanvas, uid, blobToCanvas, clamp } from '../../core/util';
 import { pickFiles } from '../../io/fileOps';
 import { sourceFromArtboard, sourcesFromFile, type DesignSource } from '../../io/sources';
 import { newDocFromCanvas } from '../../core/actions';
+import { SourcePicker } from '../components/SourcePicker';
 
 // Lienzo del mockup en unidades fijas; el pecho de la prenda dibujada ocupa CHEST unidades.
 const MW = 1000, MH = 1100, CHEST = 540;
@@ -119,20 +119,7 @@ export function MockupDialog({ onClose }: { onClose: () => void }) {
     const p: Print = { id: uid('pr'), src, side: s, widthCm: +wCm.toFixed(1), dx: 0, dy: s === 'front' ? 8 : 10, rotation: 0 };
     setPrints(ps => [...ps, p]); setSelId(p.id);
   };
-  const addArtboard = () => withBusy('Preparando diseño…', async () => {
-    const d = activeDoc(); if (!d) return;
-    const ab = d.state.artboards.find(a => a.id === d.state.activeArtboardId)!;
-    const s = await sourceFromArtboard(d.state, ab, ab.name);
-    if (s) addSource(s); else toast('La mesa activa está vacía', 'warn');
-  });
-  const addLayer = () => withBusy('Preparando capa…', async () => {
-    const l = activeLayer(), st = docState(), d = activeDoc();
-    if (!l || !st || !d) return toast('Selecciona una capa', 'warn');
-    const { canvas } = await renderLayerAlone(st, l, 1);
-    const t = trimCanvas(canvas);
-    const ab = d.state.artboards.find(a => a.id === d.state.activeArtboardId)!;
-    if (t) addSource({ id: uid('src'), name: l.name, canvas: t.canvas, dpi: ab.dpi });
-  });
+  const [picker, setPicker] = useState<'artboard' | 'layer' | null>(null);
   const addFile = async () => {
     const [f] = await pickFiles(false); if (!f) return;
     await withBusy('Importando…', async () => { const [s] = await sourcesFromFile(f); if (s) addSource(s); });
@@ -143,7 +130,13 @@ export function MockupDialog({ onClose }: { onClose: () => void }) {
     setPhotos(ph => ({ ...ph, [side]: { canvas: c, shade: photoShading(c), widthCm: 70, collarPct: 12 } }));
     setUsePhoto(true);
   };
-  useEffect(() => { if (activeDoc()) addArtboard(); }, []);
+  useEffect(() => {
+    // punto de partida: la mesa activa; el resto se elige con los botones Mesa / Capa
+    const d = activeDoc(); if (!d) return;
+    const ab = d.state.artboards.find(a => a.id === d.state.activeArtboardId) ?? d.state.artboards[0];
+    sourceFromArtboard(d.state, ab, ab.name).then(s => s && addSource(s));
+  }, []);
+  const hasDocs = useStore(st => st.docs.length > 0);
   const patch = (id: string, p: Partial<Print>) => setPrints(ps => ps.map(x => (x.id === id ? { ...x, ...p } : x)));
 
   // geometría: unidades del mockup por cm y origen (centro del cuello)
@@ -302,10 +295,11 @@ export function MockupDialog({ onClose }: { onClose: () => void }) {
         <div className="col" style={{ overflowY: 'auto', gap: 10 }}>
           <div className="section-title">Estampados</div>
           <div className="row" style={{ flexWrap: 'wrap', gap: 4 }}>
-            <button className="btn sm" onClick={addArtboard} disabled={!activeDoc()}><Plus size={12} />Mesa</button>
-            <button className="btn sm" onClick={addLayer} disabled={!activeDoc()}><Plus size={12} />Capa</button>
+            <button className={'btn sm' + (picker === 'artboard' ? ' active' : '')} onClick={() => setPicker(p => (p === 'artboard' ? null : 'artboard'))} disabled={!hasDocs}><Plus size={12} />Mesa</button>
+            <button className={'btn sm' + (picker === 'layer' ? ' active' : '')} onClick={() => setPicker(p => (p === 'layer' ? null : 'layer'))} disabled={!hasDocs}><Plus size={12} />Capa</button>
             <button className="btn sm" onClick={addFile}><Plus size={12} />Archivo</button>
           </div>
+          {picker && <SourcePicker mode={picker} onPick={s => { addSource(s); setPicker(null); }} onClose={() => setPicker(null)} />}
           {prints.map(p => (
             <div key={p.id} className="check-item" style={{ alignItems: 'center', cursor: 'pointer', borderColor: p.id === selId ? 'var(--accent)' : undefined }} onClick={() => { setSelId(p.id); setSide(p.side); }}>
               <img src={p.src.canvas.toDataURL()} className="checker-dark" style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 6 }} />
