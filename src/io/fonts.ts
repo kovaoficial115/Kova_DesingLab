@@ -81,6 +81,12 @@ export async function restoreFonts() {
   } catch (e) { console.warn('Biblioteca de fuentes no disponible', e); }
 }
 
+/** Instala una fuente recibida de otro participante (colaboración). */
+export async function installFontData(f: { family: string; weight: number; style: 'normal' | 'italic'; format: FontFormat; license?: string }, data: ArrayBuffer) {
+  if ([...fonts.values()].some(x => x.family === f.family && x.weight === f.weight && x.style === f.style)) return;
+  await addFont({ ...f, data, source: 'project' });
+  emit();
+}
 async function addFont(f: Omit<StoredFont, 'id' | 'added'>): Promise<StoredFont> {
   // misma familia + peso + estilo → se reemplaza
   const prev = [...fonts.values()].find(x => x.family === f.family && x.weight === f.weight && x.style === f.style);

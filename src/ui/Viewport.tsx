@@ -1,3 +1,4 @@
+import { StageSlot } from '../collab/ui';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore, get, set, getView, setView, activeLayer, live, finishLive, cancelLive } from '../core/store';
 import type { Doc, Layer, Selection } from '../core/types';
@@ -569,6 +570,7 @@ export function Viewport({ doc }: { doc: Doc }) {
         <canvas ref={sceneRef} style={{ width: size.w, height: size.h }} />
         <canvas ref={overRef} style={{ width: size.w, height: size.h, pointerEvents: 'none' }} />
         <TextEditPop size={size} />
+        {doc.collab && <StageSlot />}
       </div>
       {ctxMenu && <MenuList items={ctxMenu.items} x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)} />}
     </div>

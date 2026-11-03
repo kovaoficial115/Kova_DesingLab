@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "@liveblocks/node": "npm:@liveblocks/node@3.24.5",
+    "@liveblocks/client": "npm:@liveblocks/client@3.24.5"
+  }
+}

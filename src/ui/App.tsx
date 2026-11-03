@@ -4,6 +4,9 @@ import { useStore, set, get } from '../core/store';
 import { Home } from './Home';
 import { Editor, useEditorKeys } from './Editor';
 import { setInternalClip } from './commands';
+import { CollabHost } from '../collab/ui';
+import { collabPending } from '../collab/engine';
+import { initFromUrl } from '../collab/rooms';
 
 const dialogs: Record<string, React.LazyExoticComponent<any>> = {
   new: lazy(() => import('./dialogs/BasicDialogs').then(m => ({ default: m.NewDocDialog }))),
@@ -26,6 +29,7 @@ const dialogs: Record<string, React.LazyExoticComponent<any>> = {
   preflight: lazy(() => import('./dialogs/DtfDialogs').then(m => ({ default: m.PreflightDialog }))),
   gang: lazy(() => import('./dialogs/GangSheetDialog').then(m => ({ default: m.GangSheetDialog }))),
   mockup: lazy(() => import('./dialogs/MockupDialog').then(m => ({ default: m.MockupDialog }))),
+  'collab-identity': lazy(() => import('../collab/dialogs').then(m => ({ default: m.IdentityDialog }))),
 };
 
 function DialogHost() {
@@ -58,9 +62,10 @@ export function App() {
   const screen = useStore(s => s.screen);
   useEditorKeys();
   useEffect(() => {
-    const before = (e: BeforeUnloadEvent) => { if (get().docs.some(d => d.dirty)) { e.preventDefault(); e.returnValue = ''; } };
+    const before = (e: BeforeUnloadEvent) => { if (get().docs.some(d => d.dirty && !d.collab) || collabPending()) { e.preventDefault(); e.returnValue = ''; } };
     const blur = () => setInternalClip(null);
     window.addEventListener('beforeunload', before);
+    initFromUrl();
     window.addEventListener('blur', blur);
     return () => { window.removeEventListener('beforeunload', before); window.removeEventListener('blur', blur); };
   }, []);
@@ -68,6 +73,7 @@ export function App() {
     <>
       {screen === 'home' ? <Home /> : <Editor />}
       <DialogHost />
+      <CollabHost />
       <Toasts />
     </>
   );

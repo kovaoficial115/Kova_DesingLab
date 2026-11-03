@@ -4,3 +4,5 @@ dist/
 *.log
 .claude/
 .vite/
+.env*.local
+.liveblocks/

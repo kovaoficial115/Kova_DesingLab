@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Move, SquareDashed, CircleDashed, Lasso, Wand2, Crop, Pipette, Brush, Eraser, History, PaintBucket, Blend, Type, Shapes, Hand, ZoomIn,
   Frame, ArrowLeftRight, X, Check, Sparkles, Grid3x3, ScanLine, Shirt, Printer, Layers, Eye, SplitSquareHorizontal, Minus, Plus, Maximize,
-  Square, Circle, Slash,
+  Square, Circle, Slash, Users,
 } from 'lucide-react';
 import { useStore, set, get, activeArtboard, getView } from '../core/store';
 import type { ToolId } from '../core/types';
@@ -173,7 +173,7 @@ export function DocTabs() {
     <div className="tabs">
       {docs.map(d => (
         <div key={d.id} className={'tab' + (d.id === active ? ' active' : '')} onClick={() => set({ activeDocId: d.id })}>
-          {d.dirty && <span className="dot" title="Cambios sin guardar" />}
+          {d.collab ? <span title="Proyecto compartido" style={{ display: 'flex' }}><Users size={11} style={{ color: 'var(--accent)', flex: 'none' }} /></span> : d.dirty && <span className="dot" title="Cambios sin guardar" />}
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</span>
           <span className="tiny muted">{d.colorMode}</span>
           <span className="x" onClick={e => {

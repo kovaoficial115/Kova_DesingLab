@@ -1,3 +1,4 @@
+import { TopbarCollab } from '../collab/ui';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, Home, Download, Undo2, Redo2 } from 'lucide-react';
 import { commands, displayKeys, runCommand } from './commands';
@@ -17,7 +18,7 @@ function panelToggle(id: PanelId): Item {
 }
 
 const menus: { label: string; items: Item[] }[] = [
-  { label: 'Archivo', items: ['file.home', '-', 'file.new', 'file.open', 'file.place', 'file.fonts', '-', 'file.save', 'file.saveAs', 'file.saveLib', 'file.duplicate', '-', 'file.export', 'file.exportPng', '-', 'file.close'] },
+  { label: 'Archivo', items: ['file.home', '-', 'file.new', 'file.open', 'file.place', 'file.fonts', '-', 'file.share', 'file.versions', 'file.profile', '-', 'file.save', 'file.saveAs', 'file.saveLib', 'file.duplicate', '-', 'file.export', 'file.exportPng', '-', 'file.close'] },
   {
     label: 'Edición', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.copyMerged', 'edit.paste', '-', 'edit.fill', 'edit.fillBg', 'edit.delete', '-',
       'edit.transform', { label: 'Transformar', sub: ['edit.flipH', 'edit.flipV', '-', 'edit.rot90', 'edit.rot-90', 'edit.rot180'] }, '-', 'edit.color', 'edit.shortcuts'],
@@ -127,6 +128,8 @@ export function MenuBar() {
       <button className="icon-btn" title="Rehacer" disabled={!doc?.future.length} onClick={() => runCommand('edit.redo')}><Redo2 size={15} /></button>
       <div className="vsep" />
       <button className="icon-btn" title="Menú principal" onClick={() => set({ screen: 'home' })}><Home size={15} /></button>
+      <div className="vsep" />
+      <TopbarCollab />
       <button className="btn primary sm" style={{ marginLeft: 6 }} disabled={!doc} onClick={() => runCommand('file.export')}><Download size={13} /> Exportar</button>
     </div>
   );

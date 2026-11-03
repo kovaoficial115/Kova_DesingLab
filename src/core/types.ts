@@ -135,6 +135,19 @@ export interface Doc {
   fileHandle?: any; // FileSystemFileHandle si se guardó en disco
   dirty: boolean;
   createdAt: number;
+  /** documento compartido en una sala de Liveblocks */
+  collab?: CollabInfo;
+}
+
+export type CollabRole = 'owner' | 'editor' | 'viewer';
+export interface CollabInfo {
+  room: string;
+  role: CollabRole;
+  status: 'connecting' | 'uploading' | 'waiting' | 'ready' | 'error';
+  /** true si este navegador debe subir el documento local a una sala vacía */
+  seed?: boolean;
+  error?: string;
+  progress?: string;
 }
 
 export interface View {

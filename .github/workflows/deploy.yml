@@ -25,6 +25,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # URL pública del servidor de colaboración (variable del repositorio; vacía = sin colaboración)
+          VITE_COLLAB_API: ${{ vars.VITE_COLLAB_API }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

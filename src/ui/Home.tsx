@@ -8,6 +8,7 @@ import { listLibrary, loadFromLibrary, deleteFromLibrary, type ProjectMeta } fro
 import { openFiles, pickFiles, listRecovery, discardAutosave } from '../io/fileOps';
 import { halftone, defaultHalftone } from '../engine/halftone';
 import { openDialog, displayKeys, commands } from './commands';
+import { SharedProjects } from '../collab/SharedProjects';
 
 export const DOC_PRESETS = [
   { id: 'chest', name: 'Pecho estándar', w: 28, h: 35, unit: 'cm', dpi: 300, hint: 'Frontal adulto' },
@@ -136,6 +137,8 @@ export function Home() {
               ))}
             </div>
           )}
+
+          <SharedProjects />
 
           <div className="col" style={{ gap: 8 }}>
             <div className="row"><h2>Proyectos recientes</h2><span className="tiny muted">Biblioteca local de este navegador</span></div>

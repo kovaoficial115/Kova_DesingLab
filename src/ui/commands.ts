@@ -1,5 +1,6 @@
 // Registro central de comandos: lo usan los menús, los atajos de teclado y la barra rápida.
 
+import { collabConfigured } from '../collab/config';
 import { get, set, undo, redo, activeDoc, activeLayer, docState, toast, withBusy, selectedLayers } from '../core/store';
 import * as A from '../core/actions';
 import { setTool, applyCrop, cancelCrop, cropState } from '../tools/tools';
@@ -29,6 +30,9 @@ export const commands: Record<string, Command> = {
   'file.saveAs': { label: 'Guardar como…', keys: 'mod+shift+s', run: () => saveProject(true), enabled: hasDoc },
   'file.saveLib': { label: 'Guardar en biblioteca local', run: () => saveToBrowserLibrary(), enabled: hasDoc },
   'file.fonts': { label: 'Tipografías…', keys: 'mod+alt+t', run: () => openDialog('fonts') },
+  'file.share': { label: 'Compartir y colaborar…', keys: 'mod+alt+s', run: () => import('../collab/rooms').then(m => m.shareActiveDoc()), enabled: () => hasDoc() && collabConfigured },
+  'file.versions': { label: 'Historial de versiones…', run: () => openDialog('collab-versions'), enabled: () => !!activeDoc()?.collab },
+  'file.profile': { label: 'Mi perfil de colaboración…', run: () => openDialog('collab-identity'), enabled: () => collabConfigured },
   'file.export': { label: 'Exportar…', keys: 'mod+e', run: () => openDialog('export'), enabled: hasDoc },
   'file.exportPng': { label: 'Exportación rápida PNG DTF', keys: 'mod+shift+e', run: () => openDialog('export', { quick: 'png' }), enabled: hasDoc },
   'file.duplicate': { label: 'Duplicar documento', run: () => A.duplicateDoc(), enabled: hasDoc },

@@ -165,6 +165,28 @@ export async function withBusy<T>(label: string, fn: () => Promise<T>): Promise<
 const HISTORY_LIMIT = 60;
 const liveBase = new Map<string, { state: DocState; label: string }>();
 
+/** Ganchos de la colaboración: deshacer/rehacer con el historial de Liveblocks (solo los cambios
+ *  propios) y bloqueo de la edición para lectores o salas que aún cargan. */
+export const collabHooks: {
+  undo?: (docId: string) => boolean;
+  redo?: (docId: string) => boolean;
+  blocked?: (docId: string) => string | null;
+} = {};
+let lastBlockToast = 0;
+function isBlocked(docId: string) {
+  const why = collabHooks.blocked?.(docId);
+  if (why && Date.now() - lastBlockToast > 2500) { lastBlockToast = Date.now(); toast(why, 'warn'); }
+  return !!why;
+}
+/** true mientras hay un cambio en vivo (arrastre, trazo) sin consolidar. */
+export function isLive(docId: string) { return liveBase.has(docId); }
+/** Aplica un cambio remoto al estado actual y a la base del cambio en vivo, sin historial. */
+export function patchRemote(docId: string, fn: (s: DocState) => DocState, docFn?: (d: Doc) => Doc) {
+  const base = liveBase.get(docId);
+  if (base) base.state = fn(base.state);
+  patchDoc(docId, d => { const nd = { ...d, state: fn(d.state) }; return docFn ? docFn(nd) : nd; });
+}
+
 function patchDoc(docId: string, fn: (d: Doc) => Doc) {
   set(s => ({ docs: s.docs.map(d => (d.id === docId ? fn(d) : d)) }));
 }
@@ -172,6 +194,7 @@ function patchDoc(docId: string, fn: (d: Doc) => Doc) {
 /** Aplica un cambio registrándolo en el historial. */
 export function commit(label: string, updater: (s: DocState) => DocState, docId = get().activeDocId) {
   if (!docId) return;
+  if (isBlocked(docId)) { cancelLive(docId); return; }
   const base = liveBase.get(docId);
   liveBase.delete(docId);
   patchDoc(docId, d => {
@@ -186,6 +209,7 @@ export function commit(label: string, updater: (s: DocState) => DocState, docId 
 /** Cambio en vivo (p. ej. durante un arrastre); se consolida con finishLive(). */
 export function live(updater: (s: DocState) => DocState, docId = get().activeDocId) {
   if (!docId) return;
+  if (isBlocked(docId)) return;
   const doc = get().docs.find(d => d.id === docId);
   if (!doc) return;
   if (!liveBase.has(docId)) liveBase.set(docId, { state: doc.state, label: doc.lastLabel });
@@ -211,7 +235,9 @@ export function silent(updater: (s: DocState) => DocState, docId = get().activeD
 
 export function undo() {
   const d = activeDoc();
-  if (!d || !d.past.length) return;
+  if (!d) return;
+  if (collabHooks.undo?.(d.id)) return;
+  if (!d.past.length) return;
   const prev = d.past[d.past.length - 1];
   patchDoc(d.id, doc => ({
     ...doc, state: prev.state, past: doc.past.slice(0, -1),
@@ -220,7 +246,9 @@ export function undo() {
 }
 export function redo() {
   const d = activeDoc();
-  if (!d || !d.future.length) return;
+  if (!d) return;
+  if (collabHooks.redo?.(d.id)) return;
+  if (!d.future.length) return;
   const nx = d.future[0];
   patchDoc(d.id, doc => ({
     ...doc, state: nx.state, future: doc.future.slice(1),

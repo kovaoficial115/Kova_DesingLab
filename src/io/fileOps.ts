@@ -140,7 +140,8 @@ const autosave = debounce(async () => {
   if (autosaveRunning) return;
   autosaveRunning = true;
   try {
-    for (const d of get().docs) if (d.dirty) await saveToLibrary(d, 'autosave');
+    // los documentos compartidos se guardan en Liveblocks
+    for (const d of get().docs) if (d.dirty && !d.collab) await saveToLibrary(d, 'autosave');
   } catch (e) { console.warn('Autoguardado falló', e); }
   autosaveRunning = false;
 }, 4000);

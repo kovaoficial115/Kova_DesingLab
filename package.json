@@ -7,12 +7,18 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "collab:dev": "node server/dev.mjs",
+    "liveblocks:dev": "npx --yes liveblocks@1.9.0 dev --no-check",
+    "collab:check-perms": "node scripts/check-permissions.mjs"
   },
   "dependencies": {
     "@imgly/background-removal": "^1.5.5",
+    "@liveblocks/client": "^3.24.5",
+    "@liveblocks/react": "^3.24.5",
     "ag-psd": "^22.0.2",
     "fflate": "^0.8.2",
+    "fractional-indexing": "^3.2.0",
     "imagetracerjs": "^1.2.6",
     "jspdf": "^2.5.2",
     "lcms-wasm": "^1.0.5",
@@ -24,6 +30,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@liveblocks/node": "^3.24.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
