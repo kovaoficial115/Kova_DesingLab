@@ -271,6 +271,7 @@ export class CollabSession {
   private changedSinceVersion = false;
   private versionTimer: any = null;
   private canWrite = false;
+  private accessRetry: ReturnType<typeof setInterval> | undefined;
 
   constructor(docId: string, room: AnyRoom) {
     this.docId = docId;
@@ -332,6 +333,7 @@ export class CollabSession {
     this.disposed = true;
     this.cancelTick();
     clearInterval(this.versionTimer);
+    clearInterval(this.accessRetry);
     if (this.paused) { try { this.room.history.resume(); } catch { /* sala cerrada */ } }
     this.unsubs.forEach(u => u());
     this.unsubs = [];
@@ -658,9 +660,23 @@ export class CollabSession {
     if (event.userId !== me && event.userId !== '*') return;
     try {
       const info = await api.getRoom(this.room.id);
-      this.setCollab({ role: info.role ?? 'viewer' });
-      toast(`Tu rol en «${info.name}» ahora es ${api.roleLabel(info.role)}`, 'info');
+      const role = info.role ?? 'viewer';
+      this.setCollab({ role });
+      const writer = role !== 'viewer';
+      toast(writer && !this.room.getSelf()?.canWrite
+        ? `Ahora eres ${api.roleLabel(role)} en «${info.name}». La edición se activa en menos de un minuto.`
+        : `Tu rol en «${info.name}» ahora es ${api.roleLabel(role)}`, 'info', 5000);
       this.room.reconnect();
+      // Liveblocks tarda hasta ~1 min en aplicar un cambio de permisos en sus servidores:
+      // al ascender, se reintenta la conexión hasta recibir el permiso de escritura.
+      clearInterval(this.accessRetry);
+      if (writer) {
+        let tries = 0;
+        this.accessRetry = setInterval(() => {
+          if (this.disposed || this.doc()?.collab?.role === 'viewer' || this.room.getSelf()?.canWrite || ++tries > 9) { clearInterval(this.accessRetry); return; }
+          this.room.reconnect();
+        }, 10_000);
+      }
     } catch (e: any) {
       if (e?.status === 403 || e?.status === 404) this.lostAccess();
     }

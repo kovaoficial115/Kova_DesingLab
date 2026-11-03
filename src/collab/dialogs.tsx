@@ -178,6 +178,9 @@ export function ShareDialog({ doc, onClose }: { doc: Doc; onClose: () => void })
               ) : <span className="tiny muted" style={{ width: 100, textAlign: 'right' }}>{api.roleLabel(m.role)}</span>}
             </div>
           ))}
+          {isOwner && members && members.length > 1 && (
+            <span className="tiny muted">Los cambios de rol se aplican al momento en la app, pero Liveblocks puede tardar hasta un minuto en aplicarlos en su servidor.</span>
+          )}
         </div>
 
         <div className="row" style={{ gap: 6 }}>
