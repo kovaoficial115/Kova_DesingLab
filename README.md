@@ -86,7 +86,7 @@ El servidor vive en un proyecto de Supabase propio, **kova-designlab** (`ljwjjhi
 
 Variables del servidor: `LIVEBLOCKS_SECRET_KEY` (obligatoria), `KOVA_COLLAB_SECRET` (opcional), `ALLOWED_ORIGINS` (opcional, orígenes separados por comas) y `LIVEBLOCKS_BASE_URL` (solo para el servidor local).
 
-El proyecto gratuito de Supabase se pausa tras una semana sin uso; si pasa, la colaboración deja de responder hasta reactivarlo desde el panel (la app y el catálogo no se ven afectados).
+El proyecto gratuito de Supabase se pausa tras una semana sin uso. Para evitarlo, `.github/workflows/keep-alive.yml` hace cada 3 días una consulta mínima (`public.ping()`) y comprueba `kova-collab`; se puede lanzar a mano en **Actions → Mantener activo Supabase → Run workflow**. GitHub desactiva las tareas programadas de un repositorio público tras 60 días sin commits: si eso pasa, te avisa por correo y basta con volver a activarla en Actions. Si aun así se pausa, la colaboración deja de responder hasta reactivarlo desde el panel (la app y el catálogo no se ven afectados).
 
 ### Limitaciones de la colaboración
 
