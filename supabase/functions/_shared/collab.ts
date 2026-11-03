@@ -18,7 +18,7 @@
 //
 // Variables de entorno:
 //  LIVEBLOCKS_SECRET_KEY  clave secreta (sk_…) del proyecto de Liveblocks          (obligatoria)
-//  KOVA_COLLAB_SECRET     secreto aleatorio de 32+ caracteres para firmar tokens       (obligatoria)
+//  KOVA_COLLAB_SECRET     secreto de 32+ caracteres para firmar tokens (si falta, se deriva de la anterior)
 //  ALLOWED_ORIGINS        orígenes permitidos separados por comas (* = cualquiera)    (opcional)
 //  LIVEBLOCKS_BASE_URL    solo para el servidor local de Liveblocks (liveblocks dev)  (opcional)
 
@@ -60,6 +60,17 @@ function hmacKey(secret: string) {
   let k = keyCache.get(secret);
   if (!k) { k = crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']); keyCache.set(secret, k); }
   return k;
+}
+const derived = new Map<string, Promise<string>>();
+function deriveSecret(lbSecret: string) {
+  let p = derived.get(lbSecret);
+  if (!p) {
+    p = crypto.subtle.importKey('raw', enc.encode(lbSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+      .then(k => crypto.subtle.sign('HMAC', k, enc.encode('kova-collab/token-signing/v1')))
+      .then(b => 'kova-derived:' + [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join(''));
+    derived.set(lbSecret, p);
+  }
+  return p;
 }
 async function signToken(payload: Record<string, unknown>, secret: string) {
   const body = b64url(enc.encode(JSON.stringify(payload)));
@@ -162,9 +173,14 @@ export async function handle(req: Request, env: EnvGetter): Promise<Response> {
   if (origin && !allowOrigin) return json({ error: 'Origen no permitido' }, 403);
 
   const secret = env('LIVEBLOCKS_SECRET_KEY');
-  const appSecret = env('KOVA_COLLAB_SECRET');
-  if (!secret || !appSecret || appSecret.length < 32) return json({ error: 'El servidor de colaboración no está configurado (faltan LIVEBLOCKS_SECRET_KEY o KOVA_COLLAB_SECRET).' }, 503);
+  if (!secret) return json({ error: 'El servidor de colaboración no está configurado (falta LIVEBLOCKS_SECRET_KEY).' }, 503);
   if (secret.startsWith('pk_')) return json({ error: 'LIVEBLOCKS_SECRET_KEY debe ser la clave secreta (sk_…), no la pública.' }, 503);
+  // Clave para firmar identidades e invitaciones: KOVA_COLLAB_SECRET si existe; si no, se deriva
+  // de la clave secreta de Liveblocks (HMAC con una etiqueta fija), así basta con un solo secreto.
+  // Cambiar cualquiera de las dos invalida las identidades y los enlaces de invitación emitidos.
+  const own = env('KOVA_COLLAB_SECRET');
+  if (own && own.length < 32) return json({ error: 'KOVA_COLLAB_SECRET debe tener al menos 32 caracteres.' }, 503);
+  const appSecret = own || await deriveSecret(secret);
   const baseUrl = env('LIVEBLOCKS_BASE_URL') || undefined;
   const lb = new Liveblocks({ secret, ...(baseUrl ? { baseUrl } : {}) });
 

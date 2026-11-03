@@ -65,27 +65,28 @@ Para simular varias personas abre la app en orígenes distintos (cada uno tiene 
 
 ### Puesta en producción
 
-1. **Liveblocks:** crea una cuenta en <https://liveblocks.io>, crea un proyecto y en **API keys** copia la **Secret key** (`sk_prod_…`). La clave pública no se usa: la app se autentica con ID tokens emitidos por el servidor. La clave secreta solo va al servidor; nunca al frontend ni al repositorio.
-2. **Secreto propio** para firmar identidades e invitaciones (32 caracteres o más):
+El servidor vive en un proyecto de Supabase propio, **kova-designlab** (`ljwjjhiurgesowiwonyt`), separado del catálogo (`kova-catalogo`): no comparten base de datos, funciones, secretos ni cuotas. La colaboración no usa la base de datos; todo lo guarda Liveblocks.
+
+1. **Liveblocks:** en el proyecto *kova_desingLab* de <https://liveblocks.io/dashboard>, abre **API keys** y copia la **Secret key** (`sk_…`). La clave pública no se usa: la app se autentica con ID tokens emitidos por el servidor. La clave secreta solo va al servidor; nunca al frontend ni al repositorio.
+2. **Secreto en Supabase:** en el panel del proyecto kova-designlab, **Edge Functions → Secrets → Add new secret**: nombre `LIVEBLOCKS_SECRET_KEY`, valor la clave del paso 1. Es el único secreto obligatorio: la clave para firmar identidades e invitaciones se deriva de ella (o define `KOVA_COLLAB_SECRET`, 32+ caracteres, para usar una propia). Con la CLI:
    ```bash
-   openssl rand -base64 48
+   supabase secrets set LIVEBLOCKS_SECRET_KEY=sk_xxx --project-ref ljwjjhiurgesowiwonyt
    ```
-3. **Servidor en Supabase** (proyecto `vfdpkmqncbhrauqtrnay`), con la [CLI de Supabase](https://supabase.com/docs/guides/cli):
+3. **Función** (ya desplegada; para volver a desplegar tras cambiar el código):
    ```bash
-   supabase login
-   supabase link --project-ref vfdpkmqncbhrauqtrnay
-   supabase secrets set LIVEBLOCKS_SECRET_KEY=sk_prod_xxx KOVA_COLLAB_SECRET=xxx ALLOWED_ORIGINS=https://kovaoficial115.github.io
-   supabase functions deploy kova-collab --no-verify-jwt
-   curl https://vfdpkmqncbhrauqtrnay.supabase.co/functions/v1/kova-collab/   # → {"ok":true,"service":"kova-collab"}
+   supabase functions deploy kova-collab --no-verify-jwt --project-ref ljwjjhiurgesowiwonyt
+   curl https://ljwjjhiurgesowiwonyt.supabase.co/functions/v1/kova-collab/   # → {"ok":true,"service":"kova-collab"}
    ```
-   `--no-verify-jwt` es necesario porque la función usa sus propios tokens, no los de Supabase Auth.
+   `--no-verify-jwt` es necesario porque la función usa sus propios tokens, no los de Supabase Auth. Por defecto solo acepta peticiones desde `https://kovaoficial115.github.io` (cámbialo con `ALLOWED_ORIGINS`).
 4. **Comprobar los permisos en el servidor de Liveblocks** (crea una sala temporal, intenta escribir como lector saltándose el SDK y la borra):
    ```bash
-   COLLAB_API=https://vfdpkmqncbhrauqtrnay.supabase.co/functions/v1/kova-collab npm run collab:check-perms
+   COLLAB_API=https://ljwjjhiurgesowiwonyt.supabase.co/functions/v1/kova-collab npm run collab:check-perms
    ```
-5. **GitHub Pages:** en el repositorio, **Settings → Secrets and variables → Actions → Variables → New repository variable**: `VITE_COLLAB_API` = `https://vfdpkmqncbhrauqtrnay.supabase.co/functions/v1/kova-collab`. Vuelve a ejecutar el flujo *Publicar en GitHub Pages*. Sin esta variable la app funciona igual pero sin el botón *Compartir*.
+5. **GitHub Pages:** variable de repositorio `VITE_COLLAB_API` = `https://ljwjjhiurgesowiwonyt.supabase.co/functions/v1/kova-collab` (**Settings → Secrets and variables → Actions → Variables**) y volver a ejecutar *Publicar en GitHub Pages*. Sin esta variable la app funciona igual pero sin el botón *Compartir*.
 
-Variables del servidor: `LIVEBLOCKS_SECRET_KEY` (obligatoria), `KOVA_COLLAB_SECRET` (obligatoria), `ALLOWED_ORIGINS` (orígenes permitidos separados por comas) y `LIVEBLOCKS_BASE_URL` (solo para el servidor local).
+Variables del servidor: `LIVEBLOCKS_SECRET_KEY` (obligatoria), `KOVA_COLLAB_SECRET` (opcional), `ALLOWED_ORIGINS` (opcional, orígenes separados por comas) y `LIVEBLOCKS_BASE_URL` (solo para el servidor local).
+
+El proyecto gratuito de Supabase se pausa tras una semana sin uso; si pasa, la colaboración deja de responder hasta reactivarlo desde el panel (la app y el catálogo no se ven afectados).
 
 ### Limitaciones de la colaboración
 

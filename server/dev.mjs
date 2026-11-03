@@ -2,7 +2,7 @@
 //
 //   npm run collab:dev        → servidor de Liveblocks local + este servidor en http://localhost:8787
 //
-// Variables: LIVEBLOCKS_SECRET_KEY, KOVA_COLLAB_SECRET, LIVEBLOCKS_BASE_URL, ALLOWED_ORIGINS, PORT.
+// Variables: LIVEBLOCKS_SECRET_KEY, KOVA_COLLAB_SECRET (opcional), LIVEBLOCKS_BASE_URL, ALLOWED_ORIGINS, PORT.
 // Sin variables usa el servidor local de Liveblocks (`liveblocks dev`, clave sk_localdev).
 import http from 'node:http';
 import { handle } from '../supabase/functions/_shared/collab.ts';
