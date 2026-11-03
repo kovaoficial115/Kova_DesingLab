@@ -82,7 +82,7 @@ El servidor vive en un proyecto de Supabase propio, **kova-designlab** (`ljwjjhi
    ```bash
    COLLAB_API=https://ljwjjhiurgesowiwonyt.supabase.co/functions/v1/kova-collab npm run collab:check-perms
    ```
-5. **GitHub Pages:** variable de repositorio `VITE_COLLAB_API` = `https://ljwjjhiurgesowiwonyt.supabase.co/functions/v1/kova-collab` (**Settings → Secrets and variables → Actions → Variables**) y volver a ejecutar *Publicar en GitHub Pages*. Sin esta variable la app funciona igual pero sin el botón *Compartir*.
+5. **GitHub Pages:** la URL del servidor está en `.env.production` (`VITE_COLLAB_API`; es pública, no es un secreto) y se incluye al compilar en cada `push` a `main`. Si se borra, la app funciona igual pero sin el botón *Compartir*.
 
 Variables del servidor: `LIVEBLOCKS_SECRET_KEY` (obligatoria), `KOVA_COLLAB_SECRET` (opcional), `ALLOWED_ORIGINS` (opcional, orígenes separados por comas) y `LIVEBLOCKS_BASE_URL` (solo para el servidor local).
 
@@ -100,7 +100,7 @@ El proyecto gratuito de Supabase se pausa tras una semana sin uso; si pasa, la c
 
 ## Publicación
 
-Cada `push` a `main` compila y publica el sitio en GitHub Pages mediante `.github/workflows/deploy.yml` (con la variable `VITE_COLLAB_API` si está definida). Para activarlo, en el repositorio: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+Cada `push` a `main` compila y publica el sitio en GitHub Pages mediante `.github/workflows/deploy.yml`. Para activarlo, en el repositorio: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
 ## Arquitectura
 
