@@ -183,15 +183,6 @@ export function rgbToHex(r: number, g: number, b: number) {
   return '#' + [r, g, b].map(v => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join('');
 }
 
-export function downloadBlob(blob: Blob, filename: string) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-}
 
 export function debounce<T extends (...a: any[]) => void>(fn: T, ms: number) {
   let t: any;

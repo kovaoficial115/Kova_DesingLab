@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Shirt, Plus, Trash2, Download, ImagePlus, FilePlus2 } from 'lucide-react';
 import { Modal, Slider, Seg, Check, ColorInput, Select, NumberField } from '../components/controls';
 import { activeDoc, useStore, withBusy, toast } from '../../core/store';
-import { createCanvas, ctx2d, getImageData, canvasToBlob, downloadBlob, trimCanvas, uid, blobToCanvas, clamp } from '../../core/util';
+import { createCanvas, ctx2d, getImageData, canvasToBlob, trimCanvas, uid, blobToCanvas, clamp } from '../../core/util';
+import { platform } from '../../platform';
 import { pickFiles } from '../../io/fileOps';
 import { sourceFromArtboard, sourcesFromFile, type DesignSource } from '../../io/sources';
 import { newDocFromCanvas } from '../../core/actions';
@@ -242,7 +243,7 @@ export function MockupDialog({ onClose }: { onClose: () => void }) {
   };
 
   const exportPng = () => withBusy('Exportando mockup…', async () => {
-    downloadBlob(await canvasToBlob(composition(false), 'image/png'), `${activeDoc()?.name ?? 'kova'}-mockup.png`);
+    await platform.saveFile(await canvasToBlob(composition(false), 'image/png'), { suggestedName: `${activeDoc()?.name ?? 'kova'}-mockup.png` });
   });
   const openAsDoc = () => withBusy('Creando documento…', async () => { await newDocFromCanvas(composition(false), 'Mockup', 150); onClose(); });
   const ph = photos[side];

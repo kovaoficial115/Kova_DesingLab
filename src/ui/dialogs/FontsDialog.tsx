@@ -9,6 +9,7 @@ import {
   type CatalogFont, type FontMeta,
 } from '../../io/fonts';
 import { pickFiles } from '../../io/fileOps';
+import { platform } from '../../platform';
 
 const SOURCE_LABEL: Record<FontMeta['source'], string> = { upload: 'Subida', google: 'Google Fonts', fontsource: 'Fontsource', project: 'De un proyecto' };
 const CATEGORIES = [
@@ -38,7 +39,7 @@ function DropZone({ hint }: { hint: string }) {
     <div className={'font-drop' + (over ? ' over' : '')}
       onDragOver={e => { e.preventDefault(); e.stopPropagation(); setOver(true); }}
       onDragLeave={() => setOver(false)}
-      onDrop={e => { e.preventDefault(); e.stopPropagation(); setOver(false); run(Array.from(e.dataTransfer.files)); }}>
+      onDrop={e => { e.preventDefault(); e.stopPropagation(); setOver(false); run(platform.droppedFiles(e.dataTransfer)); }}>
       <Upload size={18} />
       <div className="small" style={{ fontWeight: 600 }}>Suelta aquí tus fuentes</div>
       <div className="tiny muted">{hint}</div>

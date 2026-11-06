@@ -3,7 +3,8 @@ import { ScanLine, Download } from 'lucide-react';
 import { Modal, Slider, Seg, Check, ColorInput } from '../components/controls';
 import { activeLayer, withBusy, toast, commit } from '../../core/store';
 import { bakedLayerCanvas } from '../../core/render';
-import { cloneCanvas, getImageData, layerSize, downloadBlob, hexToRgb, uid } from '../../core/util';
+import { cloneCanvas, getImageData, layerSize, hexToRgb, uid } from '../../core/util';
+import { platform } from '../../platform';
 import { runOp } from '../../engine/workerClient';
 import type { Layer } from '../../core/types';
 
@@ -139,7 +140,7 @@ export function VectorizeDialog({ onClose }: { onClose: () => void }) {
         {stats && <span className="tiny muted">{stats.paths} trazados · ~{stats.nodes} nodos · {stats.kb.toFixed(0)} KB</span>}
         <div className="spacer" />
         <Check checked={hideSource} onChange={setHideSource} label="Ocultar la capa original" />
-        <button className="btn" disabled={!svg} onClick={() => downloadBlob(new Blob([finalSvg()], { type: 'image/svg+xml' }), `${layer.name}.svg`)}><Download size={13} />Descargar SVG</button>
+        <button className="btn" disabled={!svg} onClick={() => platform.saveFile(new Blob([finalSvg()], { type: 'image/svg+xml' }), { suggestedName: `${layer.name}.svg` })}><Download size={13} />Descargar SVG</button>
         <button className="btn" onClick={onClose}>Cancelar</button>
         <button className="btn primary" disabled={!svg} onClick={apply}>Crear capa vectorial</button>
       </>}>

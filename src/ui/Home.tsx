@@ -10,6 +10,7 @@ import { halftone, defaultHalftone } from '../engine/halftone';
 import { openDialog, displayKeys, commands } from './commands';
 import { SharedProjects } from '../collab/SharedProjects';
 import { KOVA } from './theme';
+import { platform } from '../platform';
 
 export const DOC_PRESETS = [
   { id: 'chest', name: 'Pecho estándar', w: 28, h: 35, unit: 'cm', dpi: 300, hint: 'Frontal adulto' },
@@ -85,7 +86,7 @@ export function Home() {
   return (
     <div className="home"
       onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
-      onDrop={e => { e.preventDefault(); setOver(false); openFiles(Array.from(e.dataTransfer.files)); }}>
+      onDrop={e => { e.preventDefault(); setOver(false); openFiles(platform.droppedFiles(e.dataTransfer)); }}>
       <div className="home-shell">
         <div className="home-left">
           <div className="home-brand" style={{ flexWrap: 'wrap' }}>

@@ -2,7 +2,8 @@
 // guardado automático y recuperación ante cierres inesperados.
 
 import type { Doc, DocState, Layer } from '../core/types';
-import { canvasToBlob, blobToCanvas, uid, createCanvas, ctx2d, downloadBlob } from '../core/util';
+import { canvasToBlob, blobToCanvas, uid, createCanvas, ctx2d } from '../core/util';
+import { platform, type SaveTarget } from '../platform';
 import { renderArtboard } from '../core/render';
 import { embedFonts, installEmbedded } from './fonts';
 
@@ -119,21 +120,14 @@ export async function deleteFromLibrary(id: string, store: 'projects' | 'autosav
 }
 
 // ---------- archivo en disco ----------
-export async function saveProjectFile(doc: Doc, saveAs = false): Promise<any> {
+/** Guarda el .kova. Devuelve el destino (para el próximo «Guardar»), null si se canceló
+ *  o undefined si se entregó como descarga. */
+export async function saveProjectFile(doc: Doc, saveAs = false): Promise<SaveTarget | null | undefined> {
   const json = await serializeDoc(doc);
   const blob = new Blob([json], { type: 'application/json' });
-  const name = `${doc.name}.kova`;
-  if ('showSaveFilePicker' in window) {
-    try {
-      let handle = !saveAs ? doc.fileHandle : null;
-      if (!handle) handle = await (window as any).showSaveFilePicker({ suggestedName: name, types: [{ description: 'Proyecto Kova', accept: { 'application/json': ['.kova'] } }] });
-      const w = await handle.createWritable();
-      await w.write(blob); await w.close();
-      return handle;
-    } catch (e: any) {
-      if (e?.name === 'AbortError') return null;
-    }
-  }
-  downloadBlob(blob, name);
-  return undefined;
+  const r = await platform.saveFile(blob, {
+    suggestedName: `${doc.name}.kova`, pick: true, target: saveAs ? null : doc.fileHandle,
+    filters: [{ name: 'Proyecto Kova', extensions: ['kova'], mime: 'application/json' }],
+  });
+  return r.status === 'saved' ? r.target : r.status === 'cancelled' ? null : undefined;
 }

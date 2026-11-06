@@ -1,4 +1,5 @@
 import { StageSlot } from '../collab/ui';
+import { platform } from '../platform';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore, get, set, getView, setView, activeLayer, live, finishLive, cancelLive } from '../core/store';
 import type { Doc, Layer, Selection } from '../core/types';
@@ -562,7 +563,7 @@ export function Viewport({ doc }: { doc: Doc }) {
         onDragLeave={() => setDragOver(false)}
         onDrop={e => {
           e.preventDefault(); setDragOver(false);
-          const files = Array.from(e.dataTransfer.files);
+          const files = platform.droppedFiles(e.dataTransfer);
           if (!files.length) return;
           const ev = toEvent(e as any);
           placeFiles(files, { x: ev.wx, y: ev.wy });

@@ -6,14 +6,11 @@ import { activeDoc, activeArtboard, get, set, toast, withBusy } from '../core/st
 import { newArtboard } from '../core/doc';
 import type { Doc, Layer } from '../core/types';
 import { debounce } from '../core/util';
+import { platform } from '../platform';
 
+/** Pide archivos al usuario (por defecto, todo lo que la app sabe abrir). */
 export function pickFiles(multiple = true, accept = ACCEPT): Promise<File[]> {
-  return new Promise(res => {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = accept; inp.multiple = multiple;
-    inp.onchange = () => res(Array.from(inp.files || []));
-    inp.click();
-  });
+  return platform.openFiles({ multiple, accept });
 }
 
 function docFromImport(r: ImportResult): Doc | null {

@@ -1,3 +1,5 @@
+import type { SaveTarget } from '../platform';
+
 // Modelo de datos del documento. Los bitmaps (HTMLCanvasElement) se tratan como
 // inmutables: cualquier edición de píxeles crea un canvas nuevo (copy-on-write),
 // lo que permite que el historial comparta referencias sin copiar memoria.
@@ -132,7 +134,8 @@ export interface Doc {
   past: HistoryEntry[];
   future: HistoryEntry[];
   lastLabel: string;
-  fileHandle?: any; // FileSystemFileHandle si se guardó en disco
+  /** destino de «Guardar» en disco (Platform Adapter) */
+  fileHandle?: SaveTarget;
   dirty: boolean;
   createdAt: number;
   /** documento compartido en una sala de Liveblocks */

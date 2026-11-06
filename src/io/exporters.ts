@@ -1,7 +1,8 @@
 // Exportación real por formato: cada uno con sus características (alfa, DPI, CMYK, capas, vectores).
 
 import type { Artboard, DocState, Layer } from '../core/types';
-import { canvasToBlob, ctx2d, layerMatrix, layerSize, createCanvas, getImageData, downloadBlob } from '../core/util';
+import { canvasToBlob, ctx2d, layerMatrix, layerSize, createCanvas, getImageData } from '../core/util';
+import { platform } from '../platform';
 import { renderArtboard, processedContent, ensureProcessed, renderLayerAlone } from '../core/render';
 import { childrenOf } from '../core/doc';
 import { pngSetDpi, jpegSetDpi, encodeTiff, encodeBmp } from './binary';
@@ -102,16 +103,9 @@ export async function exportAndDownload(state: DocState, abs: Artboard[], o: Exp
     const blob = await exportArtboard(state, ab, o);
     const suffix = abs.length > 1 ? `-${ab.name.replace(/[^\w-]+/g, '_')}` : '';
     const name = `${o.filename}${suffix}.${formatInfo[o.format].ext}`;
-    // Guardar con selector nativo si está disponible y es una sola mesa
-    if (abs.length === 1 && 'showSaveFilePicker' in window) {
-      try {
-        const h = await (window as any).showSaveFilePicker({ suggestedName: name });
-        const w = await h.createWritable();
-        await w.write(blob); await w.close();
-        continue;
-      } catch (e: any) { if (e?.name === 'AbortError') return false; }
-    }
-    downloadBlob(blob, name);
+    // con una sola mesa se ofrece elegir la ubicación; con varias, se descargan todas
+    const r = await platform.saveFile(blob, { suggestedName: name, pick: abs.length === 1 });
+    if (r.status === 'cancelled') return false;
   }
   return true;
 }

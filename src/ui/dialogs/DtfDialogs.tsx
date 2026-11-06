@@ -3,7 +3,8 @@ import { Layers, Printer, CheckCircle2, AlertTriangle, XCircle, Info, Download, 
 import { Modal, Slider, Seg, Check, ColorInput, CanvasPreview, Select } from '../components/controls';
 import { activeDoc, activeArtboard, docState, withBusy, toast, commit, set, activeLayer } from '../../core/store';
 import { renderArtboard } from '../../core/render';
-import { getImageData, canvasFromImageData, hexToRgb, layerBounds, createCanvas, ctx2d, downloadBlob, canvasToBlob, cloneCanvas, layerSize } from '../../core/util';
+import { getImageData, canvasFromImageData, hexToRgb, layerBounds, createCanvas, ctx2d, canvasToBlob, cloneCanvas, layerSize } from '../../core/util';
+import { platform } from '../../platform';
 import { runOp } from '../../engine/workerClient';
 import { rasterLayer, isEffectivelyVisible } from '../../core/doc';
 import { rgbaToCmyk, tacReport, cmsState, hasIcc } from '../../engine/cms';
@@ -71,7 +72,7 @@ export function UnderbaseDialog({ onClose }: { onClose: () => void }) {
     let base = await full();
     if (asBlack) { const g = ctx2d(base); g.globalCompositeOperation = 'source-in'; g.fillStyle = '#000'; g.fillRect(0, 0, base.width, base.height); }
     const blob = await canvasToBlob(base, 'image/png');
-    downloadBlob(new Blob([pngSetDpi(new Uint8Array(await blob.arrayBuffer()), ab.dpi)], { type: 'image/png' }), `${activeDoc()!.name}-base-blanca.png`);
+    await platform.saveFile(new Blob([pngSetDpi(new Uint8Array(await blob.arrayBuffer()), ab.dpi)], { type: 'image/png' }), { suggestedName: `${activeDoc()!.name}-base-blanca.png` });
   });
   const knockDesign = () => withBusy('Aplicando knockout…', async () => {
     const l = activeLayer();
@@ -157,10 +158,10 @@ export function SeparationsDialog({ onClose }: { onClose: () => void }) {
         rgba.data[j * 4] = rgba.data[j * 4 + 1] = rgba.data[j * 4 + 2] = g; rgba.data[j * 4 + 3] = 255;
       }
       const base = `${activeDoc()!.name}-${names[ci]}`;
-      if (fmt === 'tiff') downloadBlob(new Blob([encodeTiff(gray, canvas.width, canvas.height, 'rgb', ab.dpi)], { type: 'image/tiff' }), `${base}.tif`);
+      if (fmt === 'tiff') await platform.saveFile(new Blob([encodeTiff(gray, canvas.width, canvas.height, 'rgb', ab.dpi)], { type: 'image/tiff' }), { suggestedName: `${base}.tif` });
       else {
         const blob = await canvasToBlob(canvasFromImageData(rgba), 'image/png');
-        downloadBlob(new Blob([pngSetDpi(new Uint8Array(await blob.arrayBuffer()), ab.dpi)], { type: 'image/png' }), `${base}.png`);
+        await platform.saveFile(new Blob([pngSetDpi(new Uint8Array(await blob.arrayBuffer()), ab.dpi)], { type: 'image/png' }), { suggestedName: `${base}.png` });
       }
       await new Promise(r => setTimeout(r, 250));
     }
