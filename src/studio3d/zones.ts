@@ -42,7 +42,25 @@ const HOODIE: Defaults = {
   sleeveLeft: { view: 'front', centerCm: [38, 33], sizeCm: [10, 8] },
   sleeveRight: { view: 'front', centerCm: [-38, 33], sizeCm: [10, 8] },
 };
-const BY_CATEGORY: Partial<Record<GarmentConfig['category'], Defaults>> = { hoodie: HOODIE };
+// camiseta deportiva: dorsal grande en la espalda (nombre y número)
+const SPORT: Defaults = {
+  ...TSHIRT,
+  front: { view: 'front', centerCm: [0, 30], sizeCm: [28, 30] },
+  back: { view: 'back', centerCm: [0, 30], sizeCm: [32, 42] },
+};
+// crop: el cuerpo es más corto, las áreas también
+const CROP: Defaults = {
+  ...TSHIRT,
+  front: { view: 'front', centerCm: [0, 25], sizeCm: [26, 18] },
+  back: { view: 'back', centerCm: [0, 23], sizeCm: [28, 20] },
+};
+// manga larga: el estampado de manga corre a lo largo del brazo
+const LONGSLEEVE: Defaults = {
+  ...TSHIRT,
+  sleeveLeft: { view: 'right', centerCm: [0, 38], sizeCm: [8, 34] },
+  sleeveRight: { view: 'left', centerCm: [0, 38], sizeCm: [8, 34] },
+};
+const BY_CATEGORY: Partial<Record<GarmentConfig['category'], Defaults>> = { hoodie: HOODIE, sport: SPORT, crop: CROP, longsleeve: LONGSLEEVE };
 
 export function zoneDefs(cfg: GarmentConfig): ZoneDef[] {
   const d = BY_CATEGORY[cfg.category] ?? TSHIRT;

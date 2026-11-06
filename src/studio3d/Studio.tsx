@@ -2,15 +2,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Home as HomeIcon, Plus, Trash2, Box, Loader2, Crosshair, ExternalLink } from 'lucide-react';
 import { useStore, set, get, toast } from '../core/store';
 import { KovaK, BrandIcon } from '../ui/components/Brand';
-import { Seg, ColorInput, Select, Slider } from '../ui/components/controls';
+import { Seg, ColorInput, Select, Slider, Check } from '../ui/components/controls';
 import { GarmentViewer, VIEW_LABELS, LIGHT_LABELS, type ViewPreset, type LightPreset } from './viewer';
-import { listGarments, removeGarment, garmentModel, type GarmentEntry } from './garments';
+import { listGarments, removeGarment, garmentModel, updateGarmentConfig, type GarmentEntry } from './garments';
 import { ImportGarmentDialog } from './ImportGarmentDialog';
 import { GARMENT3D_SCHEMA, type Garment3DData, type PrintZoneId, type ZonePrint } from '../core/garment3d';
 import type { Doc } from '../core/types';
 import { renderArtboard } from '../core/render';
 import { zoneDefs, ZONE_LABELS, type ZoneDef } from './zones';
 import { inkBox, type PreparedPrint, type PrintResult } from './prints';
+import { FABRICS, FINISHES, SWATCHES, defaultFabric, isPreset, isFinish, type FabricSettings, type FabricPreset, type FabricFinish } from './fabric';
+import { fabricOf } from './config';
 
 // preferencias del estudio (solo interfaz): LocalStorage
 const PREFS = 'kova.studio';
@@ -40,6 +42,15 @@ async function renderArt(state: Doc['state'], ab: Doc['state']['artboards'][numb
   return { image, ink };
 }
 
+/** Tela guardada en el documento → ajustes del visor. */
+const fabricFromDoc = (g: Garment3DData): FabricSettings => ({
+  color: g.color,
+  preset: isPreset(g.material.preset) ? g.material.preset : 'cotton',
+  roughness: g.material.roughness,
+  normalScale: g.material.normalScale,
+  finish: isFinish(g.material.finish) ? g.material.finish : 'plain',
+});
+
 const CAT: Record<string, string> = { tshirt: 'Camiseta', hoodie: 'Hoodie', sport: 'Deportiva', crop: 'Crop', longsleeve: 'Manga larga', other: 'Prenda' };
 
 /** Estudio 3D: biblioteca de prendas, visor y escena. El arte sigue saliendo del editor 2D. */
@@ -58,6 +69,8 @@ export function Studio() {
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [results, setResults] = useState<Partial<Record<PrintZoneId, PrintResult>>>({});
   const [activeZone, setActiveZone] = useState<PrintZoneId>('front');
+  // tela cuando no hay documento abierto (con documento se guarda en su .kova)
+  const [localFabric, setLocalFabric] = useState<FabricSettings | null>(null);
   // arte renderizado por mesa de trabajo; se invalida cuando cambia el documento
   const artCache = useRef<{ state: unknown; map: Map<string, Promise<Art>> }>({ state: null, map: new Map() });
   const setPrefs = (p: Partial<StudioPrefs>) => setPrefsState(prev => { const n = { ...prev, ...p }; savePrefs(n); return n; });
@@ -105,14 +118,17 @@ export function Studio() {
   };
 
   /** Sección garment3d del documento para la prenda `g` (conserva lo que ya tuviera). */
-  const garmentData = (g: GarmentEntry, d: Doc): Garment3DData => ({
+  const garmentData = (g: GarmentEntry, d: Doc): Garment3DData => {
+    const f = defaultFabric(fabricOf(g.config));
+    return {
     schema: GARMENT3D_SCHEMA,
     model: { source: 'asset', hash: g.modelHash, name: g.config.name, config: g.config as unknown as Record<string, unknown> },
-    color: d.garment3d?.color ?? '#f0e7de',
-    material: d.garment3d?.material ?? { preset: 'cotton', roughness: 0.85, normalScale: 1 },
+    color: d.garment3d?.color ?? localFabric?.color ?? f.color,
+    material: d.garment3d?.material ?? (localFabric ? { preset: localFabric.preset, roughness: localFabric.roughness, normalScale: localFabric.normalScale, finish: localFabric.finish } : { preset: f.preset, roughness: f.roughness, normalScale: f.normalScale, finish: f.finish }),
     zones: d.garment3d?.zones ?? {},
     lighting: { preset: prefs.light, background: prefs.bg },
-  });
+    };
+  };
 
   /** Guarda en el documento activo qué prenda usa (sección garment3d del .kova). */
   const linkToDoc = (g: GarmentEntry) => {
@@ -133,6 +149,27 @@ export function Studio() {
         if (patch === null) delete zones[z];
         else zones[z] = { ...(zones[z] ?? { artboardId: null, x: 0.5, y: 0.5, scale: 1, rotation: 0 }), ...patch };
         return { ...d, dirty: true, garment3d: { ...g3, zones } };
+      }),
+    }));
+  };
+
+  // tela visible: la del documento, la elegida sin documento o la habitual de la prenda
+  const fabric: FabricSettings | null = doc?.garment3d ? fabricFromDoc(doc.garment3d) : localFabric ?? (current ? defaultFabric(fabricOf(current.config)) : null);
+  const fabricKey = fabric ? JSON.stringify(fabric) : '';
+  useEffect(() => { if (fabric && loadedId) viewer.current?.setFabric(fabric); }, [fabricKey, loadedId]);
+
+  /** Cambia la tela: en el documento activo si lo hay; si no, solo en el estudio. */
+  // siempre sobre el estado más reciente: dos cambios seguidos no deben pisarse
+  const updateFabric = (patch: Partial<FabricSettings>) => {
+    const id = get().activeDocId, g = current;
+    if (!g) return;
+    if (!id) { setLocalFabric(prev => ({ ...(prev ?? defaultFabric(fabricOf(g.config))), ...patch })); return; }
+    set(s => ({
+      docs: s.docs.map(d => {
+        if (d.id !== id) return d;
+        const g3 = d.garment3d ?? garmentData(g, d);
+        const next = { ...fabricFromDoc(g3), ...patch };
+        return { ...d, dirty: true, garment3d: { ...g3, color: next.color, material: { preset: next.preset, roughness: next.roughness, normalScale: next.normalScale, finish: next.finish } } };
       }),
     }));
   };
@@ -256,7 +293,32 @@ export function Studio() {
                 {lic && <div className="tiny muted">{lic.name}{lic.author ? ` · ${lic.author}` : ''}</div>}
                 {lic?.source && <a className="tiny" href={lic.source} target="_blank" rel="noreferrer noopener" style={{ color: 'var(--accent-hover)' }}>Fuente del modelo <ExternalLink size={10} /></a>}
                 {lic && !lic.redistributable && <div className="tiny" style={{ color: 'var(--warn)' }}>Licencia sin redistribución: no se publica con la app.</div>}
+                <Check checked={current.config.useBaseColorMap !== false} title="Desactívala si el modelo trae una cuadrícula de prueba UV en lugar de su color"
+                  label="Textura de color del modelo" onChange={async v => {
+                    try {
+                      const g = await updateGarmentConfig(current, { useBaseColorMap: v });
+                      await refresh();
+                      select(g, !!doc?.garment3d);
+                    } catch (e: any) { toast(e.message, 'error'); }
+                  }} />
               </div>
+              {fabric && <>
+                <div className="section-title">Material</div>
+                <Seg full value={fabric.preset} onChange={(v: FabricPreset) => updateFabric({ preset: v, roughness: FABRICS[v].roughness, normalScale: FABRICS[v].normalScale })}
+                  options={(Object.keys(FABRICS) as FabricPreset[]).map(p => ({ value: p, label: FABRICS[p].label, title: FABRICS[p].hint }))} />
+                <div className="row" style={{ flexWrap: 'wrap', gap: 6 }} role="group" aria-label="Color de la tela">
+                  {SWATCHES.map(c => (
+                    <button key={c.hex} className={'swatch-btn' + (fabric.color.toLowerCase() === c.hex ? ' on' : '')} style={{ background: c.hex }}
+                      title={c.name} aria-label={`Tela ${c.name}`} aria-pressed={fabric.color.toLowerCase() === c.hex} onClick={() => updateFabric({ color: c.hex })} />
+                  ))}
+                  <ColorInput value={fabric.color} onChange={c => updateFabric({ color: c })} title="Otro color de tela" />
+                  <button className={'chip' + (fabric.color.toLowerCase() === '#ffffff' ? ' on' : '')} style={{ cursor: 'pointer' }} title="Sin teñir: el color propio del modelo" onClick={() => updateFabric({ color: '#ffffff' })}>Sin teñir</button>
+                </div>
+                <div className="small muted">Acabado</div>
+                <Seg full value={fabric.finish} onChange={(v: FabricFinish) => updateFabric({ finish: v })} options={(Object.keys(FINISHES) as FabricFinish[]).map(f => ({ value: f, label: FINISHES[f] }))} />
+                <Slider label="Rugosidad" value={Math.round(fabric.roughness * 100)} min={20} max={100} suffix="%" hint="Más alta = más mate" onChange={v => updateFabric({ roughness: v / 100 })} />
+                <Slider label="Relieve del tejido" value={Math.round(fabric.normalScale * 100)} min={0} max={200} suffix="%" hint="Intensidad del punto, la felpa o la malla" onChange={v => updateFabric({ normalScale: v / 100 })} />
+              </>}
               <div className="section-title">Estampados</div>
               {!doc ? <div className="tiny muted">Abre o crea un documento en el editor 2D: sus mesas de trabajo se estampan en la prenda.</div>
                 : zoneDefs(current.config).map(def => {

@@ -3,6 +3,7 @@
 
 import type { PrintZoneId } from '../core/garment3d';
 import { PRINT_ZONES } from '../core/garment3d';
+import { isPreset, type FabricPreset } from './fabric';
 
 export const CONFIG_SCHEMA = 1;
 
@@ -42,7 +43,17 @@ export interface GarmentConfig {
   accessoryMeshes: string[];
   zones: Partial<Record<PrintZoneId, ZoneConfig>>;
   license?: GarmentLicense;
+  /** false = ignorar la textura de color del modelo (p. ej. una cuadrícula de prueba UV) y usar solo el color de tela */
+  useBaseColorMap?: boolean;
+  /** tela por defecto de esta prenda */
+  fabric?: FabricPreset;
 }
+
+/** Tela habitual de cada categoría. */
+export const CATEGORY_FABRIC: Record<GarmentConfig['category'], FabricPreset> = {
+  tshirt: 'cotton', hoodie: 'fleece', sport: 'polyester', crop: 'cotton', longsleeve: 'cotton', other: 'cotton',
+};
+export const fabricOf = (c: GarmentConfig): FabricPreset => c.fabric ?? CATEGORY_FABRIC[c.category] ?? 'cotton';
 
 const REDISTRIBUTABLE = /^(cc0|cc-by(?!-n[cd])|cc-by-4|cc-by-sa|public domain|mit)/i;
 /** Licencia leída de los metadatos que Sketchfab (y otros) guardan en asset.extras. */
@@ -62,7 +73,8 @@ const slug = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 /** Configuración por defecto para un GLB sin garment.json. */
 export function defaultConfig(name: string): GarmentConfig {
   const n = name.replace(/\.(glb|gltf)$/i, '').replace(/[_-]+/g, ' ').trim();
-  const category: GarmentConfig['category'] = /hood|sudad/i.test(n) ? 'hoodie' : /t.?shirt|camis|tee/i.test(n) ? 'tshirt' : 'other';
+  const category: GarmentConfig['category'] = /hood|sudad/i.test(n) ? 'hoodie' : /long.?sleeve|manga.?larga/i.test(n) ? 'longsleeve' : /crop/i.test(n) ? 'crop'
+    : /jersey|sport|deport|soccer|futbol|fútbol/i.test(n) ? 'sport' : /t.?shirt|camis|tee|polo/i.test(n) ? 'tshirt' : 'other';
   return { schema: CONFIG_SCHEMA, id: slug(n), name: n.charAt(0).toUpperCase() + n.slice(1), category, unitScale: 1, printableMeshes: [], accessoryMeshes: [], zones: {} };
 }
 
@@ -92,6 +104,7 @@ export function parseConfig(raw: unknown, fallbackName: string): { config: Garme
       };
     } else errors.push(`Zona «${z}» inválida: sizeCm es [ancho, alto] en cm; view, centerCm [x, y] en cm y uv [u0,v0,u1,v1] entre 0 y 1 son opcionales.`);
   }
+  if (r.fabric !== undefined && !isPreset(r.fabric)) errors.push('fabric debe ser cotton, fleece o polyester.');
   const unitScale = typeof r.unitScale === 'number' && r.unitScale > 0 ? r.unitScale : base.unitScale;
   if (r.unitScale !== undefined && unitScale !== r.unitScale) errors.push('unitScale debe ser un número mayor que 0.');
   const lic = r.license && typeof r.license.name === 'string'
@@ -108,6 +121,8 @@ export function parseConfig(raw: unknown, fallbackName: string): { config: Garme
       accessoryMeshes: strs(r.accessoryMeshes),
       zones,
       ...(lic ? { license: lic } : {}),
+      ...(r.useBaseColorMap === false ? { useBaseColorMap: false } : {}),
+      ...(isPreset(r.fabric) ? { fabric: r.fabric } : {}),
     },
     errors,
   };

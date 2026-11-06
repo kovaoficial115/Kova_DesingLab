@@ -84,7 +84,7 @@ describe('formato .kova', () => {
 describe('garment3d', () => {
   it('normaliza valores fuera de rango y descarta modelos sin referencia válida', () => {
     const g = sanitizeGarment3D({ ...garment, color: 'rojo', zones: { front: { artboardId: 'ab1', x: 3, y: -1, scale: -2, rotation: 'x' }, pierna: {} } })!;
-    expect(g.color).toBe('#f0e7de');
+    expect(g.color).toBe('#ffffff'); // sin color válido: el propio del modelo, sin teñir
     expect(g.zones.front).toEqual({ artboardId: 'ab1', x: 1, y: 0, scale: 1, rotation: 0 });
     expect(Object.keys(g.zones)).toEqual(['front']);
     expect(sanitizeGarment3D({ ...garment, model: { source: 'asset', hash: 'corto' } })).toBeNull();

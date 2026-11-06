@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { loadGlb, disposeObject } from './loader';
-import type { GarmentConfig } from './config';
+import { fabricOf, type GarmentConfig } from './config';
+import { makeFabricMaterial, applyFabric, cmPerUv, defaultFabric, disposeFabricTextures, type FabricMaterial, type FabricSettings } from './fabric';
 import { isPrintable } from './validate';
 import { PrintLayer, type PreparedPrint, type PrintResult } from './prints';
 
@@ -48,6 +49,9 @@ export class GarmentViewer {
   private loadSeq = 0;
   private printLayer: PrintLayer | null = null;
   private prints: PreparedPrint[] = [];
+  private fabrics: FabricMaterial[] = [];
+  private fabric: FabricSettings | null = null;
+  private uvCm = 0;
 
   constructor(private container: HTMLElement, private events: ViewerEvents = {}) {
     this.canvas = document.createElement('canvas');
@@ -142,11 +146,35 @@ export class GarmentViewer {
     const printable: THREE.Mesh[] = [];
     model.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && isPrintable(m, config)) printable.push(m); });
     this.pivot.updateMatrixWorld(true);
+    // la prenda pasa a material de tela (un material por material original, compartido igual que antes)
+    const converted = new Map<THREE.Material, FabricMaterial>();
+    const toFabric = (src: THREE.Material) => {
+      let f = converted.get(src);
+      if (!f) { f = makeFabricMaterial(src, config.useBaseColorMap !== false); converted.set(src, f); }
+      return f;
+    };
+    for (const m of printable) m.material = Array.isArray(m.material) ? m.material.map(toFabric) : toFabric(m.material);
+    converted.forEach((_f, src) => src.dispose()); // sus texturas siguen en uso por la tela
+    this.fabrics = [...converted.values()];
+    this.uvCm = cmPerUv(printable);
+    this.applyFabric(this.fabric ?? defaultFabric(fabricOf(config)));
     this.printLayer = new PrintLayer(this.scene, printable, this.renderer);
     this.prints = [];
     this.setView('front', false);
     return model;
   }
+
+  /** Tela, color y acabado de la prenda (se conserva al cambiar de prenda y al recuperar el contexto). */
+  setFabric(s: FabricSettings) {
+    this.fabric = s;
+    this.applyFabric(s);
+  }
+  private applyFabric(s: FabricSettings) {
+    for (const f of this.fabrics) applyFabric(f, s, this.uvCm);
+    this.invalidate();
+  }
+  /** Centímetros de tela por unidad UV de la prenda cargada (diagnóstico). */
+  get cmPerUv() { return this.uvCm; }
 
   /** Aplica los estampados por zona (sustituye a los anteriores). */
   setPrints(list: PreparedPrint[]): PrintResult[] {
@@ -160,6 +188,7 @@ export class GarmentViewer {
   private clearModel() {
     this.printLayer?.dispose();
     this.printLayer = null;
+    this.fabrics = [];
     if (!this.model) return;
     this.pivot.remove(this.model);
     disposeObject(this.model);
@@ -239,6 +268,7 @@ export class GarmentViewer {
     this.canvas.removeEventListener('webglcontextlost', this.onLost);
     this.canvas.removeEventListener('webglcontextrestored', this.onRestored);
     this.clearModel();
+    disposeFabricTextures();
     this.controls.dispose();
     this.envTex?.dispose();
     this.renderer.dispose();

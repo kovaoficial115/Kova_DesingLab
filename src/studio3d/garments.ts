@@ -62,3 +62,12 @@ export async function garmentModel(e: GarmentEntry): Promise<Blob> {
   if (!rec) throw new Error(`Falta el modelo de «${e.config.name}» en la biblioteca.`);
   return rec.blob;
 }
+
+/** Cambia la configuración de una prenda de la biblioteca (el modelo no se toca). */
+export async function updateGarmentConfig(e: GarmentEntry, patch: Partial<GarmentConfig>): Promise<GarmentEntry> {
+  const config: GarmentConfig = { ...e.config, ...patch };
+  const meta: GarmentMeta = { modelHash: e.modelHash, config, triangles: e.triangles, sizeM: e.sizeM, license: e.license };
+  const a = await storage.assets.put(new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' }), { type: 'garment', name: config.name, meta: meta as unknown as Record<string, unknown> });
+  if (a.hash !== e.id) await storage.assets.delete(e.id); // la configuración anterior deja de existir
+  return toEntry(a)!;
+}

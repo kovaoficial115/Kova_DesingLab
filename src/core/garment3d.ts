@@ -22,7 +22,14 @@ export type GarmentModelRef =
   | { source: 'catalog'; id: string; version?: number }    // prenda incluida en la app
   | { source: 'asset'; hash: string; name: string; config?: Record<string, unknown> }; // GLB importado + su garment.json
 
-export interface GarmentMaterial { preset: string; roughness: number; normalScale: number }
+export interface GarmentMaterial {
+  /** tela: cotton | fleece | polyester */
+  preset: string;
+  roughness: number;
+  normalScale: number;
+  /** acabado: plain | heather | washed */
+  finish?: string;
+}
 export interface GarmentCamera { position: [number, number, number]; target: [number, number, number]; fov: number }
 export interface GarmentLighting { preset: string; background: string | null }
 
@@ -64,8 +71,14 @@ export function sanitizeGarment3D(raw: unknown): Garment3DData | null {
   return {
     schema: isNum(r.schema) ? r.schema : GARMENT3D_SCHEMA,
     model,
-    color: typeof r.color === 'string' && /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : '#f0e7de',
-    material: { preset: typeof mat.preset === 'string' ? mat.preset : 'cotton', roughness: isNum(mat.roughness) ? mat.roughness : 0.85, normalScale: isNum(mat.normalScale) ? mat.normalScale : 1 },
+    // #ffffff = el color propio del modelo
+    color: typeof r.color === 'string' && /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : '#ffffff',
+    material: {
+      preset: typeof mat.preset === 'string' ? mat.preset : 'cotton',
+      roughness: isNum(mat.roughness) ? Math.min(1, Math.max(0, mat.roughness)) : 0.85,
+      normalScale: isNum(mat.normalScale) ? Math.min(3, Math.max(0, mat.normalScale)) : 1,
+      ...(typeof mat.finish === 'string' ? { finish: mat.finish } : {}),
+    },
     zones,
     ...(r.camera && isVec3(r.camera.position) && isVec3(r.camera.target) && isNum(r.camera.fov) ? { camera: { position: r.camera.position, target: r.camera.target, fov: r.camera.fov } } : {}),
     ...(r.lighting && typeof r.lighting.preset === 'string' ? { lighting: { preset: r.lighting.preset, background: typeof r.lighting.background === 'string' ? r.lighting.background : null } } : {}),

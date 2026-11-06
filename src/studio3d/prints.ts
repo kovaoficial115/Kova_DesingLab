@@ -11,6 +11,7 @@ import type { PrintZoneId, ZonePrint } from '../core/garment3d';
 import type { ZoneDef } from './zones';
 import { basisFor } from './zones';
 import { Projector, type Hit } from './projector';
+import { isFabric, blankTexture, type FabricMaterial } from './fabric';
 
 export interface PreparedPrint {
   zone: ZoneDef;
@@ -160,7 +161,8 @@ export function atlasFootprint(uvs: P2[], W: number, H: number) {
   return Math.max((u1 - u0) * W, (v1 - v0) * H);
 }
 
-interface Composite { material: THREE.MeshStandardMaterial; map: THREE.Texture | null; color: THREE.Color; tex: THREE.CanvasTexture }
+/** capa de estampados de un material de tela: un lienzo transparente del tamaño del atlas */
+interface Composite { material: FabricMaterial; tex: THREE.CanvasTexture }
 
 /** Aplica estampados a una prenda cargada y los retira sin dejar nada en la GPU. */
 export class PrintLayer {
@@ -184,7 +186,7 @@ export class PrintLayer {
   apply(list: PreparedPrint[]): PrintResult[] {
     this.clear();
     const results: PrintResult[] = [];
-    const byMaterial = new Map<THREE.MeshStandardMaterial, { p: PreparedPrint; uvs: P2[] }[]>();
+    const byMaterial = new Map<FabricMaterial, { p: PreparedPrint; uvs: P2[] }[]>();
     for (const p of list) {
       // solo cuenta la parte con tinta: los márgenes transparentes de la mesa no se estampan
       const f = inkFrame(printFrame(p.zone, p.print, p.sizeM, this.top), p.ink);
@@ -210,8 +212,8 @@ export class PrintLayer {
         const samples = sampleFrame(proj, f);
         const c = classify(samples, f);
         const mat = c.ok ? this.material(samples[0]!) : null;
-        // una casilla desplazada solo equivale a 0..1 si la textura se repite
-        const tileOk = c.ok && (!(c.tile[0] || c.tile[1]) || !mat?.map || (mat.map.wrapS === THREE.RepeatWrapping && mat.map.wrapT === THREE.RepeatWrapping));
+        // la capa de estampados se repite en todas las casillas: una casilla desplazada equivale a 0..1
+        const tileOk = c.ok;
         const uvs = c.ok ? samples.map(s => [s!.uv![0] - c.tile[0], s!.uv![1] - c.tile[1]] as P2) : [];
         const [W, H] = mat ? this.atlasSize(mat) : [0, 0];
         const sharp = c.ok && atlasFootprint(uvs, W, H) >= MIN_ATLAS_PX;
@@ -228,18 +230,15 @@ export class PrintLayer {
     return results;
   }
 
-  /** Material de la cara tocada, si admite atlas (MeshStandard/Physical sin transformaciones de textura). */
-  private material(h: Hit): THREE.MeshStandardMaterial | null {
+  /** Material de tela de la cara tocada (los de accesorios no reciben estampado en el atlas). */
+  private material(h: Hit): FabricMaterial | null {
     const m = this.meshes[h.mesh].material;
-    const mat = (Array.isArray(m) ? m[h.material] : m) as THREE.MeshStandardMaterial;
-    if (!mat || !(mat as any).isMeshStandardMaterial) return null;
-    const t = mat.map;
-    if (t && (t.offset.x || t.offset.y || t.repeat.x !== 1 || t.repeat.y !== 1 || t.rotation || t.channel !== 0)) return null;
-    return mat;
+    const mat = Array.isArray(m) ? m[h.material] : m;
+    return isFabric(mat) ? mat : null;
   }
 
   /** Tamaño del atlas compuesto para un material: el de la tela, subido al menos a 2048 px. */
-  private atlasSize(material: THREE.MeshStandardMaterial): [number, number] {
+  private atlasSize(material: FabricMaterial): [number, number] {
     const img = material.map?.image as { width: number; height: number } | undefined;
     const limit = Math.min(MAX_ATLAS, this.renderer.capabilities.maxTextureSize);
     const side = Math.min(limit, Math.max(2048, img ? Math.max(img.width, img.height) : 0));
@@ -248,27 +247,24 @@ export class PrintLayer {
     return [Math.round(img.width * k), Math.round(img.height * k)];
   }
 
-  private paint(material: THREE.MeshStandardMaterial, items: { p: PreparedPrint; uvs: P2[] }[]) {
-    const map = material.map, img = map?.image as { width: number; height: number } | undefined;
+  private paint(material: FabricMaterial, items: { p: PreparedPrint; uvs: P2[] }[]) {
     const [W, H] = this.atlasSize(material);
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const g = canvas.getContext('2d')!;
     g.imageSmoothingQuality = 'high'; // el arte suele reducirse mucho al entrar en el atlas
-    const color = material.color.clone();
-    if (img) g.drawImage(img as CanvasImageSource, 0, 0, W, H);
-    else { g.fillStyle = '#' + color.getHexString(); g.fillRect(0, 0, W, H); }
-    const flipY = map ? map.flipY : false;
-    for (const { p, uvs } of items) paintWarp(g, p.image as any, uvs, W, H, flipY, GRID, p.ink);
+    // la capa se muestrea con la UV tal cual (flipY desactivado: v = 0 es la fila superior)
+    for (const { p, uvs } of items) paintWarp(g, p.image as any, uvs, W, H, false, GRID, p.ink);
     const tex = new THREE.CanvasTexture(canvas);
-    tex.flipY = flipY;
+    tex.flipY = false;
+    tex.premultiplyAlpha = true; // bordes limpios al filtrar un lienzo transparente
     tex.colorSpace = THREE.SRGBColorSpace;
-    if (map) { tex.wrapS = map.wrapS; tex.wrapT = map.wrapT; }
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
-    this.composites.push({ material, map, color, tex });
-    material.map = tex;
-    if (!map) material.color.set(0xffffff); // el color ya va pintado en el atlas
-    material.needsUpdate = true;
+    const u = material.userData.kovaFabric;
+    u.kPrintMap.value = tex;
+    u.kPrintOn.value = 1;
+    this.composites.push({ material, tex });
   }
 
   private decal(p: PreparedPrint, f: PrintFrame, samples: (Hit | null)[]) {
@@ -319,9 +315,9 @@ export class PrintLayer {
     }
     this.decals = [];
     for (const c of this.composites) {
-      c.material.map = c.map;
-      c.material.color.copy(c.color);
-      c.material.needsUpdate = true;
+      const u = c.material.userData.kovaFabric;
+      // de vuelta a la textura vacía: una textura liberada que se siga muestreando se volvería a subir a la GPU
+      if (u.kPrintMap.value === c.tex) { u.kPrintMap.value = blankTexture(); u.kPrintOn.value = 0; }
       c.tex.dispose();
     }
     this.composites = [];
