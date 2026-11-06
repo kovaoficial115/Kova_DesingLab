@@ -1,16 +1,24 @@
 // Configuración de una prenda 3D (garment.json). Añadir una prenda nueva = modelo GLB + este
-// archivo, sin tocar el código. Los rectángulos de zona se usan en la fase 5 (estampados).
+// archivo, sin tocar el código. Las zonas que no se indiquen toman los valores de su categoría.
 
 import type { PrintZoneId } from '../core/garment3d';
 import { PRINT_ZONES } from '../core/garment3d';
 
 export const CONFIG_SCHEMA = 1;
 
+export type ZoneView = 'front' | 'back' | 'left' | 'right';
+export const ZONE_VIEWS: readonly ZoneView[] = ['front', 'back', 'left', 'right'];
+
 export interface ZoneConfig {
-  /** rectángulo en el espacio UV de impresión: [u0, v0, u1, v1] (0..1) */
-  uv: [number, number, number, number];
-  /** tamaño físico máximo de impresión en la prenda, cm */
+  /** tamaño físico del área de impresión en la prenda, cm [ancho, alto] */
   sizeCm: [number, number];
+  /** desde dónde se proyecta el estampado */
+  view?: ZoneView;
+  /** centro del área: [cm a la derecha del eje vertical visto desde `view`, cm por debajo del borde superior] */
+  centerCm?: [number, number];
+  /** opcional: rectángulo UV fijo [u0, v0, u1, v1] (0..1, v hacia abajo como la imagen).
+   *  Si falta, la correspondencia con el atlas UV se calcula sobre la malla. */
+  uv?: [number, number, number, number];
 }
 
 export interface GarmentLicense {
@@ -69,11 +77,20 @@ export function parseConfig(raw: unknown, fallbackName: string): { config: Garme
   for (const z of PRINT_ZONES) {
     const c = r.zones?.[z];
     if (!c) continue;
-    const uv = c.uv, size = c.sizeCm;
-    const okUv = Array.isArray(uv) && uv.length === 4 && uv.every((n: unknown) => typeof n === 'number' && n >= 0 && n <= 1) && uv[2] > uv[0] && uv[3] > uv[1];
-    const okSize = Array.isArray(size) && size.length === 2 && size.every((n: unknown) => typeof n === 'number' && n > 0 && n < 200);
-    if (okUv && okSize) zones[z] = { uv: [uv[0], uv[1], uv[2], uv[3]], sizeCm: [size[0], size[1]] };
-    else errors.push(`Zona «${z}» inválida: uv debe ser [u0,v0,u1,v1] entre 0 y 1 y sizeCm [ancho, alto] en cm.`);
+    const uv = c.uv, size = c.sizeCm, center = c.centerCm;
+    const num = (n: unknown) => typeof n === 'number' && Number.isFinite(n);
+    const okSize = Array.isArray(size) && size.length === 2 && size.every((n: unknown) => num(n) && (n as number) > 0 && (n as number) < 200);
+    const okUv = uv === undefined || (Array.isArray(uv) && uv.length === 4 && uv.every((n: unknown) => num(n) && (n as number) >= 0 && (n as number) <= 1) && uv[2] > uv[0] && uv[3] > uv[1]);
+    const okCenter = center === undefined || (Array.isArray(center) && center.length === 2 && center.every((n: unknown) => num(n) && Math.abs(n as number) < 300));
+    const okView = c.view === undefined || ZONE_VIEWS.includes(c.view);
+    if (okSize && okUv && okCenter && okView) {
+      zones[z] = {
+        sizeCm: [size[0], size[1]],
+        ...(c.view ? { view: c.view as ZoneView } : {}),
+        ...(center ? { centerCm: [center[0], center[1]] as [number, number] } : {}),
+        ...(uv ? { uv: [uv[0], uv[1], uv[2], uv[3]] as [number, number, number, number] } : {}),
+      };
+    } else errors.push(`Zona «${z}» inválida: sizeCm es [ancho, alto] en cm; view, centerCm [x, y] en cm y uv [u0,v0,u1,v1] entre 0 y 1 son opcionales.`);
   }
   const unitScale = typeof r.unitScale === 'number' && r.unitScale > 0 ? r.unitScale : base.unitScale;
   if (r.unitScale !== undefined && unitScale !== r.unitScale) errors.push('unitScale debe ser un número mayor que 0.');

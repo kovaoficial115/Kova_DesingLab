@@ -2,17 +2,43 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Home as HomeIcon, Plus, Trash2, Box, Loader2, Crosshair, ExternalLink } from 'lucide-react';
 import { useStore, set, get, toast } from '../core/store';
 import { KovaK, BrandIcon } from '../ui/components/Brand';
-import { Seg, ColorInput } from '../ui/components/controls';
+import { Seg, ColorInput, Select, Slider } from '../ui/components/controls';
 import { GarmentViewer, VIEW_LABELS, LIGHT_LABELS, type ViewPreset, type LightPreset } from './viewer';
 import { listGarments, removeGarment, garmentModel, type GarmentEntry } from './garments';
 import { ImportGarmentDialog } from './ImportGarmentDialog';
-import { GARMENT3D_SCHEMA } from '../core/garment3d';
+import { GARMENT3D_SCHEMA, type Garment3DData, type PrintZoneId, type ZonePrint } from '../core/garment3d';
+import type { Doc } from '../core/types';
+import { renderArtboard } from '../core/render';
+import { zoneDefs, ZONE_LABELS, type ZoneDef } from './zones';
+import { inkBox, type PreparedPrint, type PrintResult } from './prints';
 
 // preferencias del estudio (solo interfaz): LocalStorage
 const PREFS = 'kova.studio';
 interface StudioPrefs { garment?: string; light: LightPreset; bg: string | null }
 const loadPrefs = (): StudioPrefs => { try { return { light: 'studio', bg: null, ...JSON.parse(localStorage.getItem(PREFS) || '{}') }; } catch { return { light: 'studio', bg: null }; } };
 const savePrefs = (p: StudioPrefs) => { try { localStorage.setItem(PREFS, JSON.stringify(p)); } catch { /* sin almacenamiento */ } };
+
+const IN_PER_M = 0.0254;
+const cmOf = (px: number, dpi: number) => (px / dpi) * 2.54;
+/** máximo del lado del arte renderizado para la prenda (px) */
+const ART_PX = 2048;
+
+interface Art { image: HTMLCanvasElement; ink: [number, number, number, number] | null }
+/** Renderiza la mesa de trabajo y mide su caja con tinta (sobre una copia reducida). */
+async function renderArt(state: Doc['state'], ab: Doc['state']['artboards'][number]): Promise<Art> {
+  const image = await renderArtboard(state, ab, Math.min(1, ART_PX / Math.max(ab.w, ab.h)), { background: false });
+  const k = Math.min(1, 256 / Math.max(image.width, image.height));
+  const w = Math.max(1, Math.round(image.width * k)), h = Math.max(1, Math.round(image.height * k));
+  const small = document.createElement('canvas');
+  small.width = w; small.height = h;
+  const g = small.getContext('2d', { willReadFrequently: true })!;
+  g.drawImage(image, 0, 0, w, h);
+  const a = g.getImageData(0, 0, w, h).data;
+  const box = inkBox((x, y) => a[(y * w + x) * 4 + 3], w, h);
+  // un píxel de margen: la copia reducida puede recortar bordes finos
+  const ink = box && ([Math.max(0, box[0] - 1 / w), Math.max(0, box[1] - 1 / h), Math.min(1, box[2] + 1 / w), Math.min(1, box[3] + 1 / h)] as [number, number, number, number]);
+  return { image, ink };
+}
 
 const CAT: Record<string, string> = { tshirt: 'Camiseta', hoodie: 'Hoodie', sport: 'Deportiva', crop: 'Crop', longsleeve: 'Manga larga', other: 'Prenda' };
 
@@ -24,9 +50,16 @@ export function Studio() {
   const [garments, setGarments] = useState<GarmentEntry[] | null>(null);
   const [prefs, setPrefsState] = useState<StudioPrefs>(loadPrefs);
   const [current, setCurrent] = useState<GarmentEntry | null>(null);
+  const currentRef = useRef<GarmentEntry | null>(null);
+  currentRef.current = current;
   const [loading, setLoading] = useState(false);
   const [lost, setLost] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [results, setResults] = useState<Partial<Record<PrintZoneId, PrintResult>>>({});
+  const [activeZone, setActiveZone] = useState<PrintZoneId>('front');
+  // arte renderizado por mesa de trabajo; se invalida cuando cambia el documento
+  const artCache = useRef<{ state: unknown; map: Map<string, Promise<Art>> }>({ state: null, map: new Map() });
   const setPrefs = (p: Partial<StudioPrefs>) => setPrefsState(prev => { const n = { ...prev, ...p }; savePrefs(n); return n; });
 
   const refresh = () => listGarments().then(setGarments).catch(e => { toast(e.message, 'error'); setGarments([]); });
@@ -43,6 +76,8 @@ export function Studio() {
     v.setBackground(prefs.bg);
     viewer.current = v;
     (window as any).__kovaViewer = v; // diagnóstico
+    // si el visor se vuelve a crear con una prenda ya elegida (recarga en caliente), se recarga en él
+    if (currentRef.current) select(currentRef.current, false);
     return () => { v.dispose(); viewer.current = null; delete (window as any).__kovaViewer; };
   }, []);
 
@@ -62,30 +97,84 @@ export function Studio() {
     setCurrent(g);
     setPrefs({ garment: g.id });
     setLoading(true);
-    try { await viewer.current?.setGarment(await garmentModel(g), g.config); }
+    setLoadedId(null);
+    try { if (await viewer.current?.setGarment(await garmentModel(g), g.config)) setLoadedId(g.id); }
     catch (e: any) { toast(e.message, 'error'); }
     finally { setLoading(false); }
     if (link) linkToDoc(g);
   };
 
+  /** Sección garment3d del documento para la prenda `g` (conserva lo que ya tuviera). */
+  const garmentData = (g: GarmentEntry, d: Doc): Garment3DData => ({
+    schema: GARMENT3D_SCHEMA,
+    model: { source: 'asset', hash: g.modelHash, name: g.config.name, config: g.config as unknown as Record<string, unknown> },
+    color: d.garment3d?.color ?? '#f0e7de',
+    material: d.garment3d?.material ?? { preset: 'cotton', roughness: 0.85, normalScale: 1 },
+    zones: d.garment3d?.zones ?? {},
+    lighting: { preset: prefs.light, background: prefs.bg },
+  });
+
   /** Guarda en el documento activo qué prenda usa (sección garment3d del .kova). */
   const linkToDoc = (g: GarmentEntry) => {
     const id = get().activeDocId;
     if (!id) return;
+    set(s => ({ docs: s.docs.map(d => d.id !== id ? d : { ...d, dirty: true, garment3d: garmentData(g, d) }) }));
+  };
+
+  /** Cambia (o quita, con null) el estampado de una zona del documento activo. */
+  const updateZone = (z: PrintZoneId, patch: Partial<ZonePrint> | null) => {
+    const id = get().activeDocId, g = current;
+    if (!id || !g) return;
     set(s => ({
-      docs: s.docs.map(d => d.id !== id ? d : {
-        ...d, dirty: true,
-        garment3d: {
-          schema: GARMENT3D_SCHEMA,
-          model: { source: 'asset', hash: g.modelHash, name: g.config.name, config: g.config as unknown as Record<string, unknown> },
-          color: d.garment3d?.color ?? '#f0e7de',
-          material: d.garment3d?.material ?? { preset: 'cotton', roughness: 0.85, normalScale: 1 },
-          zones: d.garment3d?.zones ?? {},
-          lighting: { preset: prefs.light, background: prefs.bg },
-        },
+      docs: s.docs.map(d => {
+        if (d.id !== id) return d;
+        const g3 = d.garment3d && d.garment3d.model.source === 'asset' && d.garment3d.model.hash === g.modelHash ? d.garment3d : garmentData(g, d);
+        const zones = { ...g3.zones };
+        if (patch === null) delete zones[z];
+        else zones[z] = { ...(zones[z] ?? { artboardId: null, x: 0.5, y: 0.5, scale: 1, rotation: 0 }), ...patch };
+        return { ...d, dirty: true, garment3d: { ...g3, zones } };
       }),
     }));
   };
+
+  /** Asigna una mesa de trabajo a la zona: tamaño real, centrada y pegada al borde superior. */
+  const chooseArt = (def: ZoneDef, abId: string) => {
+    const ab = abId ? doc?.state.artboards.find(a => a.id === abId) : undefined;
+    if (!ab) { updateZone(def.id, null); return; }
+    const w = cmOf(ab.w, ab.dpi), h = cmOf(ab.h, ab.dpi);
+    const scale = Math.min(1, def.sizeCm[0] / w, def.sizeCm[1] / h);
+    updateZone(def.id, { artboardId: ab.id, x: 0.5, y: Math.min(0.5, (h * scale) / 2 / def.sizeCm[1]), scale, rotation: 0 });
+  };
+
+  // estampados: arte de las mesas de trabajo → zonas de la prenda
+  const zones = doc?.garment3d?.zones;
+  useEffect(() => {
+    const v = viewer.current;
+    if (!v || !current || loadedId !== current.id) return;
+    let alive = true;
+    const t = setTimeout(async () => {
+      const list: PreparedPrint[] = [], empty: PrintResult[] = [];
+      try {
+        if (doc && zones) {
+          if (artCache.current.state !== doc.state) artCache.current = { state: doc.state, map: new Map() };
+          for (const def of zoneDefs(current.config)) {
+            const p = zones[def.id];
+            const ab = p?.artboardId ? doc.state.artboards.find(a => a.id === p.artboardId) : undefined;
+            if (!p || !ab) continue;
+            let art = artCache.current.map.get(ab.id);
+            if (!art) { art = renderArt(doc.state, ab); artCache.current.map.set(ab.id, art); }
+            const { image, ink } = await art;
+            if (!ink) { empty.push({ zone: def.id, mode: 'none', reason: 'La mesa de trabajo está vacía.', overflow: false }); continue; }
+            list.push({ zone: def, print: p, image, ink, sizeM: [(ab.w / ab.dpi) * IN_PER_M, (ab.h / ab.dpi) * IN_PER_M] });
+          }
+        }
+        if (!alive) return;
+        const r = [...v.setPrints(list), ...empty];
+        setResults(Object.fromEntries(r.map(x => [x.zone, x])));
+      } catch (e: any) { if (alive) toast('No se pudo aplicar el estampado: ' + (e?.message || e), 'error'); }
+    }, 60);
+    return () => { alive = false; clearTimeout(t); };
+  }, [doc?.state, zones, current?.id, loadedId]);
 
   const remove = async (g: GarmentEntry) => {
     if (!confirm(`¿Quitar «${g.config.name}» de la biblioteca? Los proyectos que la usan la conservan dentro del .kova.`)) return;
@@ -168,7 +257,43 @@ export function Studio() {
                 {lic?.source && <a className="tiny" href={lic.source} target="_blank" rel="noreferrer noopener" style={{ color: 'var(--accent-hover)' }}>Fuente del modelo <ExternalLink size={10} /></a>}
                 {lic && !lic.redistributable && <div className="tiny" style={{ color: 'var(--warn)' }}>Licencia sin redistribución: no se publica con la app.</div>}
               </div>
-              <div className="tiny muted">Los estampados por zona llegan en la siguiente fase.</div>
+              <div className="section-title">Estampados</div>
+              {!doc ? <div className="tiny muted">Abre o crea un documento en el editor 2D: sus mesas de trabajo se estampan en la prenda.</div>
+                : zoneDefs(current.config).map(def => {
+                  const p = zones?.[def.id], r = results[def.id], open = activeZone === def.id;
+                  const ab = p?.artboardId ? doc.state.artboards.find(a => a.id === p.artboardId) : undefined;
+                  return (
+                    <div key={def.id} className={'zone-card' + (open ? ' on' : '')}>
+                      <button className="zone-head" aria-expanded={open} onClick={() => { setActiveZone(def.id); viewer.current?.setView(def.view); }}>
+                        <span className="small grow" style={{ fontWeight: 600 }}>{ZONE_LABELS[def.id]}</span>
+                        {ab && p ? (
+                          <span className="chip" title={r?.reason} style={r?.mode === 'none' ? { color: 'var(--warn)' } : undefined}>
+                            {!r ? '…' : r.mode === 'uv' ? 'Atlas UV' : r.mode === 'decal' ? 'Proyección' : 'Sin aplicar'}
+                          </span>
+                        ) : <span className="tiny muted">Vacía</span>}
+                      </button>
+                      {open && (
+                        <div className="col" style={{ gap: 6, marginTop: 6 }}>
+                          <Select value={ab ? ab.id : ''} onChange={v => chooseArt(def, v)} title={`Mesa de trabajo para ${ZONE_LABELS[def.id]}`}
+                            options={[{ value: '', label: 'Sin estampado' }, ...doc.state.artboards.map(a => ({ value: a.id, label: a.name }))]} />
+                          {ab && p && <>
+                            <Slider label="Horizontal" value={Math.round(p.x * 100)} min={0} max={100} suffix="%" onChange={v => updateZone(def.id, { x: v / 100 })} />
+                            <Slider label="Vertical" value={Math.round(p.y * 100)} min={0} max={100} suffix="%" onChange={v => updateZone(def.id, { y: v / 100 })} />
+                            <Slider label="Escala" value={Math.round(p.scale * 100)} min={10} max={200} suffix="%" hint="100 % = tamaño real de la mesa de trabajo" onChange={v => updateZone(def.id, { scale: v / 100 })} />
+                            <Slider label="Rotación" value={p.rotation} min={-180} max={180} suffix="°" onChange={v => updateZone(def.id, { rotation: v })} />
+                            <div className="tiny muted">
+                              {r?.inkCm ? <>Estampado {r.inkCm[0].toFixed(1)} × {r.inkCm[1].toFixed(1)} cm</> : <>Mesa {(cmOf(ab.w, ab.dpi) * p.scale).toFixed(1)} × {(cmOf(ab.h, ab.dpi) * p.scale).toFixed(1)} cm</>} · área de la zona {def.sizeCm[0]} × {def.sizeCm[1]} cm
+                            </div>
+                            {r?.overflow && <div className="tiny" style={{ color: 'var(--warn)' }}>Se sale del área de impresión de la zona.</div>}
+                            {r?.mode === 'decal' && <div className="tiny muted">{r.reason} Se proyecta como calcomanía.</div>}
+                            {r?.mode === 'none' && <div className="tiny" style={{ color: 'var(--warn)' }}>{r.reason}</div>}
+                            <button className="btn sm ghost" onClick={() => updateZone(def.id, null)}>Quitar estampado</button>
+                          </>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </>}
           </div>
         </aside>

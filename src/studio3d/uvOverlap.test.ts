@@ -21,4 +21,14 @@ describe('solapes UV', () => {
     expect(uvOverlap(uv, idx, [0, 0, 0.5, 0.5], 128).overlap).toBe(0);
     expect(uvOverlap(uv, idx, [0.55, 0.55, 1, 1], 128).overlap).toBeCloseTo(1, 2);
   });
+  it('distingue las dos caras de la tela de un solape real entre partes distintas', () => {
+    const uv = [...quad(0, 0, 1, 1), ...quad(0, 0, 1, 1)];
+    // misma isla UV: primero a 2 mm (interior de la tela), luego a 30 cm (otra parte de la prenda)
+    const tri = (z: number) => Array.from({ length: 6 }, (_, i) => [i % 3 === 1 ? 1 : 0, i % 3 === 2 ? 1 : 0, z]).flat();
+    const shell = uvOverlap(uv, null, [0, 0, 1, 1], 64, { positions: [...tri(0), ...tri(0.002)] });
+    expect(shell.overlap).toBe(0);
+    expect(shell.shell).toBeGreaterThan(0.9);
+    const real = uvOverlap(uv, null, [0, 0, 1, 1], 64, { positions: [...tri(0), ...tri(0.3)] });
+    expect(real.overlap).toBeGreaterThan(0.9);
+  });
 });

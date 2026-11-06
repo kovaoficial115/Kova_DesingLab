@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { GarmentConfig, GarmentLicense } from './config';
 import { licenseFromExtras } from './config';
-import { uvOverlap } from './uvOverlap';
+import { uvOverlap, singleTile } from './uvOverlap';
 import { PRINT_ZONES } from '../core/garment3d';
 
 export const LIMITS = { triangles: 50_000, texturePx: 2048, minHeightM: 0.3, maxHeightM: 1.6, uvOverlapZone: 0.005, uvOverlapWhole: 0.02 } as const;
@@ -83,25 +83,36 @@ export function validateGarment(gltf: GLTF, cfg: GarmentConfig): ValidationRepor
   if (noUv.length) checks.push({ id: 'uv', label: 'UV sin solapes en zonas imprimibles', status: 'fail', detail: `Sin coordenadas UV: ${noUv.map(meshName).join(', ')}.` });
   else if (triangles > LIMITS.triangles * 4) checks.push({ id: 'uv', label: 'UV sin solapes en zonas imprimibles', status: 'warn', detail: 'No analizado: el modelo es demasiado pesado.' });
   else {
-    const zones = PRINT_ZONES.filter(z => cfg.zones[z]);
+    const zones = PRINT_ZONES.filter(z => cfg.zones[z]?.uv);
     const results: string[] = [];
     let status: CheckStatus = 'ok';
-    const regions: [string, [number, number, number, number], number][] = zones.length ? zones.map(z => [z, cfg.zones[z]!.uv, LIMITS.uvOverlapZone]) : [['todo el UV', [0, 0, 1, 1], LIMITS.uvOverlapWhole]];
+    const regions: [string, [number, number, number, number], number][] = zones.length ? zones.map(z => [z, cfg.zones[z]!.uv!, LIMITS.uvOverlapZone]) : [['todo el UV', [0, 0, 1, 1], LIMITS.uvOverlapWhole]];
     for (const [name, region, limit] of regions) {
       // todas las mallas imprimibles comparten el mismo atlas de impresión
-      const uv: number[] = [], idx: number[] = [];
+      const uv: number[] = [], idx: number[] = [], pos: number[] = [];
+      const v3 = new THREE.Vector3();
       for (const m of printable) {
-        const g = m.geometry, base = uv.length / 2, a = g.attributes.uv;
-        for (let i = 0; i < a.count; i++) uv.push(a.getX(i), a.getY(i));
+        const g = m.geometry, base = uv.length / 2, a = g.attributes.uv, pa = g.attributes.position;
+        m.updateWorldMatrix(true, false);
+        // posiciones en metros reales (la escala del modelo se corrige con unitScale)
+        for (let i = 0; i < pa.count; i++) { v3.fromBufferAttribute(pa, i).applyMatrix4(m.matrixWorld).multiplyScalar(cfg.unitScale); pos.push(v3.x, v3.y, v3.z); }
+        // UV desplazadas a otra casilla (textura en repetición): se analizan en 0..1
+        const tile = singleTile(a.array.length === a.count * 2 ? a.array : Array.from({ length: a.count * 2 }, (_, k) => (k & 1 ? a.getY(k >> 1) : a.getX(k >> 1)))) ?? [0, 0];
+        for (let i = 0; i < a.count; i++) uv.push(a.getX(i) - tile[0], a.getY(i) - tile[1]);
         if (g.index) for (let i = 0; i < g.index.count; i++) idx.push(base + g.index.getX(i));
         else for (let i = 0; i < a.count; i++) idx.push(base + i);
       }
-      const r = uvOverlap(uv, idx, region, 512);
+      const r = uvOverlap(uv, idx, region, 512, { positions: pos, thicknessM: 0.03 });
       if (r.overlap > limit) status = zones.length ? 'fail' : 'warn';
-      results.push(`${name}: ${(r.overlap * 100).toFixed(1)} % solapado`);
+      if (r.coverage < 0.02) {
+        // sin cobertura no se ha medido nada: no se puede dar por bueno
+        status = 'fail';
+        results.push(`${name}: la malla apenas ocupa el atlas (${(r.coverage * 100).toFixed(1)} %), UV fuera de 0–1`);
+      } else results.push(`${name}: ${(r.overlap * 100).toFixed(1)} % solapado, ${(r.coverage * 100).toFixed(0)} % del atlas ocupado`
+        + (r.shell > 0.01 ? ` (el ${(r.shell * 100).toFixed(0)} % lo comparten el exterior y el interior de la tela: es normal en prendas con grosor)` : ''));
     }
     checks.push({ id: 'uv', label: 'UV sin solapes en zonas imprimibles', status,
-      detail: results.join(' · ') + (zones.length ? '' : '. Las zonas de impresión se definen en su garment.json; entonces se comprueba cada zona.') });
+      detail: results.join(' · ') + (zones.length ? '' : '. Cada estampado comprueba al aplicarse que su zona cae en una sola isla UV.') });
   }
 
   // 7. licencia

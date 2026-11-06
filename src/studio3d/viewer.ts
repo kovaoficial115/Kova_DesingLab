@@ -7,6 +7,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { loadGlb, disposeObject } from './loader';
 import type { GarmentConfig } from './config';
+import { isPrintable } from './validate';
+import { PrintLayer, type PreparedPrint, type PrintResult } from './prints';
 
 export type ViewPreset = 'front' | 'back' | 'left' | 'right' | 'threeQuarter';
 export type LightPreset = 'studio' | 'soft' | 'contrast';
@@ -44,6 +46,8 @@ export class GarmentViewer {
   private visObs: IntersectionObserver;
   private disposed = false;
   private loadSeq = 0;
+  private printLayer: PrintLayer | null = null;
+  private prints: PreparedPrint[] = [];
 
   constructor(private container: HTMLElement, private events: ViewerEvents = {}) {
     this.canvas = document.createElement('canvas');
@@ -135,11 +139,27 @@ export class GarmentViewer {
     this.camera.near = this.radius / 100; this.camera.far = this.radius * 100; this.camera.updateProjectionMatrix();
     this.controls.minDistance = this.radius * 0.6; this.controls.maxDistance = this.radius * 8;
     this.model = model;
+    const printable: THREE.Mesh[] = [];
+    model.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && isPrintable(m, config)) printable.push(m); });
+    this.pivot.updateMatrixWorld(true);
+    this.printLayer = new PrintLayer(this.scene, printable, this.renderer);
+    this.prints = [];
     this.setView('front', false);
     return model;
   }
 
+  /** Aplica los estampados por zona (sustituye a los anteriores). */
+  setPrints(list: PreparedPrint[]): PrintResult[] {
+    this.prints = list;
+    if (!this.printLayer) return [];
+    const r = this.printLayer.apply(list);
+    this.invalidate();
+    return r;
+  }
+
   private clearModel() {
+    this.printLayer?.dispose();
+    this.printLayer = null;
     if (!this.model) return;
     this.pivot.remove(this.model);
     disposeObject(this.model);
@@ -195,14 +215,14 @@ export class GarmentViewer {
   };
   private onRestored = async () => {
     try {
-      const src = this.source, view = this.camera.position.clone(), target = this.controls.target.clone();
+      const src = this.source, prints = this.prints, view = this.camera.position.clone(), target = this.controls.target.clone();
       // los recursos de la GPU se perdieron: se rehace todo desde el modelo y los ajustes
-      if (this.model) { this.pivot.remove(this.model); disposeObject(this.model); this.model = null; }
+      this.clearModel();
       this.envTex?.dispose();
       this.renderer.dispose();
       this.initGl();
       this.setLighting(this.light);
-      if (src) await this.setGarment(src.data, src.config);
+      if (src) { await this.setGarment(src.data, src.config); if (prints.length) this.setPrints(prints); }
       this.camera.position.copy(view); this.controls.target.copy(target); this.controls.update();
       this.resize();
       this.events.onContextRestored?.();
