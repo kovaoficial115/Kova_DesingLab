@@ -176,7 +176,7 @@ export const commands: Record<string, Command> = {
   'crop.apply': { label: 'Aplicar recorte', keys: 'enter', run: () => applyCrop(), enabled: () => get().tool === 'crop' && !!cropState.rect },
   'esc': { label: 'Cancelar', keys: 'escape', run: () => { if (get().tool === 'crop') cancelCrop(); else if (docState()?.selection) A.deselect(); } },
   // Ayuda
-  'help.about': { label: 'Acerca de Kova_DesignLab y limitaciones', run: () => openDialog('about') },
+  'help.about': { label: 'Acerca de KOVA Design Lab y limitaciones', run: () => openDialog('about') },
 };
 
 function setMode(mode: 'RGB' | 'CMYK') {

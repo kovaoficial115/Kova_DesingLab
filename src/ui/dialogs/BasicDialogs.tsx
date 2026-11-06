@@ -191,7 +191,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
 
 export function AboutDialog({ onClose }: { onClose: () => void }) {
   return (
-    <Modal title="Kova_DesignLab" icon={<Info size={16} />} onClose={onClose} width={620} height="80vh">
+    <Modal title="KOVA Design Lab" icon={<Info size={16} />} onClose={onClose} width={620} height="80vh">
       <div className="small">Editor de imágenes especializado en producción DTF. Todo el procesamiento ocurre en este navegador: tus archivos no se envían a ningún servidor.</div>
       <div className="section-title">Arquitectura</div>
       <div className="tiny muted">React (interfaz) · motor de documento con historial inmutable · renderizador Canvas 2D con composición de capas, máscaras, recortes y fusión · procesamiento de píxeles en Web Workers · LittleCMS (WASM) para ICC · pdf.js, ag-psd y UTIF para importación · jsPDF para PDF · ImageTracer para vectorización · IMG.LY background-removal (ONNX en el navegador) para IA.</div>
