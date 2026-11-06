@@ -56,6 +56,7 @@ export const commands: Record<string, Command> = {
       window.dispatchEvent(new Event('kova:library-changed'));
     });
   } },
+  'view.studio3d': { label: 'Estudio 3D…', keys: 'mod+alt+3', run: () => set({ screen: 'studio' }) },
   'file.backups': { label: 'Copias de respaldo…', run: () => openDialog('backups') },
   ...Object.fromEntries([0, 4, 30, 120].map(sec => [`file.autosave.${sec}`, {
     label: sec === 0 ? 'Desactivado' : sec < 60 ? `Cada ${sec} s tras un cambio` : `Cada ${sec / 60} min tras un cambio`,

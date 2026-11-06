@@ -1,4 +1,7 @@
 import React, { Suspense, lazy, useEffect } from 'react';
+
+// el Estudio 3D (Three.js) solo se descarga al abrirlo
+const Studio = lazy(() => import('../studio3d/Studio').then(m => ({ default: m.Studio })));
 import { CheckCircle2, AlertTriangle, XCircle, Info } from 'lucide-react';
 import { useStore, set, get } from '../core/store';
 import { Home } from './Home';
@@ -72,7 +75,7 @@ export function App() {
   }, []);
   return (
     <>
-      {screen === 'home' ? <Home /> : <Editor />}
+      {screen === 'home' ? <Home /> : screen === 'studio' ? <Suspense fallback={<div className="busy"><div className="spinner" />Cargando Estudio 3D…</div>}><Studio /></Suspense> : <Editor />}
       <DialogHost />
       <CollabHost />
       <Toasts />

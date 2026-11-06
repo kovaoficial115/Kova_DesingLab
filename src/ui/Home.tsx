@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FolderOpen, Upload, Trash2, RotateCcw, Grid3x3, Eraser, ScanLine, Layers, Shirt, FileImage, ArrowRight, Printer, Archive, ArchiveRestore } from 'lucide-react';
+import { FolderOpen, Upload, Trash2, RotateCcw, Grid3x3, Eraser, ScanLine, Layers, Shirt, FileImage, ArrowRight, Printer, Archive, ArchiveRestore, Box } from 'lucide-react';
 import { useStore, set, withBusy, toast } from '../core/store';
 import { KovaK, BrandIcon } from './components/Brand';
 import { newDoc } from '../core/doc';
@@ -85,6 +85,7 @@ export function Home() {
     { icon: ScanLine, title: 'Vectorizar', sub: 'Logotipos y tipografías a SVG', cmd: 'dtf.vectorize' },
     { icon: Layers, title: 'Hoja de impresión', sub: 'Imposición automática y aprovechamiento del film', cmd: 'dtf.gang' },
     { icon: Shirt, title: 'Mockups en prenda', sub: 'Tamaño real sobre camiseta o tu foto', cmd: 'dtf.mockup' },
+    { icon: Box, title: 'Estudio 3D', sub: 'Tus prendas GLB en 360°, con luces y vistas', cmd: 'view.studio3d' },
     { icon: Printer, title: 'Preflight DTF', sub: 'Resolución, transparencia y área de impresión', cmd: 'dtf.preflight' },
   ];
   return (
@@ -125,6 +126,7 @@ export function Home() {
           <div className="row">
             <button className="btn primary" onClick={() => openDialog('new')}><FileImage size={14} />Documento personalizado</button>
             <button className="btn" onClick={async () => openFiles(await pickFiles())}><FolderOpen size={14} />Abrir archivo</button>
+            <button className="btn" onClick={() => set({ screen: 'studio' })}><Box size={14} />Estudio 3D</button>
           </div>
 
           <div className={'dropzone' + (over ? ' over' : '')}>

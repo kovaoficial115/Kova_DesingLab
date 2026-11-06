@@ -6,3 +6,6 @@ dist/
 .vite/
 .env*.local
 .liveblocks/
+
+# modelos 3D con licencia que no permite redistribuirlos: solo en este equipo
+local-assets/

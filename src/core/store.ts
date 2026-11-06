@@ -37,7 +37,7 @@ export type DialogState = { type: string; props?: any } | null;
 export interface Toast { id: number; text: string; kind: 'info' | 'ok' | 'warn' | 'error' }
 
 export interface AppState {
-  screen: 'home' | 'editor';
+  screen: 'home' | 'editor' | 'studio';
   docs: Doc[];
   activeDocId: string | null;
   views: Record<string, View>;

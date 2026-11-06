@@ -45,7 +45,7 @@ const menus: { label: string; items: Item[] }[] = [
   { label: 'Selección', items: ['sel.all', 'sel.none', 'sel.invert', '-', 'sel.layer', 'sel.colorRange', 'sel.subject', '-', { label: 'Modificar', sub: ['sel.feather', 'sel.expand', 'sel.contract', 'sel.smooth'] }] },
   { label: 'Filtro', items: [{ head: 'Filtros no destructivos' }, 'filter.blur', 'filter.sharpen', 'filter.denoise'] },
   {
-    label: 'DTF', items: [{ head: 'Producción' }, 'dtf.preflight', 'dtf.gang', 'dtf.mockup', '-', { head: 'Preparación' }, 'dtf.halftone', 'dtf.bg', 'dtf.refine', 'dtf.underbase', 'dtf.vectorize', '-', { head: 'Color' }, 'dtf.separations', 'dtf.palette', 'edit.color'],
+    label: 'DTF', items: [{ head: 'Producción' }, 'dtf.preflight', 'dtf.gang', 'dtf.mockup', 'view.studio3d', '-', { head: 'Preparación' }, 'dtf.halftone', 'dtf.bg', 'dtf.refine', 'dtf.underbase', 'dtf.vectorize', '-', { head: 'Color' }, 'dtf.separations', 'dtf.palette', 'edit.color'],
   },
   {
     label: 'Vista', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.100', 'view.print', '-', 'view.proof', 'view.compare', '-',

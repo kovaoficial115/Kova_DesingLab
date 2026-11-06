@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Move, SquareDashed, CircleDashed, Lasso, Wand2, Crop, Pipette, Brush, Eraser, History, PaintBucket, Blend, Type, Shapes, Hand, ZoomIn,
   Frame, ArrowLeftRight, X, Check, Sparkles, Grid3x3, ScanLine, Shirt, Printer, Layers, Eye, SplitSquareHorizontal, Minus, Plus, Maximize,
-  Square, Circle, Slash, Users,
+  Square, Circle, Slash, Users, Box,
 } from 'lucide-react';
 import { useStore, set, get, activeArtboard, getView } from '../core/store';
 import type { ToolId } from '../core/types';
@@ -199,6 +199,7 @@ export function QuickBar() {
       <button className="btn sm" disabled={!hasLayer} onClick={() => runCommand('dtf.vectorize')} title="Vectorizar"><ScanLine size={13} /><span className="qb-label">Vectorizar</span></button>
       <div className="vsep" />
       <button className="btn sm" onClick={() => runCommand('dtf.mockup')} title="Mockup"><Shirt size={13} /><span className="qb-label">Mockup</span></button>
+      <button className="btn sm" onClick={() => runCommand('view.studio3d')} title="Estudio 3D"><Box size={13} /><span className="qb-label">3D</span></button>
       <button className="btn sm" onClick={() => runCommand('dtf.gang')} title="Hoja DTF"><Layers size={13} /><span className="qb-label">Hoja DTF</span></button>
       <button className="btn sm" onClick={() => runCommand('dtf.preflight')} title="Preparar"><Printer size={13} /><span className="qb-label">Preparar</span></button>
     </div>

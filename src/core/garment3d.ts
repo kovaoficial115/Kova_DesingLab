@@ -20,7 +20,7 @@ export interface ZonePrint {
 
 export type GarmentModelRef =
   | { source: 'catalog'; id: string; version?: number }    // prenda incluida en la app
-  | { source: 'asset'; hash: string; name: string };       // GLB importado (biblioteca de activos)
+  | { source: 'asset'; hash: string; name: string; config?: Record<string, unknown> }; // GLB importado + su garment.json
 
 export interface GarmentMaterial { preset: string; roughness: number; normalScale: number }
 export interface GarmentCamera { position: [number, number, number]; target: [number, number, number]; fov: number }
@@ -46,7 +46,7 @@ export function sanitizeGarment3D(raw: unknown): Garment3DData | null {
   const m = r.model;
   let model: GarmentModelRef | null = null;
   if (m?.source === 'catalog' && typeof m.id === 'string') model = { source: 'catalog', id: m.id, ...(isNum(m.version) ? { version: m.version } : {}) };
-  else if (m?.source === 'asset' && typeof m.hash === 'string' && /^[0-9a-f]{64}$/.test(m.hash)) model = { source: 'asset', hash: m.hash, name: String(m.name ?? 'Modelo') };
+  else if (m?.source === 'asset' && typeof m.hash === 'string' && /^[0-9a-f]{64}$/.test(m.hash)) model = { source: 'asset', hash: m.hash, name: String(m.name ?? 'Modelo'), ...(m.config && typeof m.config === 'object' && !Array.isArray(m.config) ? { config: m.config } : {}) };
   if (!model) return null;
   const zones: Garment3DData['zones'] = {};
   for (const z of PRINT_ZONES) {

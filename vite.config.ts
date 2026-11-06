@@ -9,7 +9,9 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lcms-wasm'],
     // evitar recargas a mitad de sesión cuando se abre por primera vez un módulo pesado
-    include: ['imagetracerjs', 'utif', 'ag-psd', 'jspdf', 'pdfjs-dist'],
+    include: ['imagetracerjs', 'utif', 'ag-psd', 'jspdf', 'pdfjs-dist', 'three',
+      'three/examples/jsm/loaders/GLTFLoader.js', 'three/examples/jsm/loaders/DRACOLoader.js', 'three/examples/jsm/libs/meshopt_decoder.module.js',
+      'three/examples/jsm/controls/OrbitControls.js', 'three/examples/jsm/environments/RoomEnvironment.js'],
   },
   build: { target: 'es2022', chunkSizeWarningLimit: 4000 },
   server: { port: 5173 },
