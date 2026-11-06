@@ -9,7 +9,7 @@ import type { CollabRole, Doc } from '../core/types';
 import * as api from './api';
 import { getSession } from './engine';
 
-const COLORS = ['#ff6b6b', '#ffa94d', '#ffd43b', '#69db7c', '#38d9a9', '#4dabf7', '#748ffc', '#b197fc', '#f783ac', '#d7f25c', '#63e6be', '#ff8787'];
+const COLORS = ['#ff6b6b', '#ffa94d', '#ffd43b', '#69db7c', '#38d9a9', '#4dabf7', '#748ffc', '#b197fc', '#f783ac', '#d21625', '#63e6be', '#ff8787'];
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?';
 
 async function copy(text: string, msg = 'Enlace copiado') {

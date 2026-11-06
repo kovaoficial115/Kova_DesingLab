@@ -8,6 +8,7 @@ import { curveLut } from '../../engine/pixels';
 import { runOp } from '../../engine/workerClient';
 import { layerContent } from '../../core/render';
 import { getImageData } from '../../core/util';
+import { KOVA } from '../theme';
 
 const icons: Record<AdjustmentType, any> = {
   brightnessContrast: Sun, levels: BarChart3, curves: Spline, exposure: SunMedium, vibrance: Droplet, hueSaturation: Palette,
@@ -99,7 +100,7 @@ function LevelsEditor({ l, a }: { l: Layer; a: Adjustment }) {
       g.fillStyle = '#8b8b93';
       for (let i = 0; i < 256; i++) { const h = Math.min(160, (hist[i] / mx) * 150); g.fillRect(i * 2, 160 - h, 2, h); }
     }
-    g.fillStyle = '#d7f25c';
+    g.fillStyle = KOVA.red;
     g.fillRect(a.params.inBlack * 2, 0, 2, 160); g.fillRect(a.params.inWhite * 2 - 2, 0, 2, 160);
   }, [hist, a.params.inBlack, a.params.inWhite]);
   return (

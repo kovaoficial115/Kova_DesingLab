@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FolderOpen, Upload, Trash2, RotateCcw, Grid3x3, Eraser, ScanLine, Layers, Shirt, FileImage, ArrowRight, Printer } from 'lucide-react';
 import { useStore, set, withBusy, toast } from '../core/store';
-import { KovaMark } from './MenuBar';
+import { KovaK, BrandIcon } from './components/Brand';
 import { newDoc } from '../core/doc';
 import { addDoc } from '../core/actions';
 import { listLibrary, loadFromLibrary, deleteFromLibrary, type ProjectMeta } from '../io/project';
@@ -9,6 +9,7 @@ import { openFiles, pickFiles, listRecovery, discardAutosave } from '../io/fileO
 import { halftone, defaultHalftone } from '../engine/halftone';
 import { openDialog, displayKeys, commands } from './commands';
 import { SharedProjects } from '../collab/SharedProjects';
+import { KOVA } from './theme';
 
 export const DOC_PRESETS = [
   { id: 'chest', name: 'Pecho estándar', w: 28, h: 35, unit: 'cm', dpi: 300, hint: 'Frontal adulto' },
@@ -46,10 +47,10 @@ function HeroCanvas() {
         const lum = 255 * (1 - Math.max(0, Math.min(1, v)));
         d[i] = d[i + 1] = d[i + 2] = lum; d[i + 3] = 255;
       }
-      const out = halftone(src, { ...defaultHalftone, mode: 'mono', cellPx: 7, angle: 22.5 + Math.sin(t * 0.3) * 8, antialias: true, minDot: 0.02, maxDot: 1, inkColor: [215, 242, 92], sample: 'cell' });
+      const out = halftone(src, { ...defaultHalftone, mode: 'mono', cellPx: 7, angle: 22.5 + Math.sin(t * 0.3) * 8, antialias: true, minDot: 0.02, maxDot: 1, inkColor: [210, 22, 37], sample: 'cell' });
       const g = c.getContext('2d')!;
       if (c.width !== W) { c.width = W; c.height = H; }
-      g.fillStyle = '#0b0b0d'; g.fillRect(0, 0, W, H);
+      g.fillStyle = KOVA.navy; g.fillRect(0, 0, W, H);
       const tmp = new ImageData(out.data as any, W, H);
       const off = document.createElement('canvas'); off.width = W; off.height = H;
       off.getContext('2d')!.putImageData(tmp, 0, 0);
@@ -86,7 +87,7 @@ export function Home() {
       <div className="home-shell">
         <div className="home-left">
           <div className="row" style={{ gap: 10 }}>
-            <div className="brand-logo" style={{ width: 30, height: 30, borderRadius: 8 }}><KovaMark size={18} /></div>
+            <KovaK size={34} />
             <div>
               <div style={{ fontWeight: 700, fontSize: 15 }}>Kova<span className="muted" style={{ fontWeight: 500 }}>_DesignLab</span></div>
               <div className="tiny muted">Editor de producción para impresión DTF</div>

@@ -10,6 +10,7 @@ import { childrenOf } from '../../core/doc';
 import * as A from '../../core/actions';
 import { Select, NumberField } from '../components/controls';
 import { openDialog } from '../commands';
+import { KOVA } from '../theme';
 
 const setSelOpacity = (v: number) => (st: DocState): DocState => ({ ...st, layers: st.layers.map(x => (st.selectedLayerIds.includes(x.id) ? { ...x, opacity: v / 100 } : x)) });
 
@@ -87,14 +88,14 @@ function LayerRow({ l, depth, doc, drop, setDrop }: { l: Layer; depth: number; d
         </>
       ) : (
         <div className="thumb" title="Ctrl/⌘+clic: cargar selección" onClick={e => { if (e.metaKey || e.ctrlKey) { e.stopPropagation(); A.selectLayerAlpha(l.id); } else if (l.mask) useStore.setState(s => ({ opts: { ...s.opts, brushTarget: 'pixels' } })); }}
-          style={sel && l.mask && target === 'pixels' ? { boxShadow: '0 0 0 2px #d7f25c' } : undefined}>
+          style={sel && l.mask && target === 'pixels' ? { boxShadow: '0 0 0 2px ' + KOVA.red } : undefined}>
           <Thumb l={l} />
         </div>
       )}
       {l.mask && (
         <>
           <Link2 size={10} className="muted" />
-          <div className="thumb mask" title="Máscara (Mayús+clic: activar/desactivar)" style={{ opacity: l.maskEnabled ? 1 : 0.35, boxShadow: sel && target === 'mask' ? '0 0 0 2px #d7f25c' : undefined }}
+          <div className="thumb mask" title="Máscara (Mayús+clic: activar/desactivar)" style={{ opacity: l.maskEnabled ? 1 : 0.35, boxShadow: sel && target === 'mask' ? '0 0 0 2px ' + KOVA.red : undefined }}
             onClick={e => { e.stopPropagation(); if (e.shiftKey) A.updateLayer(l.id, { maskEnabled: !l.maskEnabled }, 'Activar máscara'); else { A.selectLayers([l.id]); useStore.setState(s => ({ opts: { ...s.opts, brushTarget: 'mask' } })); } }}>
             <Thumb l={l} mask />
           </div>

@@ -8,6 +8,7 @@ import { createCanvas, ctx2d } from '../../core/util';
 import { pickFiles } from '../../io/fileOps';
 import { sourceFromArtboard, sourcesFromFile, type DesignSource } from '../../io/sources';
 import type { Layer } from '../../core/types';
+import { KOVA } from '../theme';
 
 // ---------- empaquetado MaxRects (bottom-left) ----------
 interface R { x: number; y: number; w: number; h: number }
@@ -134,7 +135,7 @@ export function GangSheetDialog({ onClose }: { onClose: () => void }) {
     const g = ctx2d(c);
     g.clearRect(0, 0, c.width, c.height);
     const m = px(marginMm / 10) * k;
-    g.strokeStyle = 'rgba(90,149,255,.6)'; g.setLineDash([4, 4]); g.strokeRect(m, m, c.width - 2 * m, c.height - 2 * m); g.setLineDash([]);
+    g.strokeStyle = KOVA.arenaA(.45); g.setLineDash([4, 4]); g.strokeRect(m, m, c.width - 2 * m, c.height - 2 * m); g.setLineDash([]);
     if (!cur) return;
     for (const p of cur.placed) {
       const it = items[p.item];
@@ -144,7 +145,7 @@ export function GangSheetDialog({ onClose }: { onClose: () => void }) {
       const dw = (p.rot ? p.h : p.w) * k, dh = (p.rot ? p.w : p.h) * k;
       g.drawImage(it.canvas, -dw / 2, -dh / 2, dw, dh);
       g.restore();
-      g.strokeStyle = 'rgba(215,242,92,.55)'; g.strokeRect(p.x * k + 0.5, p.y * k + 0.5, p.w * k, p.h * k);
+      g.strokeStyle = KOVA.redA(.55); g.strokeRect(p.x * k + 0.5, p.y * k + 0.5, p.w * k, p.h * k);
     }
   }, [cur, items, sheetCm, maxLen, marginMm, trimLen, dpi]);
 

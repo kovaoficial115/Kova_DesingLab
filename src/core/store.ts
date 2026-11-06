@@ -119,7 +119,7 @@ export const useStore = create<AppState>(() => ({
   busy: null,
   renderTick: 0,
   cursor: null,
-  swatches: ['#000000', '#ffffff', '#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#8e8e93', '#d7f25c', '#1c1c1e'],
+  swatches: ['#000000', '#ffffff', '#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#8e8e93', '#d21625', '#00001f', '#f0e7de'],
   ...loadPrefs(),
 }));
 

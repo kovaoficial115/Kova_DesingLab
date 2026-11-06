@@ -7,6 +7,7 @@ import { pickFiles } from '../../io/fileOps';
 import { sourceFromArtboard, sourcesFromFile, type DesignSource } from '../../io/sources';
 import { newDocFromCanvas } from '../../core/actions';
 import { SourcePicker } from '../components/SourcePicker';
+import { KOVA } from '../theme';
 
 // Lienzo del mockup en unidades fijas; el pecho de la prenda dibujada ocupa CHEST unidades.
 const MW = 1000, MH = 1100, CHEST = 540;
@@ -185,7 +186,7 @@ export function MockupDialog({ onClose }: { onClose: () => void }) {
       g.restore();
       if (showSel && p.id === selId) {
         g.save(); g.translate(r.cx, r.cy); g.rotate((p.rotation * Math.PI) / 180);
-        g.strokeStyle = '#d7f25c'; g.setLineDash([8, 6]); g.lineWidth = 2; g.strokeRect(-r.w / 2, -r.h / 2, r.w, r.h);
+        g.strokeStyle = KOVA.red; g.setLineDash([8, 6]); g.lineWidth = 2; g.strokeRect(-r.w / 2, -r.h / 2, r.w, r.h);
         g.restore();
       }
     }

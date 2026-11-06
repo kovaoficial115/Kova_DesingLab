@@ -10,6 +10,7 @@ import { MenuList, type Item } from './MenuBar';
 import { placeFiles } from '../io/fileOps';
 import { softProof, channelView } from '../engine/cms';
 import { Slider } from './components/controls';
+import { KOVA } from './theme';
 
 export const keys = { space: false };
 
@@ -94,14 +95,14 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
 
   // bordes y nombres de mesas
   g.save();
-  g.font = `${11 * dpr}px Inter, sans-serif`;
+  g.font = `500 ${11 * dpr}px ${KOVA.font}`;
   for (const r of abRects) {
     const active = r.a.id === s.activeArtboardId;
-    g.strokeStyle = active ? 'rgba(215,242,92,.55)' : 'rgba(255,255,255,.12)';
+    g.strokeStyle = active ? KOVA.redA(.55) : 'rgba(255,255,255,.12)';
     g.lineWidth = dpr;
     g.strokeRect(Math.round(r.x) + 0.5, Math.round(r.y) + 0.5, Math.round(r.w), Math.round(r.h));
     if (s.artboards.length > 1 || active) {
-      g.fillStyle = active ? '#d7f25c' : '#8b8b93';
+      g.fillStyle = active ? KOVA.red : '#8b8b93';
       const unit = st.unit;
       const label = `${r.a.name}  ·  ${fromPx(r.a.w, unit, r.a.dpi).toFixed(unit === 'px' ? 0 : 1)}×${fromPx(r.a.h, unit, r.a.dpi).toFixed(unit === 'px' ? 0 : 1)} ${unit} @ ${r.a.dpi} ppp`;
       g.fillText(label, r.x, r.y - 7 * dpr);
@@ -167,7 +168,7 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
     g.beginPath(); g.rect(sx(ab.x), sy(ab.y), ab.w * v.zoom, ab.h * v.zoom); g.clip();
     for (const [stp, alpha] of [[sub, 0.08], [step, 0.2]] as [number, number][]) {
       if (stp * v.zoom < 6) continue;
-      g.strokeStyle = `rgba(90,149,255,${alpha})`;
+      g.strokeStyle = KOVA.arenaA(alpha);
       g.lineWidth = 1;
       g.beginPath();
       for (let x = ab.x; x <= ab.x + ab.w; x += stp) { const px = Math.round(sx(x)) + 0.5; g.moveTo(px, sy(ab.y)); g.lineTo(px, sy(ab.y + ab.h)); }
@@ -216,7 +217,7 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
   if (showBox) {
     const ids = new Set(s.selectedLayerIds);
     g.save();
-    g.strokeStyle = '#5a95ff';
+    g.strokeStyle = KOVA.red;
     g.lineWidth = 1;
     for (const l of s.layers) {
       if (!ids.has(l.id) || l.kind === 'group') continue;
@@ -292,12 +293,12 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
   }
   if (overlay.artboardDraft) {
     const r = overlay.artboardDraft;
-    g.strokeStyle = '#d7f25c'; g.setLineDash([6, 4]);
+    g.strokeStyle = KOVA.red; g.setLineDash([6, 4]);
     g.strokeRect(sx(r.x) + 0.5, sy(r.y) + 0.5, r.w * v.zoom, r.h * v.zoom);
     g.setLineDash([]);
   }
   if (st.tool === 'artboard') {
-    g.fillStyle = '#d7f25c';
+    g.fillStyle = KOVA.red;
     for (const a of s.artboards) g.fillRect(sx(a.x + a.w) - 4, sy(a.y + a.h) - 4, 8, 8);
   }
   if (overlay.snapLines?.length) {
@@ -317,12 +318,12 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
     g.strokeStyle = 'rgba(255,255,255,.9)'; g.beginPath(); g.arc(sx(b.x), sy(b.y), r, 0, Math.PI * 2); g.stroke();
   }
   if (compareX != null) {
-    g.fillStyle = '#d7f25c';
+    g.fillStyle = KOVA.red;
     g.fillRect(compareX - 1, 0, 2, H);
     g.beginPath(); g.arc(compareX, H / 2, 12, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#111'; g.font = '600 10px Inter'; g.textAlign = 'center'; g.fillText('⇆', compareX, H / 2 + 4);
+    g.fillStyle = '#111'; g.font = `700 10px ${KOVA.font}`; g.textAlign = 'center'; g.fillText('⇆', compareX, H / 2 + 4);
     g.fillStyle = 'rgba(20,20,24,.85)'; g.fillRect(compareX - 70, 10, 60, 20); g.fillRect(compareX + 10, 10, 60, 20);
-    g.fillStyle = '#fff'; g.font = '11px Inter'; g.fillText('Antes', compareX - 40, 24); g.fillText('Después', compareX + 40, 24);
+    g.fillStyle = '#fff'; g.font = `500 11px ${KOVA.font}`; g.fillText('Antes', compareX - 40, 24); g.fillText('Después', compareX + 40, 24);
   }
   g.restore();
 }
@@ -367,7 +368,7 @@ function drawRuler(c: HTMLCanvasElement, axis: 'x' | 'y', len: number, dpr: numb
   // posición del cursor
   const cur = st.cursor;
   if (cur) {
-    g.strokeStyle = '#d7f25c';
+    g.strokeStyle = KOVA.red;
     g.beginPath();
     if (axis === 'x') { const p = cur.x * v.zoom + v.panX; g.moveTo(p, 0); g.lineTo(p, T); }
     else { const p = cur.y * v.zoom + v.panY; g.moveTo(0, p); g.lineTo(T, p); }
@@ -552,7 +553,7 @@ export function Viewport({ doc }: { doc: Doc }) {
       <div className="ruler" style={{ cursor: 'col-resize', overflow: 'hidden' }} onPointerDown={startGuide('x')}>{showRulers && <canvas ref={rulerY} />}</div>
       <div
         id="kova-viewport" ref={wrapRef} className="viewport"
-        style={{ cursor: cursorCss, outline: dragOver ? '2px dashed #d7f25c' : undefined, outlineOffset: -6 }}
+        style={{ cursor: cursorCss, outline: dragOver ? `2px dashed ${KOVA.red}` : undefined, outlineOffset: -6 }}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
         onPointerLeave={() => { set({ cursor: null }); tools[tool]?.leave?.(); }}
         onDoubleClick={onDbl}

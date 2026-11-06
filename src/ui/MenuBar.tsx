@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, Home, Download, Undo2, Redo2 } from 'lucide-react';
 import { commands, displayKeys, runCommand } from './commands';
 import { useStore, set } from '../core/store';
+import { KovaK } from './components/Brand';
 import type { PanelId } from '../core/store';
 
 export type Item = string | '-' | { head: string } | { label: string; sub: Item[] } | { label: string; run: () => void; checked?: () => boolean };
@@ -111,8 +112,8 @@ export function MenuBar() {
   return (
     <div className="menubar">
       <div className="brand" onClick={() => set({ screen: 'home' })} title="Menú principal">
-        <div className="brand-logo"><KovaMark size={14} /></div>
-        <span>Kova<small>_DesignLab</small></span>
+        <KovaK size={24} />
+        <span className="brand-name">Design Lab</span>
       </div>
       {menus.map((m, i) => (
         <button key={m.label} className={'menu-trigger' + (open === i ? ' open' : '')}
@@ -135,8 +136,3 @@ export function MenuBar() {
   );
 }
 
-export function KovaMark({ size = 16, color = '#d7f25c' }: { size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32"><path d="M9 6v20M9 16l11-10M12.8 12.6L21 26" stroke={color} strokeWidth="3.4" fill="none" strokeLinecap="round" /></svg>
-  );
-}
