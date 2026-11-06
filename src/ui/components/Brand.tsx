@@ -13,6 +13,9 @@ export function KovaK({ size = 24, title = 'KOVA' }: { size?: number; title?: st
 
 // Recursos gráficos de la marca (manual 3.5). Decorativos: se usan con moderación.
 export const brandIcons = { spark, sparkDuo, orbit };
+/** Icono gráfico de marca (uso puntual). Toma el color del texto (currentColor) mediante máscara. */
 export function BrandIcon({ name, size = 16, className, style }: { name: keyof typeof brandIcons; size?: number; className?: string; style?: React.CSSProperties }) {
-  return <img src={brandIcons[name]} alt="" aria-hidden width={size} height={size} draggable={false} className={className} style={{ objectFit: 'contain', ...style }} />;
+  const mask = `url("${brandIcons[name]}") center / contain no-repeat`;
+  return <span aria-hidden="true" className={className}
+    style={{ display: 'inline-block', width: size, height: size, flexShrink: 0, background: 'currentColor', WebkitMask: mask, mask, ...style }} />;
 }

@@ -112,10 +112,10 @@ export function Modal(props: { title: React.ReactNode; icon?: React.ReactNode; o
   }, [props.onClose]);
   return (
     <div className="modal-back" onPointerDown={e => { if (e.target === e.currentTarget) props.onClose(); }}>
-      <div className="modal" style={{ width: props.width ?? 460, height: props.height }} onKeyDown={e => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" style={{ width: props.width ?? 460, height: props.height }} onKeyDown={e => e.stopPropagation()}>
         <div className="modal-head">
           <h3>{props.icon}{props.title}</h3>
-          <button className="icon-btn" onClick={props.onClose} title="Cerrar (Esc)"><X size={16} /></button>
+          <button className="icon-btn" onClick={props.onClose} title="Cerrar (Esc)" aria-label="Cerrar"><X size={16} /></button>
         </div>
         <div className="modal-body" style={{ flex: 1 }}>{props.children}</div>
         {props.footer && <div className="modal-foot">{props.footer}</div>}

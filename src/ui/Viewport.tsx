@@ -33,7 +33,7 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.globalCompositeOperation = 'source-over';
   g.globalAlpha = 1;
-  g.fillStyle = '#111114';
+  g.fillStyle = KOVA.pasteboard;
   g.fillRect(0, 0, canvas.width, canvas.height);
   const s = doc.state;
   const z = v.zoom * dpr;
@@ -65,7 +65,7 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
     const cx = compareX * dpr;
     g.save();
     g.beginPath(); g.rect(0, 0, cx, canvas.height); g.clip();
-    g.fillStyle = '#111114'; g.fillRect(0, 0, cx, canvas.height);
+    g.fillStyle = KOVA.pasteboard; g.fillRect(0, 0, cx, canvas.height);
     paintArtboards();
     renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, bypassIds: new Set(s.layers.map(l => l.id)) });
     g.restore();
@@ -338,15 +338,15 @@ function drawRuler(c: HTMLCanvasElement, axis: 'x' | 'y', len: number, dpr: numb
   c.style.width = W + 'px'; c.style.height = H + 'px';
   const g = ctx2d(c);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.fillStyle = '#17171b'; g.fillRect(0, 0, W, H);
+  g.fillStyle = KOVA.panel; g.fillRect(0, 0, W, H);
   if (!ab) return;
   const pxPerUnit = toPx(1, st.unit, ab.dpi) * v.zoom;
   const step = niceStep(pxPerUnit);
   const origin = axis === 'x' ? ab.x * v.zoom + v.panX : ab.y * v.zoom + v.panY;
   // zona de la mesa activa
-  g.fillStyle = '#1f1f24';
+  g.fillStyle = KOVA.panel2;
   if (axis === 'x') g.fillRect(origin, 0, ab.w * v.zoom, T); else g.fillRect(0, origin, T, ab.h * v.zoom);
-  g.strokeStyle = '#4a4a52'; g.fillStyle = '#8b8b93';
+  g.strokeStyle = KOVA.tick; g.fillStyle = KOVA.muted;
   g.font = '9px JetBrains Mono, monospace';
   g.lineWidth = 1;
   const startU = Math.floor(-origin / pxPerUnit / step) * step;
@@ -374,7 +374,7 @@ function drawRuler(c: HTMLCanvasElement, axis: 'x' | 'y', len: number, dpr: numb
     else { const p = cur.y * v.zoom + v.panY; g.moveTo(0, p); g.lineTo(T, p); }
     g.stroke();
   }
-  g.strokeStyle = '#26262c';
+  g.strokeStyle = KOVA.line;
   g.beginPath();
   if (axis === 'x') { g.moveTo(0, T - 0.5); g.lineTo(W, T - 0.5); } else { g.moveTo(T - 0.5, 0); g.lineTo(T - 0.5, H); }
   g.stroke();

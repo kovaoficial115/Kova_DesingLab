@@ -114,7 +114,7 @@ function ChannelsPanel({ doc }: { doc: Doc }) {
   );
 }
 
-export function Dock({ doc }: { doc: Doc }) {
+export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?: boolean; open?: boolean }) {
   const panels = useStore(s => s.panels);
   const width = useStore(s => s.rightWidth);
   const [dragId, setDragId] = useState<PanelId | null>(null);
@@ -145,21 +145,29 @@ export function Dock({ doc }: { doc: Doc }) {
     }
   };
   return (
-    <div className="dock" style={{ width }}>
-      <div className="dock-resizer" onPointerDown={startResize} />
+    <div className={'dock' + (drawer ? ' drawer' : '') + (open ? ' open' : '')} style={drawer ? undefined : { width }}
+      role={drawer ? 'dialog' : undefined} aria-label={drawer ? 'Paneles' : undefined} aria-hidden={drawer && !open ? true : undefined}>
+      {drawer ? (
+        <div className="dock-head">
+          <span className="grow">Paneles</span>
+          <button className="icon-btn sm" title="Cerrar paneles" aria-label="Cerrar paneles" onClick={() => set({ dockOpen: false })}><X size={13} /></button>
+        </div>
+      ) : <div className="dock-resizer" onPointerDown={startResize} title="Arrastra para cambiar el ancho" />}
       {panels.filter(p => p.visible).map(p => {
         const M = meta[p.id];
         return (
           <div key={p.id} className={'panel' + (p.id === 'layers' && !p.collapsed ? ' fill' : '') + (overId === p.id && dragId !== p.id ? ' drag-over' : '')}
             onDragOver={e => { if (dragId) { e.preventDefault(); setOverId(p.id); } }}
             onDrop={e => { e.preventDefault(); if (dragId && dragId !== p.id) reorder(dragId, p.id); setDragId(null); setOverId(null); }}>
-            <div className="panel-head" onClick={() => toggle(p.id, { collapsed: !p.collapsed })}>
+            <div className="panel-head" role="button" tabIndex={0} aria-expanded={!p.collapsed}
+              onClick={() => toggle(p.id, { collapsed: !p.collapsed })}
+              onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); toggle(p.id, { collapsed: !p.collapsed }); } }}>
               <span className="grip" draggable onDragStart={e => { setDragId(p.id); e.dataTransfer.setData('text/panel', p.id); }} onDragEnd={() => { setDragId(null); setOverId(null); }} onClick={e => e.stopPropagation()} title="Arrastra para reordenar">
                 <GripVertical size={13} />
               </span>
               <span className="title"><M.icon size={13} />{M.title}</span>
               {p.collapsed ? <ChevronRight size={14} className="muted" /> : <ChevronDown size={14} className="muted" />}
-              <button className="icon-btn sm" title="Ocultar panel (Ventana para mostrar)" onClick={e => { e.stopPropagation(); toggle(p.id, { visible: false }); }}><X size={12} /></button>
+              <button className="icon-btn sm" title="Ocultar panel (Ventana para mostrar)" aria-label={`Ocultar ${M.title}`} onClick={e => { e.stopPropagation(); toggle(p.id, { visible: false }); }}><X size={12} /></button>
             </div>
             {!p.collapsed && <div className="panel-body">{body(p.id)}</div>}
           </div>

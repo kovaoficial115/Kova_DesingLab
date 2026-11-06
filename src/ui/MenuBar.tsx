@@ -1,6 +1,6 @@
 import { TopbarCollab } from '../collab/ui';
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Home, Download, Undo2, Redo2 } from 'lucide-react';
+import { Check, ChevronRight, Home, Download, Undo2, Redo2, Menu as MenuIcon, PanelRight } from 'lucide-react';
 import { commands, displayKeys, runCommand } from './commands';
 import { useStore, set } from '../core/store';
 import { KovaK } from './components/Brand';
@@ -13,7 +13,11 @@ const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propi
 function panelToggle(id: PanelId): Item {
   return {
     label: panelNames[id],
-    run: () => set(s => ({ panels: s.panels.map(p => (p.id === id ? { ...p, visible: !p.visible, collapsed: false } : p)) })),
+    // al mostrar un panel en pantallas estrechas se abre el cajón para que se vea
+    run: () => set(s => {
+      const show = !s.panels.find(p => p.id === id)?.visible;
+      return { panels: s.panels.map(p => (p.id === id ? { ...p, visible: show, collapsed: false } : p)), dockOpen: show || s.dockOpen };
+    }),
     checked: () => !!useStore.getState().panels.find(p => p.id === id)?.visible,
   };
 }
@@ -65,13 +69,15 @@ export function MenuList({ items, onClose, x, y }: { items: Item[]; onClose: () 
     setPos({ x: Math.min(x, window.innerWidth - r.width - 8), y: Math.min(y, window.innerHeight - r.height - 8) });
   }, [x, y]);
   return (
-    <div className="menu-pop" ref={ref} style={{ left: pos.x, top: pos.y }} onPointerDown={e => e.stopPropagation()}>
+    <div className="menu-pop" role="menu" ref={ref} style={{ left: pos.x, top: pos.y }} onPointerDown={e => e.stopPropagation()}>
       {items.map((it, i) => {
         if (it === '-') return <div key={i} className="menu-sep" />;
         if (typeof it === 'object' && 'head' in it) return <div key={i} className="menu-head">{it.head}</div>;
         if (typeof it === 'object' && 'sub' in it) {
           return (
-            <div key={i} className="menu-item" onPointerEnter={e => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setSub({ i, x: r.right + 2, y: r.top - 5 }); }}>
+            <div key={i} className="menu-item" role="menuitem" aria-haspopup="menu" aria-expanded={sub?.i === i}
+              onPointerEnter={e => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setSub({ i, x: r.right + 2, y: r.top - 5 }); }}
+              onClick={e => { if (e.target !== e.currentTarget) return; const r = e.currentTarget.getBoundingClientRect(); setSub({ i, x: r.right + 2, y: r.top - 5 }); }}>
               <span className="chk" />{it.label}<span className="sc"><ChevronRight size={12} /></span>
               {sub?.i === i && <MenuList items={it.sub} onClose={onClose} x={sub.x} y={sub.y} />}
             </div>
@@ -79,7 +85,7 @@ export function MenuList({ items, onClose, x, y }: { items: Item[]; onClose: () 
         }
         if (typeof it === 'object' && 'run' in it) {
           return (
-            <div key={i} className="menu-item" onPointerEnter={() => setSub(null)} onClick={() => { onClose(); it.run(); }}>
+            <div key={i} className="menu-item" role="menuitemcheckbox" aria-checked={!!it.checked?.()} onPointerEnter={() => setSub(null)} onClick={() => { onClose(); it.run(); }}>
               <span className="chk">{it.checked?.() && <Check size={12} />}</span>{it.label}
             </div>
           );
@@ -88,7 +94,7 @@ export function MenuList({ items, onClose, x, y }: { items: Item[]; onClose: () 
         if (!c) return null;
         const disabled = c.enabled ? !c.enabled() : false;
         return (
-          <div key={i} className={'menu-item' + (disabled ? ' disabled' : '')} onPointerEnter={() => setSub(null)} onClick={() => { onClose(); runCommand(it as string); }}>
+          <div key={i} className={'menu-item' + (disabled ? ' disabled' : '')} role="menuitem" aria-disabled={disabled || undefined} onPointerEnter={() => setSub(null)} onClick={() => { onClose(); runCommand(it as string); }}>
             <span className="chk">{c.checked?.() && <Check size={12} />}</span>{c.label}<span className="sc">{displayKeys(c.keys)}</span>
           </div>
         );
@@ -97,42 +103,62 @@ export function MenuList({ items, onClose, x, y }: { items: Item[]; onClose: () 
   );
 }
 
-export function MenuBar() {
+// Todos los menús agrupados para el botón «Menú» de pantallas estrechas
+const allMenus: Item[] = menus.map(m => ({ label: m.label, sub: m.items }));
+const BURGER = -1;
+
+export function MenuBar({ compact = false }: { compact?: boolean }) {
   const [open, setOpen] = useState<number | null>(null);
   const [anchor, setAnchor] = useState({ x: 0, y: 0 });
   const doc = useStore(s => s.docs.find(d => d.id === s.activeDocId));
+  const dockOpen = useStore(s => s.dockOpen);
   useStore(s => s.renderTick); // refresca estados habilitados
   useEffect(() => {
     if (open == null) return;
     const close = () => setOpen(null);
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null); };
     window.addEventListener('pointerdown', close);
-    return () => window.removeEventListener('pointerdown', close);
+    window.addEventListener('keydown', esc);
+    window.addEventListener('resize', close);
+    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', esc); window.removeEventListener('resize', close); };
   }, [open]);
   const openAt = (i: number, el: HTMLElement) => { const r = el.getBoundingClientRect(); setAnchor({ x: r.left, y: r.bottom + 4 }); setOpen(i); };
+  const toggleAt = (i: number, el: HTMLElement) => (open === i ? setOpen(null) : openAt(i, el));
   return (
     <div className="menubar">
-      <div className="brand" onClick={() => set({ screen: 'home' })} title="Menú principal">
-        <KovaK size={24} />
+      <button className="brand" onClick={() => set({ screen: 'home' })} title="Menú principal" aria-label="KOVA Design Lab · menú principal">
+        <KovaK size={24} title="" />
         <span className="brand-name">Design Lab</span>
+      </button>
+      <button className={'menu-trigger menu-burger' + (open === BURGER ? ' open' : '')} aria-haspopup="menu" aria-expanded={open === BURGER}
+        onPointerDown={e => { e.stopPropagation(); toggleAt(BURGER, e.currentTarget); }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); toggleAt(BURGER, e.currentTarget); } }}>
+        <MenuIcon size={15} /><span>Menú</span>
+      </button>
+      <div className="menus">
+        {menus.map((m, i) => (
+          <button key={m.label} className={'menu-trigger' + (open === i ? ' open' : '')} aria-haspopup="menu" aria-expanded={open === i}
+            onPointerDown={e => { e.stopPropagation(); toggleAt(i, e.currentTarget); }}
+            onPointerEnter={e => { if (open != null && open !== i && open !== BURGER) openAt(i, e.currentTarget); }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); toggleAt(i, e.currentTarget); } }}>
+            {m.label}
+          </button>
+        ))}
       </div>
-      {menus.map((m, i) => (
-        <button key={m.label} className={'menu-trigger' + (open === i ? ' open' : '')}
-          onPointerDown={e => { e.stopPropagation(); open === i ? setOpen(null) : openAt(i, e.currentTarget); }}
-          onPointerEnter={e => { if (open != null && open !== i) openAt(i, e.currentTarget); }}>
-          {m.label}
-        </button>
-      ))}
-      {open != null && <MenuList items={menus[open].items} onClose={() => setOpen(null)} x={anchor.x} y={anchor.y} />}
+      {open != null && <MenuList items={open === BURGER ? allMenus : menus[open].items} onClose={() => setOpen(null)} x={anchor.x} y={anchor.y} />}
       <div className="grow" />
-      {doc && <span className="small muted" style={{ marginRight: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }} title={doc.lastLabel}>{doc.lastLabel}</span>}
-      <button className="icon-btn" title="Deshacer" disabled={!doc?.past.length} onClick={() => runCommand('edit.undo')}><Undo2 size={15} /></button>
-      <button className="icon-btn" title="Rehacer" disabled={!doc?.future.length} onClick={() => runCommand('edit.redo')}><Redo2 size={15} /></button>
+      {doc && <span className="small muted last-label" title={doc.lastLabel}>{doc.lastLabel}</span>}
+      <button className="icon-btn" title="Deshacer" aria-label="Deshacer" disabled={!doc?.past.length} onClick={() => runCommand('edit.undo')}><Undo2 size={15} /></button>
+      <button className="icon-btn" title="Rehacer" aria-label="Rehacer" disabled={!doc?.future.length} onClick={() => runCommand('edit.redo')}><Redo2 size={15} /></button>
       <div className="vsep" />
-      <button className="icon-btn" title="Menú principal" onClick={() => set({ screen: 'home' })}><Home size={15} /></button>
+      <button className="icon-btn" title="Menú principal" aria-label="Menú principal" onClick={() => set({ screen: 'home' })}><Home size={15} /></button>
+      {compact && doc && (
+        <button className={'icon-btn' + (dockOpen ? ' active' : '')} title="Paneles (capas, color, propiedades…)" aria-label="Mostrar paneles" aria-pressed={dockOpen}
+          onClick={() => set(s => ({ dockOpen: !s.dockOpen }))}><PanelRight size={15} /></button>
+      )}
       <div className="vsep" />
       <TopbarCollab />
-      <button className="btn primary sm" style={{ marginLeft: 6 }} disabled={!doc} onClick={() => runCommand('file.export')}><Download size={13} /> Exportar</button>
+      <button className="btn primary sm export-btn" disabled={!doc} onClick={() => runCommand('file.export')} title="Exportar"><Download size={13} /><span className="btn-label">Exportar</span></button>
     </div>
   );
 }
-

@@ -8,6 +8,7 @@ import { handleShortcut, hasInternalClip } from './commands';
 import { nudge } from '../core/actions';
 import { pasteImageBlob, pasteSvgText } from '../io/fileOps';
 import { isDragging } from '../tools/tools';
+import { useMedia, COMPACT_QUERY } from './useMedia';
 
 function isTyping(e: Event) {
   const t = e.target as HTMLElement;
@@ -53,9 +54,14 @@ export function useEditorKeys() {
 export function Editor() {
   const doc = useStore(s => s.docs.find(d => d.id === s.activeDocId));
   const hideUI = useStore(s => s.hideUI);
+  const dockOpen = useStore(s => s.dockOpen);
+  const compact = useMedia(COMPACT_QUERY);
+  // al volver a pantalla ancha el cajón deja de tener sentido
+  useEffect(() => { if (!compact && get().dockOpen) set({ dockOpen: false }); }, [compact]);
+  const showDock = !hideUI && !!doc;
   return (
-    <div className={'app' + (hideUI ? ' hide-ui' : '')}>
-      <MenuBar />
+    <div className={'app' + (hideUI ? ' hide-ui' : '') + (compact ? ' compact' : '')}>
+      <MenuBar compact={compact} />
       {!hideUI ? <OptionsBar /> : <div />}
       <div className="workspace" style={hideUI ? { gridTemplateColumns: '0 1fr 0', gap: 0 } : undefined}>
         {!hideUI ? <ToolRail /> : <div />}
@@ -69,7 +75,12 @@ export function Editor() {
             </div>
           ) : <div className="muted" style={{ display: 'grid', placeItems: 'center' }}>Abre o crea un documento</div>}
         </div>
-        {!hideUI && doc ? <Dock doc={doc} /> : <div />}
+        {compact ? (
+          showDock && <>
+            {dockOpen && <div className="dock-scrim" onPointerDown={() => set({ dockOpen: false })} />}
+            <Dock doc={doc!} drawer open={dockOpen} />
+          </>
+        ) : showDock ? <Dock doc={doc!} /> : <div />}
       </div>
       <StatusBar />
     </div>

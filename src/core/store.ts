@@ -55,6 +55,8 @@ export interface AppState {
   gridSize: number; // en la unidad actual
   gridSub: number;
   hideUI: boolean;
+  /** Cajón de paneles abierto (solo en pantallas estrechas; no se guarda). */
+  dockOpen: boolean;
   compare: boolean;
   proof: boolean;
   channelView: 'all' | 'c' | 'm' | 'y' | 'k' | 'r' | 'g' | 'b' | 'alpha';
@@ -111,6 +113,7 @@ export const useStore = create<AppState>(() => ({
   gridSize: 1,
   gridSub: 4,
   hideUI: false,
+  dockOpen: false,
   compare: false,
   proof: false,
   channelView: 'all',

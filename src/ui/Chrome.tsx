@@ -35,7 +35,7 @@ export function ToolRail() {
         const Ic = toolIcons[t];
         const c = commands[toolCmd[t]];
         return (
-          <button key={t} className={'tool' + (tool === t ? ' active' : '')} title={`${c.label} (${displayKeys(c.keys)})`} onClick={() => setTool(t)}>
+          <button key={t} className={'tool' + (tool === t ? ' active' : '')} title={`${c.label} (${displayKeys(c.keys)})`} aria-label={c.label} aria-pressed={tool === t} onClick={() => setTool(t)}>
             <Ic size={17} strokeWidth={1.8} />
           </button>
         );
@@ -227,21 +227,21 @@ export function StatusBar() {
   const cursor = useStore(s => s.cursor);
   const unit = useStore(s => s.unit);
   const view = useStore(s => (s.activeDocId ? s.views[s.activeDocId] : null));
-  if (!doc) return <div className="statusbar">Kova_DesignLab · listo</div>;
+  if (!doc) return <div className="statusbar">KOVA Design Lab · listo</div>;
   const ab = doc.state.artboards.find(a => a.id === doc.state.activeArtboardId) ?? doc.state.artboards[0];
   const f = (px: number) => fromPx(px, unit, ab.dpi).toFixed(unit === 'px' ? 0 : 2);
   const units: ('px' | 'cm' | 'mm' | 'in')[] = ['px', 'cm', 'mm', 'in'];
   return (
     <div className="statusbar">
       <span><b>{ab.name}</b> {f(ab.w)}×{f(ab.h)} {unit}</span>
-      <span>{ab.w}×{ab.h} px</span>
-      <span><b>{ab.dpi}</b> ppp</span>
-      <span>{doc.colorMode}{get().proof ? ' · prueba' : ''}</span>
+      <span className="sb-opt">{ab.w}×{ab.h} px</span>
+      <span className="sb-opt2"><b>{ab.dpi}</b> ppp</span>
+      <span className="sb-opt2">{doc.colorMode}{get().proof ? ' · prueba' : ''}</span>
       {cursor && <span>X {f(cursor.x - ab.x)} · Y {f(cursor.y - ab.y)}</span>}
-      <span>{doc.state.layers.length} capas</span>
+      <span className="sb-opt">{doc.state.layers.length} capas</span>
       {doc.state.selection && <span>Sel. {f(doc.state.selection.canvas.width)}×{f(doc.state.selection.canvas.height)}</span>}
       <div className="grow" />
-      <span>Unidades</span>
+      <span className="sb-opt">Unidades</span>
       <div className="seg">
         {units.map(u => <button key={u} className={u === unit ? 'on' : ''} onClick={() => set({ unit: u })}>{u}</button>)}
       </div>

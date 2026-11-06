@@ -33,8 +33,10 @@ function HeroCanvas() {
     const W = 300, H = 220;
     const src = new ImageData(W, H);
     let t = 0, raf = 0, last = 0;
+    // con «reducir movimiento» se dibuja un único fotograma
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const draw = (now: number) => {
-      raf = requestAnimationFrame(draw);
+      if (!(still && last)) raf = requestAnimationFrame(draw);
       if (now - last < 66) return;
       last = now; t += 0.035;
       const d = src.data;
@@ -86,17 +88,18 @@ export function Home() {
       onDrop={e => { e.preventDefault(); setOver(false); openFiles(Array.from(e.dataTransfer.files)); }}>
       <div className="home-shell">
         <div className="home-left">
-          <div className="row" style={{ gap: 10 }}>
-            <KovaK size={34} />
+          <div className="home-brand" style={{ flexWrap: 'wrap' }}>
+            <KovaK size={36} />
             <div>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>Kova<span className="muted" style={{ fontWeight: 500 }}>_DesignLab</span></div>
-              <div className="tiny muted">Editor de producción para impresión DTF</div>
+              <div className="name">KOVA Design Lab</div>
+              <div className="tiny muted" style={{ marginTop: 3 }}>Editor de producción para impresión DTF</div>
             </div>
             <div className="grow" />
             {docs.length > 0 && <button className="btn sm" onClick={() => set({ screen: 'editor' })}>Volver al editor <ArrowRight size={12} /></button>}
           </div>
 
-          <div className="col" style={{ gap: 4, marginTop: 6 }}>
+          <div className="col" style={{ gap: 6, marginTop: 6 }}>
+            <span className="home-kicker"><BrandIcon name="spark" size={12} />Nuevo documento</span>
             <h1>Empieza un diseño</h1>
             <span className="muted">Elige un formato de impresión o abre tus archivos.</span>
           </div>
@@ -105,7 +108,8 @@ export function Home() {
             {DOC_PRESETS.map(p => {
               const k = 30 / Math.max(p.w, p.h);
               return (
-                <div key={p.id} className="preset" onClick={() => createPresetDoc(p)}>
+                <div key={p.id} className="preset" role="button" tabIndex={0} aria-label={`Nuevo documento ${p.name}, ${p.w}×${p.h} ${p.unit}`}
+                  onClick={() => createPresetDoc(p)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); createPresetDoc(p); } }}>
                   <div className="shape"><div style={{ width: Math.max(6, p.w * k), height: Math.max(6, p.h * k) }} /></div>
                   <div className="small" style={{ fontWeight: 600 }}>{p.name}</div>
                   <div className="tiny muted">{p.w}×{p.h} {p.unit} · {p.dpi} ppp</div>
@@ -165,7 +169,8 @@ export function Home() {
         </div>
         <div className="home-right">
           <HeroCanvas />
-          <div className="hero-copy"><h2>Producción DTF. Perfeccionada.</h2></div>
+          <div className="hero-copy"><h2>Producción DTF.<br /><em>Perfeccionada.</em></h2></div>
+          <BrandIcon name="sparkDuo" size={44} className="hero-spark" style={{ right: 26, top: 26, color: 'var(--accent)' }} />
           <div className="hero-card">
             {features.map(f => (
               <div key={f.title} className="feat">
