@@ -6,8 +6,11 @@ import { restoreIccProfile } from './engine/cms';
 import { startAutosave } from './io/fileOps';
 import { restoreFonts, subscribeFonts } from './io/fonts';
 import { invalidateTextContent } from './core/render';
-import { bumpRender } from './core/store';
+import { bumpRender, toast } from './core/store';
+import { initStorage, onStorageBlocked } from './storage';
 
+onStorageBlocked(() => toast('Cierra las demás pestañas de KOVA Design Lab para terminar de actualizar el almacenamiento local.', 'warn'));
+initStorage().catch(e => { console.error(e); toast('El almacenamiento local no está disponible: los proyectos no se podrán guardar en este navegador.', 'error'); });
 restoreIccProfile();
 startAutosave();
 restoreFonts();

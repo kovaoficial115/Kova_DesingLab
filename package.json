@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "collab:dev": "node server/dev.mjs",
     "liveblocks:dev": "npx --yes liveblocks@1.9.0 dev --no-check",
-    "collab:check-perms": "node scripts/check-permissions.mjs"
+    "collab:check-perms": "node scripts/check-permissions.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@imgly/background-removal": "^1.5.5",
@@ -35,6 +36,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "typescript": "^5.6.3",
-    "vite": "^5.4.10"
+    "vite": "^5.4.10",
+    "vitest": "2.1.9"
   }
 }

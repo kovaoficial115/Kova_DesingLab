@@ -23,7 +23,7 @@ function panelToggle(id: PanelId): Item {
 }
 
 const menus: { label: string; items: Item[] }[] = [
-  { label: 'Archivo', items: ['file.home', '-', 'file.new', 'file.open', 'file.place', 'file.fonts', '-', 'file.share', 'file.versions', 'file.profile', '-', 'file.save', 'file.saveAs', 'file.saveLib', 'file.duplicate', '-', 'file.export', 'file.exportPng', '-', 'file.close'] },
+  { label: 'Archivo', items: ['file.home', '-', 'file.new', 'file.open', 'file.place', 'file.fonts', '-', 'file.share', 'file.versions', 'file.profile', '-', 'file.save', 'file.saveAs', 'file.saveLib', { label: 'Autoguardado', sub: ['file.autosave.0', 'file.autosave.4', 'file.autosave.30', 'file.autosave.120'] }, 'file.duplicate', '-', 'file.exportAll', 'file.importAll', 'file.backups', '-', 'file.export', 'file.exportPng', '-', 'file.close'] },
   {
     label: 'Edición', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.copyMerged', 'edit.paste', '-', 'edit.fill', 'edit.fillBg', 'edit.delete', '-',
       'edit.transform', { label: 'Transformar', sub: ['edit.flipH', 'edit.flipV', '-', 'edit.rot90', 'edit.rot-90', 'edit.rot180'] }, '-', 'edit.color', 'edit.shortcuts'],

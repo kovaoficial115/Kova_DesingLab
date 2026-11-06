@@ -4,8 +4,10 @@
 import type { Doc, DocState, Layer } from '../core/types';
 import { canvasToBlob, blobToCanvas, uid, createCanvas, ctx2d } from '../core/util';
 import { platform, type SaveTarget } from '../platform';
+import { storage, type ProjectBucket, type ProjectRecord } from '../storage';
 import { renderArtboard } from '../core/render';
 import { embedFonts, installEmbedded } from './fonts';
+import { parseKova, buildKova, KOVA_SCHEMA, KOVA_FORMAT, type EmbeddedModel } from './kova';
 
 interface SerialLayer extends Omit<Layer, 'canvas' | 'origin' | 'mask'> { canvas?: string; origin?: string; mask?: string }
 
@@ -17,6 +19,8 @@ async function dataUrlToCanvas(u: string) {
   const blob = await (await fetch(u)).blob();
   return blobToCanvas(blob);
 }
+
+const blobToDataUrl = (blob: Blob) => new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result as string); fr.onerror = () => rej(fr.error); fr.readAsDataURL(blob); });
 
 export async function serializeDoc(doc: Doc): Promise<string> {
   const assets: Record<string, string> = {};
@@ -33,18 +37,39 @@ export async function serializeDoc(doc: Doc): Promise<string> {
     layers.push({ ...rest, canvas: await ref(canvas), origin: origin && origin !== canvas ? await ref(origin) : undefined, mask: await ref(mask) });
   }
   const { selection: _sel, ...st } = doc.state;
-  return JSON.stringify({
-    format: 'kova-designlab', version: 1, id: doc.id, name: doc.name, colorMode: doc.colorMode, createdAt: doc.createdAt,
+  // un GLB propio viaja dentro del archivo para que el proyecto se abra en cualquier equipo
+  let models3d: Record<string, EmbeddedModel> | undefined;
+  const model = doc.garment3d?.model;
+  if (model?.source === 'asset') {
+    const rec = await storage.assets.get(model.hash);
+    if (rec) models3d = { [rec.hash]: { name: rec.name, mime: rec.mime, data: await blobToDataUrl(rec.blob) } };
+    else console.warn('Modelo 3D no encontrado en la biblioteca:', model.hash);
+  }
+  return JSON.stringify(buildKova({
+    id: doc.id, name: doc.name, colorMode: doc.colorMode, createdAt: doc.createdAt,
     state: { ...st, layers }, assets,
     // tipografías del usuario usadas por los textos, para abrir el proyecto en otro equipo
     fonts: embedFonts(doc.state.layers.filter(l => l.kind === 'text' && l.text).map(l => l.text!.fontFamily)),
-  });
+    ...(doc.garment3d ? { garment3d: doc.garment3d } : {}),
+    ...(models3d ? { models3d } : {}),
+  }, doc.kova?.extra, Math.max(KOVA_SCHEMA, doc.kova?.sourceVersion ?? 0)));
 }
 
-export async function deserializeDoc(json: string): Promise<Doc> {
-  const data = JSON.parse(json);
-  if (data.format !== 'kova-designlab') throw new Error('Archivo de proyecto no reconocido');
-  await installEmbedded(data.fonts);
+export interface OpenOptions {
+  /** avisos no bloqueantes (sección 3D inválida, archivo de una versión más nueva…) */
+  onWarning?: (msg: string) => void;
+}
+
+export async function deserializeDoc(json: string, opts: OpenOptions = {}): Promise<Doc> {
+  const { file: data, extra, sourceVersion, warnings } = parseKova(json);
+  warnings.forEach(w => (opts.onWarning ?? console.warn)(w));
+  await installEmbedded(data.fonts as any);
+  // modelos 3D embebidos → biblioteca de activos (deduplicados por hash)
+  for (const [hash, m] of Object.entries(data.models3d ?? {})) {
+    const blob = await (await fetch(m.data)).blob();
+    const saved = await storage.assets.put(new Blob([blob], { type: m.mime }), { type: 'model', name: m.name });
+    if (saved.hash !== hash) (opts.onWarning ?? console.warn)(`El modelo 3D «${m.name}» no coincide con su huella; se guardó como uno nuevo.`);
+  }
   const cache = new Map<string, HTMLCanvasElement>();
   const get = async (id?: string) => {
     if (!id) return undefined;
@@ -57,7 +82,21 @@ export async function deserializeDoc(json: string): Promise<Doc> {
     layers.push({ ...(l as any), canvas, origin: (await get(l.origin)) ?? canvas, mask: (await get(l.mask)) ?? null });
   }
   const state: DocState = { ...data.state, layers, selection: null };
-  return { id: data.id || uid('doc'), name: data.name, colorMode: data.colorMode || 'RGB', state, past: [], future: [], lastLabel: 'Abrir proyecto', dirty: false, createdAt: data.createdAt || Date.now() };
+  return {
+    id: data.id || uid('doc'), name: data.name, colorMode: data.colorMode, state, past: [], future: [], lastLabel: 'Abrir proyecto', dirty: false, createdAt: data.createdAt,
+    ...(data.garment3d ? { garment3d: data.garment3d } : {}),
+    kova: { sourceVersion, ...(Object.keys(extra).length ? { extra } : {}) },
+  };
+}
+
+/** Antes de que un proyecto de formato antiguo se guarde en el nuevo, conserva el original
+ *  como copia de respaldo (una sola vez; la migración se puede deshacer restaurándola). */
+export async function backupBeforeMigration(json: string) {
+  let raw: any;
+  try { raw = JSON.parse(json); } catch { return; }
+  const from = raw?.version ?? 1;
+  if (raw?.format !== KOVA_FORMAT || from >= KOVA_SCHEMA || typeof raw.id !== 'string') return;
+  await storage.backups.put({ key: `${raw.id}:v${from}`, id: raw.id, name: String(raw.name ?? 'Proyecto'), reason: 'pre-migration', created: Date.now(), schema: from, data: json }, true);
 }
 
 export async function thumbnail(doc: Doc, max = 320) {
@@ -72,52 +111,23 @@ export async function thumbnail(doc: Doc, max = 320) {
   return out.toDataURL('image/jpeg', 0.8);
 }
 
-// ---------- IndexedDB ----------
-const DB = 'kova-designlab';
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => {
-      const db = r.result;
-      if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
-      if (!db.objectStoreNames.contains('autosave')) db.createObjectStore('autosave', { keyPath: 'id' });
-    };
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-async function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  const db = await openDb();
-  return new Promise((res, rej) => {
-    const t = db.transaction(store, mode);
-    const req = fn(t.objectStore(store));
-    req.onsuccess = () => res(req.result);
-    req.onerror = () => rej(req.error);
-  });
-}
+// ---------- biblioteca local (StorageEngine) ----------
+export type { ProjectMeta } from '../storage';
+export type StoredProject = ProjectRecord;
 
-export interface ProjectMeta { id: string; name: string; updated: number; thumb: string; w: number; h: number; dpi: number; size: number }
-export interface StoredProject extends ProjectMeta { data: string }
-
-export async function saveToLibrary(doc: Doc, store: 'projects' | 'autosave' = 'projects') {
+export async function saveToLibrary(doc: Doc, store: ProjectBucket = 'projects') {
   const data = await serializeDoc(doc);
   const ab = doc.state.artboards[0];
-  const rec: StoredProject = { id: doc.id, name: doc.name, updated: Date.now(), thumb: await thumbnail(doc), w: ab.w, h: ab.h, dpi: ab.dpi, size: data.length, data };
-  await tx(store, 'readwrite', s => s.put(rec));
-  return rec;
+  return storage.projects.put({ id: doc.id, name: doc.name, updated: Date.now(), thumb: await thumbnail(doc), w: ab.w, h: ab.h, dpi: ab.dpi, size: data.length, data, schema: KOVA_SCHEMA }, store);
 }
-export async function listLibrary(store: 'projects' | 'autosave' = 'projects'): Promise<ProjectMeta[]> {
-  const all = await tx<StoredProject[]>(store, 'readonly', s => s.getAll() as IDBRequest<StoredProject[]>);
-  return all.map(({ data: _d, ...m }) => m).sort((a, b) => b.updated - a.updated);
-}
-export async function loadFromLibrary(id: string, store: 'projects' | 'autosave' = 'projects') {
-  const rec = await tx<StoredProject>(store, 'readonly', s => s.get(id) as IDBRequest<StoredProject>);
+export const listLibrary = (store: ProjectBucket = 'projects') => storage.projects.list(store);
+export async function loadFromLibrary(id: string, store: ProjectBucket = 'projects', opts: OpenOptions = {}) {
+  const rec = await storage.projects.get(id, store);
   if (!rec) throw new Error('Proyecto no encontrado');
-  return deserializeDoc(rec.data);
+  if ((rec.schema ?? 1) < KOVA_SCHEMA) await backupBeforeMigration(rec.data);
+  return deserializeDoc(rec.data, opts);
 }
-export async function deleteFromLibrary(id: string, store: 'projects' | 'autosave' = 'projects') {
-  await tx(store, 'readwrite', s => s.delete(id));
-}
+export const deleteFromLibrary = (id: string, store: ProjectBucket = 'projects') => storage.projects.delete(id, store);
 
 // ---------- archivo en disco ----------
 /** Guarda el .kova. Devuelve el destino (para el próximo «Guardar»), null si se canceló

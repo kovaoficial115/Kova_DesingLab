@@ -29,6 +29,7 @@ const dialogs: Record<string, React.LazyExoticComponent<any>> = {
   preflight: lazy(() => import('./dialogs/DtfDialogs').then(m => ({ default: m.PreflightDialog }))),
   gang: lazy(() => import('./dialogs/GangSheetDialog').then(m => ({ default: m.GangSheetDialog }))),
   mockup: lazy(() => import('./dialogs/MockupDialog').then(m => ({ default: m.MockupDialog }))),
+  backups: lazy(() => import('./dialogs/BackupsDialog').then(m => ({ default: m.BackupsDialog }))),
   'collab-identity': lazy(() => import('../collab/dialogs').then(m => ({ default: m.IdentityDialog }))),
 };
 

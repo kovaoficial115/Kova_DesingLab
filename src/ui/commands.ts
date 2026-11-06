@@ -4,7 +4,7 @@ import { collabConfigured } from '../collab/config';
 import { get, set, undo, redo, activeDoc, activeLayer, docState, toast, withBusy, selectedLayers } from '../core/store';
 import * as A from '../core/actions';
 import { setTool, applyCrop, cancelCrop, cropState } from '../tools/tools';
-import { pickFiles, openFiles, placeFiles, saveProject, saveToBrowserLibrary } from '../io/fileOps';
+import { pickFiles, openFiles, placeFiles, saveProject, saveToBrowserLibrary, autosave } from '../io/fileOps';
 import type { AdjustmentType, ToolId } from '../core/types';
 import { discardAutosave } from '../io/fileOps';
 
@@ -36,6 +36,32 @@ export const commands: Record<string, Command> = {
   'file.export': { label: 'Exportar…', keys: 'mod+e', run: () => openDialog('export'), enabled: hasDoc },
   'file.exportPng': { label: 'Exportación rápida PNG DTF', keys: 'mod+shift+e', run: () => openDialog('export', { quick: 'png' }), enabled: hasDoc },
   'file.duplicate': { label: 'Duplicar documento', run: () => A.duplicateDoc(), enabled: hasDoc },
+  'file.exportAll': { label: 'Exportar todos los proyectos…', run: () => withBusy('Exportando proyectos…', async () => {
+    const { exportAllProjects } = await import('../io/library');
+    const n = await exportAllProjects();
+    if (n === 0) toast('La biblioteca local no tiene proyectos', 'info');
+    else if (n) toast(`${n} proyecto(s) exportados en un .zip`, 'ok');
+  }) },
+  'file.importAll': { label: 'Importar copia de proyectos (.zip)…', run: async () => {
+    const [f] = await pickFiles(false, '.zip,application/zip');
+    if (!f) return;
+    await withBusy('Importando proyectos…', async () => {
+      const { importProjectsArchive } = await import('../io/library');
+      const r = await importProjectsArchive(f);
+      const parts = [`${r.added} importado(s)`];
+      if (r.copies) parts.push(`${r.copies} como copia`);
+      if (r.skipped) parts.push(`${r.skipped} ya estaba(n)`);
+      if (r.failed.length) parts.push(`${r.failed.length} con error: ${r.failed.map(x => `${x.name} (${x.error})`).join('; ')}`);
+      toast(parts.join(' · '), r.failed.length ? 'warn' : 'ok');
+      window.dispatchEvent(new Event('kova:library-changed'));
+    });
+  } },
+  'file.backups': { label: 'Copias de respaldo…', run: () => openDialog('backups') },
+  ...Object.fromEntries([0, 4, 30, 120].map(sec => [`file.autosave.${sec}`, {
+    label: sec === 0 ? 'Desactivado' : sec < 60 ? `Cada ${sec} s tras un cambio` : `Cada ${sec / 60} min tras un cambio`,
+    run: () => { set({ autosaveSec: sec }); autosave(); },
+    checked: () => get().autosaveSec === sec,
+  } satisfies Command])),
   'file.close': {
     label: 'Cerrar documento', keys: 'mod+w', enabled: hasDoc,
     run: () => {

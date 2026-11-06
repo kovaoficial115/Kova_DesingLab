@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FolderOpen, Upload, Trash2, RotateCcw, Grid3x3, Eraser, ScanLine, Layers, Shirt, FileImage, ArrowRight, Printer } from 'lucide-react';
+import { FolderOpen, Upload, Trash2, RotateCcw, Grid3x3, Eraser, ScanLine, Layers, Shirt, FileImage, ArrowRight, Printer, Archive, ArchiveRestore } from 'lucide-react';
 import { useStore, set, withBusy, toast } from '../core/store';
 import { KovaK, BrandIcon } from './components/Brand';
 import { newDoc } from '../core/doc';
@@ -7,7 +7,7 @@ import { addDoc } from '../core/actions';
 import { listLibrary, loadFromLibrary, deleteFromLibrary, type ProjectMeta } from '../io/project';
 import { openFiles, pickFiles, listRecovery, discardAutosave } from '../io/fileOps';
 import { halftone, defaultHalftone } from '../engine/halftone';
-import { openDialog, displayKeys, commands } from './commands';
+import { openDialog, displayKeys, commands, runCommand } from './commands';
 import { SharedProjects } from '../collab/SharedProjects';
 import { KOVA } from './theme';
 import { platform } from '../platform';
@@ -74,7 +74,11 @@ export function Home() {
     listLibrary().then(setRecent).catch(() => setRecent([]));
     listRecovery().then(r => setRecovery(r.filter(x => !useStore.getState().docs.some(d => d.id === x.id))));
   };
-  useEffect(refresh, []);
+  useEffect(() => {
+    refresh();
+    window.addEventListener('kova:library-changed', refresh);
+    return () => window.removeEventListener('kova:library-changed', refresh);
+  }, []);
   const features = [
     { icon: Grid3x3, title: 'Semitonos DTF', sub: 'Trama por alfa, mono, color o CMYK multicanal', cmd: 'dtf.halftone' },
     { icon: Eraser, title: 'Eliminar fondo', sub: 'IA local, por color con descontaminación de bordes', cmd: 'dtf.bg' },
@@ -147,7 +151,11 @@ export function Home() {
           <SharedProjects />
 
           <div className="col" style={{ gap: 8 }}>
-            <div className="row"><h2>Proyectos recientes</h2><span className="tiny muted">Biblioteca local de este navegador</span></div>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <h2>Proyectos recientes</h2><span className="tiny muted grow">Biblioteca local de este navegador</span>
+              <button className="btn sm ghost" title="Todos los proyectos en un .zip (copia de seguridad o para la app de escritorio)" disabled={!recent.length} onClick={() => runCommand('file.exportAll')}><Archive size={12} />Exportar todo</button>
+              <button className="btn sm ghost" title="Añadir a la biblioteca los proyectos de un .zip exportado" onClick={() => runCommand('file.importAll')}><ArchiveRestore size={12} />Importar copia</button>
+            </div>
             {recent.length === 0 ? <div className="tiny muted">Aún no hay proyectos guardados. Usa Archivo → Guardar (Ctrl/⌘+S).</div> : (
               <div className="recent-grid">
                 {recent.map(r => (

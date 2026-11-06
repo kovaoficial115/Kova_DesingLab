@@ -1,4 +1,5 @@
 import type { SaveTarget } from '../platform';
+import type { Garment3DData } from './garment3d';
 
 // Modelo de datos del documento. Los bitmaps (HTMLCanvasElement) se tratan como
 // inmutables: cualquier edición de píxeles crea un canvas nuevo (copy-on-write),
@@ -138,6 +139,10 @@ export interface Doc {
   fileHandle?: SaveTarget;
   dirty: boolean;
   createdAt: number;
+  /** configuración del Estudio 3D (sección opcional `garment3d` del .kova) */
+  garment3d?: Garment3DData;
+  /** origen del archivo: versión de formato y secciones desconocidas que se conservan al guardar */
+  kova?: { sourceVersion: number; extra?: Record<string, unknown> };
   /** documento compartido en una sala de Liveblocks */
   collab?: CollabInfo;
 }

@@ -4,6 +4,7 @@
 
 import { unzipSync } from 'fflate';
 import { uid } from '../core/util';
+import { storage } from '../storage';
 
 export type FontFormat = 'truetype' | 'opentype' | 'woff' | 'woff2';
 export interface StoredFont {
@@ -42,25 +43,6 @@ export function familyValue(family: string, fallback = 'sans-serif') { return `"
 /** Primera familia de un valor CSS `font-family`, sin comillas. */
 export function primaryFamily(value: string) { return value.split(',')[0].trim().replace(/^["']|["']$/g, ''); }
 
-// ---------- IndexedDB ----------
-const DB = 'kova-fonts', STORE = 'fonts';
-function openDb(): Promise<IDBDatabase> {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(DB, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(STORE, { keyPath: 'id' });
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  const db = await openDb();
-  return new Promise((res, rej) => {
-    const req = fn(db.transaction(STORE, mode).objectStore(STORE));
-    req.onsuccess = () => res(req.result);
-    req.onerror = () => rej(req.error);
-  });
-}
-
 // ---------- registro en el documento ----------
 const faces = new Map<string, FontFace>();
 async function register(f: StoredFont) {
@@ -73,7 +55,7 @@ async function register(f: StoredFont) {
 /** Carga al iniciar todas las fuentes guardadas. */
 export async function restoreFonts() {
   try {
-    const all = await tx<StoredFont[]>('readonly', s => s.getAll() as IDBRequest<StoredFont[]>);
+    const all = await storage.fonts.all() as StoredFont[];
     for (const f of all) {
       try { await register(f); fonts.set(f.id, f); } catch (e) { console.warn('No se pudo cargar la fuente', f.family, e); }
     }
@@ -94,7 +76,7 @@ async function addFont(f: Omit<StoredFont, 'id' | 'added'>): Promise<StoredFont>
   if (prev) { const old = faces.get(prev.id); if (old) document.fonts.delete(old); }
   await register(full);
   fonts.set(full.id, full);
-  await tx('readwrite', s => s.put(full));
+  await storage.fonts.put(full);
   return full;
 }
 
@@ -102,7 +84,7 @@ export async function deleteFamily(family: string) {
   for (const f of [...fonts.values()].filter(x => x.family === family)) {
     const face = faces.get(f.id); if (face) document.fonts.delete(face);
     faces.delete(f.id); fonts.delete(f.id);
-    await tx('readwrite', s => s.delete(f.id));
+    await storage.fonts.delete(f.id);
   }
   emit();
 }

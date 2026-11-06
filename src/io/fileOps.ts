@@ -1,11 +1,11 @@
 import { importFile, svgLayerFrom, ACCEPT, type ImportResult } from './importers';
-import { deserializeDoc, saveProjectFile, saveToLibrary, deleteFromLibrary, listLibrary } from './project';
+import { deserializeDoc, saveProjectFile, saveToLibrary, deleteFromLibrary, listLibrary, backupBeforeMigration } from './project';
 import { newDoc, rasterLayer, fitIn, vectorLayer } from '../core/doc';
 import { addDoc, insertLayers, addImageLayer } from '../core/actions';
 import { activeDoc, activeArtboard, get, set, toast, withBusy } from '../core/store';
 import { newArtboard } from '../core/doc';
 import type { Doc, Layer } from '../core/types';
-import { debounce } from '../core/util';
+import { storage } from '../storage';
 import { platform } from '../platform';
 
 /** Pide archivos al usuario (por defecto, todo lo que la app sabe abrir). */
@@ -49,7 +49,9 @@ export async function openFiles(files: File[]) {
     await withBusy(`Abriendo ${f.name}…`, async () => {
       const r = await importFile(f);
       if (r.kind === 'project') {
-        const doc = await deserializeDoc(await r.file.text());
+        const text = await r.file.text();
+        await backupBeforeMigration(text);
+        const doc = await deserializeDoc(text, { onWarning: m => toast(m, 'warn') });
         if (get().docs.some(d => d.id === doc.id)) doc.id = doc.id + '_' + Date.now().toString(36);
         addDoc(doc);
         return;
@@ -116,6 +118,7 @@ export async function saveProject(saveAs = false) {
     const handle = await saveProjectFile(d, saveAs);
     if (handle === null) return;
     await saveToLibrary(d);
+    void storage.persist();
     set(s => ({ docs: s.docs.map(x => (x.id === d.id ? { ...x, dirty: false, fileHandle: handle || x.fileHandle } : x)) }));
     await deleteFromLibrary(d.id, 'autosave');
     toast('Proyecto guardado', 'ok');
@@ -126,22 +129,41 @@ export async function saveToBrowserLibrary() {
   if (!d) return;
   await withBusy('Guardando en la biblioteca…', async () => {
     await saveToLibrary(d);
+    void storage.persist();
     set(s => ({ docs: s.docs.map(x => (x.id === d.id ? { ...x, dirty: false } : x)) }));
     toast('Guardado en la biblioteca local', 'ok');
   });
 }
 
-// ---------- guardado automático ----------
-let autosaveRunning = false;
-const autosave = debounce(async () => {
+// ---------- guardado automático (intervalo configurable en Archivo → Autoguardado) ----------
+let autosaveRunning = false, autosaveTimer: ReturnType<typeof setTimeout> | undefined, quotaWarned = false;
+async function runAutosave() {
   if (autosaveRunning) return;
   autosaveRunning = true;
   try {
     // los documentos compartidos se guardan en Liveblocks
     for (const d of get().docs) if (d.dirty && !d.collab) await saveToLibrary(d, 'autosave');
-  } catch (e) { console.warn('Autoguardado falló', e); }
+    await checkQuota();
+  } catch (e) {
+    console.warn('Autoguardado falló', e);
+    toast('No se pudo autoguardar: ' + ((e as Error)?.message || 'error de almacenamiento'), 'error');
+  }
   autosaveRunning = false;
-}, 4000);
+}
+export function autosave() {
+  clearTimeout(autosaveTimer);
+  const sec = get().autosaveSec;
+  if (sec > 0) autosaveTimer = setTimeout(runAutosave, sec * 1000);
+}
+/** Aviso único cuando el almacenamiento del navegador está casi lleno. */
+async function checkQuota() {
+  if (quotaWarned) return;
+  const e = await storage.estimate();
+  if (e && e.quota > 0 && e.usage / e.quota > 0.85) {
+    quotaWarned = true;
+    toast(`Almacenamiento local casi lleno (${Math.round(e.usage / e.quota * 100)} %). Exporta tus proyectos y borra los que no uses.`, 'warn');
+  }
+}
 
 export function startAutosave() {
   let prevDocs = get().docs;

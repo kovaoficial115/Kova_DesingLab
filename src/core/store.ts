@@ -66,6 +66,8 @@ export interface AppState {
   renderTick: number;
   cursor: { x: number; y: number } | null;
   swatches: string[];
+  /** segundos entre el último cambio y el autoguardado; 0 = desactivado */
+  autosaveSec: number;
 }
 
 const defaultPanels: PanelConf[] = [
@@ -122,6 +124,7 @@ export const useStore = create<AppState>(() => ({
   busy: null,
   renderTick: 0,
   cursor: null,
+  autosaveSec: 4,
   swatches: ['#000000', '#ffffff', '#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#8e8e93', '#d21625', '#00001f', '#f0e7de'],
   ...loadPrefs(),
 }));
@@ -129,9 +132,9 @@ export const useStore = create<AppState>(() => ({
 // Persistencia de preferencias de interfaz
 useStore.subscribe((s, prev) => {
   if (s.panels !== prev.panels || s.unit !== prev.unit || s.rightWidth !== prev.rightWidth || s.showRulers !== prev.showRulers ||
-    s.gridSize !== prev.gridSize || s.swatches !== prev.swatches || s.snap !== prev.snap) {
+    s.gridSize !== prev.gridSize || s.swatches !== prev.swatches || s.snap !== prev.snap || s.autosaveSec !== prev.autosaveSec) {
     try {
-      localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap }));
+      localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap, autosaveSec: s.autosaveSec }));
     } catch { /* almacenamiento no disponible */ }
   }
 });
