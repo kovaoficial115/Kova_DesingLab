@@ -23,4 +23,9 @@ export const platform: PlatformAdapter = {
   saveFile: async (data, o) => { await ready; return impl.saveFile(data, o); },
   droppedFiles: dt => impl.droppedFiles(dt),
   confirm: async (message, o) => { await ready; return impl.confirm(message, o); },
+  guardClose(shouldWarn) {
+    let off: (() => void) | null = null, gone = false;
+    ready.then(() => { if (!gone) off = impl.guardClose(shouldWarn); });
+    return () => { gone = true; off?.(); };
+  },
 };

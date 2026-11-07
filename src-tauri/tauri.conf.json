@@ -21,7 +21,8 @@
         "center": true,
         "resizable": true,
         "dragDropEnabled": false,
-        "backgroundColor": "#00001f"
+        "backgroundColor": "#00001f",
+        "create": false
       }
     ],
     "security": {
@@ -30,11 +31,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "category": "GraphicsDesign",
     "shortDescription": "Editor DTF y Estudio 3D de prendas",
     "copyright": "© 2026 KOVA",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ],
     "macOS": {
       "minimumSystemVersion": "13.0"
     }

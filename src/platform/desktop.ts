@@ -4,6 +4,7 @@
 
 import { open, save, confirm } from '@tauri-apps/plugin-dialog';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { PlatformAdapter, SaveFileOptions, SaveResult, SaveTarget, OpenFilesOptions } from './types';
 
 /** Destino de guardado en escritorio: la ruta elegida en el diálogo nativo. */
@@ -73,4 +74,12 @@ export const desktopPlatform: PlatformAdapter = {
   droppedFiles: dt => Array.from(dt?.files ?? []),
   // WKWebView (wry) no implementa window.confirm(): devolvería «no» sin mostrar nada
   confirm: (message, o) => confirm(message, { title: 'KOVA Design Lab', kind: 'warning', okLabel: o?.okLabel ?? 'Aceptar', cancelLabel: 'Cancelar' }),
+  // la ventana nativa no dispara beforeunload: se pregunta al pedir el cierre
+  guardClose(shouldWarn) {
+    let off: (() => void) | null = null, gone = false;
+    getCurrentWindow().onCloseRequested(async e => {
+      if (shouldWarn() && !(await desktopPlatform.confirm('Hay cambios sin guardar en un archivo. Se conservan en «Recuperación de sesión», pero ¿cerrar KOVA Design Lab de todos modos?', { okLabel: 'Cerrar' }))) e.preventDefault();
+    }).then(u => { if (gone) u(); else off = u; });
+    return () => { gone = true; off?.(); };
+  },
 };

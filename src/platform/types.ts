@@ -52,4 +52,6 @@ export interface PlatformAdapter {
   droppedFiles(dt: DataTransfer | null): File[];
   /** Pregunta de confirmación (Aceptar / Cancelar). En escritorio, `confirm()` de WKWebView no existe. */
   confirm(message: string, o?: { okLabel?: string }): Promise<boolean>;
+  /** Avisa antes de cerrar la ventana o la pestaña si `shouldWarn()` es cierto. Devuelve cómo quitar el aviso. */
+  guardClose(shouldWarn: () => boolean): () => void;
 }

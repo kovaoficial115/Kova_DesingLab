@@ -58,4 +58,9 @@ export const webPlatform: PlatformAdapter = {
   saveFile,
   droppedFiles: dt => Array.from(dt?.files ?? []),
   confirm: async message => window.confirm(message),
+  guardClose(shouldWarn) {
+    const before = (e: BeforeUnloadEvent) => { if (shouldWarn()) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', before);
+    return () => window.removeEventListener('beforeunload', before);
+  },
 };

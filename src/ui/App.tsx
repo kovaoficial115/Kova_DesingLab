@@ -10,6 +10,7 @@ import { setInternalClip } from './commands';
 import { CollabHost } from '../collab/ui';
 import { collabPending } from '../collab/engine';
 import { initFromUrl } from '../collab/rooms';
+import { platform } from '../platform';
 
 const dialogs: Record<string, React.LazyExoticComponent<any>> = {
   new: lazy(() => import('./dialogs/BasicDialogs').then(m => ({ default: m.NewDocDialog }))),
@@ -66,12 +67,11 @@ export function App() {
   const screen = useStore(s => s.screen);
   useEditorKeys();
   useEffect(() => {
-    const before = (e: BeforeUnloadEvent) => { if (get().docs.some(d => d.dirty && !d.collab) || collabPending()) { e.preventDefault(); e.returnValue = ''; } };
+    const unguard = platform.guardClose(() => get().docs.some(d => d.dirty && !d.collab) || collabPending());
     const blur = () => setInternalClip(null);
-    window.addEventListener('beforeunload', before);
     initFromUrl();
     window.addEventListener('blur', blur);
-    return () => { window.removeEventListener('beforeunload', before); window.removeEventListener('blur', blur); };
+    return () => { unguard(); window.removeEventListener('blur', blur); };
   }, []);
   return (
     <>
