@@ -17,6 +17,8 @@ Editor de imágenes de producción para impresión **DTF (Direct to Film)**. Fun
 - **Color:** espacios RGB/CMYK, conversión con perfiles ICC (LittleCMS), prueba de impresión, vista por canal, cobertura de tinta (TAC).
 - **Colaboración en tiempo real:** comparte un documento con un enlace; cursores, selecciones y cambios de todas las personas al instante, roles Propietario/Editor/Lector, historial de versiones y edición sin conexión.
 - **Herramientas DTF:** base blanca y knockout de prenda, separación de canales, comprobación previa a la impresión, hoja de impresión (gang sheet) con acomodo automático, mockups sobre camiseta o foto propia.
+- **Estudio 3D:** prendas en 3D (GLB) con tela, color y acabado; el arte de las mesas de trabajo se estampa por zonas a tamaño real; renders PNG hasta 4096 px con fondo transparente y video giratorio. Ver [docs/estudio-3d.md](docs/estudio-3d.md), con el formato `garment.json`.
+- **App de escritorio para macOS** (Apple Silicon) con diálogos y archivos nativos. Ver [docs/escritorio.md](docs/escritorio.md).
 
 ## Desarrollo
 
@@ -27,7 +29,11 @@ npm install
 npm run dev        # servidor de desarrollo en http://localhost:5173
 npm run build      # comprobación de tipos + compilación en dist/
 npm run preview    # sirve la compilación localmente
+npm test           # pruebas unitarias (Vitest)
+npm run desktop:build   # app de macOS (requiere Rust; ver docs/escritorio.md)
 ```
+
+Los modelos 3D comprados o sin permiso de redistribución van en `local-assets/` (ignorado por git), nunca en el repositorio.
 
 ## Colaboración en tiempo real
 
@@ -113,6 +119,10 @@ src/
   tools/    herramientas del lienzo (mover, selección, pincel, texto, recorte…)
   ui/       interfaz: menús, paneles, diálogos y pantalla de inicio
   collab/   colaboración: motor de sincronización con Liveblocks, presencia, salas y diálogos
+  studio3d/ Estudio 3D: visor (three.js), validación de modelos, telas, estampados por zonas, renders
+  platform/ Platform Adapter: único acceso a archivos y diálogos (web y escritorio)
+  storage/  almacenamiento local (IndexedDB) con migraciones y recursos por hash
+src-tauri/           app de escritorio para macOS (Tauri 2)
 supabase/functions/  servidor de colaboración (kova-collab) para Supabase Edge Functions
 server/dev.mjs       el mismo servidor sobre Node, para desarrollo local
 ```
