@@ -2,7 +2,7 @@
 // abrir/guardar y escritura directa en disco con los plugins dialog y fs. Solo se carga dentro
 // de la app de escritorio (import dinámico), así que no pesa en la versión web.
 
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { open, save, confirm } from '@tauri-apps/plugin-dialog';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import type { PlatformAdapter, SaveFileOptions, SaveResult, SaveTarget, OpenFilesOptions } from './types';
 
@@ -71,4 +71,6 @@ export const desktopPlatform: PlatformAdapter = {
   saveFile,
   // con dragDropEnabled: false en la ventana, WKWebView entrega los archivos como en el navegador
   droppedFiles: dt => Array.from(dt?.files ?? []),
+  // WKWebView (wry) no implementa window.confirm(): devolvería «no» sin mostrar nada
+  confirm: (message, o) => confirm(message, { title: 'KOVA Design Lab', kind: 'warning', okLabel: o?.okLabel ?? 'Aceptar', cancelLabel: 'Cancelar' }),
 };

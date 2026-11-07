@@ -57,4 +57,5 @@ export const webPlatform: PlatformAdapter = {
   openFiles,
   saveFile,
   droppedFiles: dt => Array.from(dt?.files ?? []),
+  confirm: async message => window.confirm(message),
 };

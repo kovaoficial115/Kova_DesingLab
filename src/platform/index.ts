@@ -22,4 +22,5 @@ export const platform: PlatformAdapter = {
   openFiles: async o => { await ready; return impl.openFiles(o); },
   saveFile: async (data, o) => { await ready; return impl.saveFile(data, o); },
   droppedFiles: dt => impl.droppedFiles(dt),
+  confirm: async (message, o) => { await ready; return impl.confirm(message, o); },
 };

@@ -50,4 +50,6 @@ export interface PlatformAdapter {
   saveFile(data: Blob, o: SaveFileOptions): Promise<SaveResult>;
   /** Archivos soltados en un evento de arrastrar (Finder / escritorio). */
   droppedFiles(dt: DataTransfer | null): File[];
+  /** Pregunta de confirmación (Aceptar / Cancelar). En escritorio, `confirm()` de WKWebView no existe. */
+  confirm(message: string, o?: { okLabel?: string }): Promise<boolean>;
 }

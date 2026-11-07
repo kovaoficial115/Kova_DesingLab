@@ -29,7 +29,7 @@ export function BackupsDialog({ onClose }: { onClose: () => void }) {
     if (rec) await platform.saveFile(new Blob([rec.data], { type: 'application/json' }), { suggestedName: `${rec.name} (respaldo).kova`, pick: true, filters: [{ name: 'Proyecto Kova', extensions: ['kova'], mime: 'application/json' }] });
   };
   const remove = async (b: BackupMeta) => {
-    if (!confirm(`¿Eliminar esta copia de «${b.name}»?`)) return;
+    if (!(await platform.confirm(`¿Eliminar esta copia de «${b.name}»?`, { okLabel: 'Eliminar' }))) return;
     await storage.backups.delete(b.key);
     refresh();
   };

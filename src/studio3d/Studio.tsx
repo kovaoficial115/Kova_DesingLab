@@ -14,6 +14,7 @@ import { zoneDefs, ZONE_LABELS, type ZoneDef } from './zones';
 import { inkBox, type PreparedPrint, type PrintResult } from './prints';
 import { FABRICS, FINISHES, SWATCHES, defaultFabric, isPreset, isFinish, type FabricSettings, type FabricPreset, type FabricFinish } from './fabric';
 import { fabricOf } from './config';
+import { platform } from '../platform';
 
 // preferencias del estudio (solo interfaz): LocalStorage
 const PREFS = 'kova.studio';
@@ -216,7 +217,7 @@ export function Studio() {
   }, [doc?.state, zones, current?.id, loadedId]);
 
   const remove = async (g: GarmentEntry) => {
-    if (!confirm(`¿Quitar «${g.config.name}» de la biblioteca? Los proyectos que la usan la conservan dentro del .kova.`)) return;
+    if (!(await platform.confirm(`¿Quitar «${g.config.name}» de la biblioteca? Los proyectos que la usan la conservan dentro del .kova.`, { okLabel: 'Quitar' }))) return;
     await removeGarment(g);
     if (current?.id === g.id) setCurrent(null);
     refresh();

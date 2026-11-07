@@ -12,6 +12,7 @@ import { commands, displayKeys, runCommand, openDialog } from './commands';
 import { closeDoc, zoomTo, fitToScreen } from '../core/actions';
 import { fromPx } from '../core/util';
 import { discardAutosave } from '../io/fileOps';import { FontPicker } from './components/FontPicker';
+import { platform } from '../platform';
 
 
 const toolList: (ToolId | '-')[] = ['move', 'artboard', '-', 'marquee', 'ellipseMarquee', 'lasso', 'wand', '-', 'crop', 'eyedropper', '-', 'brush', 'eraser', 'restore', 'fill', 'gradient', '-', 'text', 'shape', '-', 'hand', 'zoom'];
@@ -176,9 +177,9 @@ export function DocTabs() {
           {d.collab ? <span title="Proyecto compartido" style={{ display: 'flex' }}><Users size={11} style={{ color: 'var(--accent)', flex: 'none' }} /></span> : d.dirty && <span className="dot" title="Cambios sin guardar" />}
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</span>
           <span className="tiny muted">{d.colorMode}</span>
-          <span className="x" onClick={e => {
+          <span className="x" onClick={async e => {
             e.stopPropagation();
-            if (d.dirty && !confirm(`"${d.name}" tiene cambios sin guardar. ¿Cerrar de todos modos?`)) return;
+            if (d.dirty && !(await platform.confirm(`"${d.name}" tiene cambios sin guardar. ¿Cerrar de todos modos?`, { okLabel: 'Cerrar' }))) return;
             discardAutosave(d.id);
             closeDoc(d.id);
           }}><X size={12} /></span>

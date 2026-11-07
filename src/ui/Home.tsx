@@ -171,7 +171,7 @@ export function Home() {
                       <div className="tiny muted">{(r.w / r.dpi * 2.54).toFixed(1)}×{(r.h / r.dpi * 2.54).toFixed(1)} cm · {new Date(r.updated).toLocaleDateString()}</div>
                     </div>
                     <button className="icon-btn sm del" style={{ background: 'rgba(0,0,0,.6)' }} title="Eliminar de la biblioteca"
-                      onClick={async e => { e.stopPropagation(); if (confirm(`¿Eliminar "${r.name}" de la biblioteca?`)) { await deleteFromLibrary(r.id); refresh(); toast('Proyecto eliminado', 'ok'); } }}><Trash2 size={12} /></button>
+                      onClick={async e => { e.stopPropagation(); if (await platform.confirm(`¿Eliminar "${r.name}" de la biblioteca?`, { okLabel: 'Eliminar' })) { await deleteFromLibrary(r.id); refresh(); toast('Proyecto eliminado', 'ok'); } }}><Trash2 size={12} /></button>
                   </div>
                 ))}
               </div>

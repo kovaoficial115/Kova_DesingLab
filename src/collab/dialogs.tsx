@@ -8,13 +8,14 @@ import { set, toast } from '../core/store';
 import type { CollabRole, Doc } from '../core/types';
 import * as api from './api';
 import { getSession } from './engine';
+import { platform } from '../platform';
 
 const COLORS = ['#ff6b6b', '#ffa94d', '#ffd43b', '#69db7c', '#38d9a9', '#4dabf7', '#748ffc', '#b197fc', '#f783ac', '#d21625', '#63e6be', '#ff8787'];
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?';
 
 async function copy(text: string, msg = 'Enlace copiado') {
   try { await navigator.clipboard.writeText(text); toast(msg, 'ok'); }
-  catch { prompt('Copia el enlace:', text); }
+  catch { if (platform.kind === 'desktop') toast('No se pudo copiar. Enlace: ' + text, 'warn', 15000); else prompt('Copia el enlace:', text); }
 }
 const useIdentity = () => useSyncExternalStore(api.subscribeIdentity, api.getIdentity);
 
@@ -99,7 +100,7 @@ export function ShareDialog({ doc, onClose }: { doc: Doc; onClose: () => void })
     } catch (e: any) { toast(e.message, 'error'); }
   };
   const changeRole = async (m: api.Member, role: 'editor' | 'viewer' | null) => {
-    if (role === null && !confirm(`¿Quitar a ${m.name} del proyecto?`)) return;
+    if (role === null && !(await platform.confirm(`¿Quitar a ${m.name} del proyecto?`, { okLabel: 'Quitar' }))) return;
     try {
       const r = await api.setMemberRole(c.room, m.id, role);
       setMembers(r.members);
@@ -114,12 +115,12 @@ export function ShareDialog({ doc, onClose }: { doc: Doc; onClose: () => void })
     catch (e: any) { toast(e.message, 'error'); }
   };
   const leave = async () => {
-    if (!confirm('¿Salir de este proyecto? Necesitarás una nueva invitación para volver.')) return;
+    if (!(await platform.confirm('¿Salir de este proyecto? Necesitarás una nueva invitación para volver.', { okLabel: 'Salir' }))) return;
     try { await api.leaveRoom(c.room); onClose(); set(s => ({ docs: s.docs.filter(d => d.id !== doc.id), activeDocId: s.docs.find(d => d.id !== doc.id)?.id ?? null, screen: s.docs.length > 1 ? 'editor' : 'home' })); }
     catch (e: any) { toast(e.message, 'error'); }
   };
   const remove = async () => {
-    if (!confirm('¿Eliminar el proyecto compartido para todas las personas? Tu copia abierta se conserva como documento local.')) return;
+    if (!(await platform.confirm('¿Eliminar el proyecto compartido para todas las personas? Tu copia abierta se conserva como documento local.', { okLabel: 'Eliminar' }))) return;
     try {
       broadcast({ type: 'access-changed', userId: '*' });
       await api.deleteRoom(c.room);
@@ -154,7 +155,7 @@ export function ShareDialog({ doc, onClose }: { doc: Doc; onClose: () => void })
             <div className="row">
               <span className="tiny muted grow">Quien abra el enlace elige su nombre y entra con ese rol.</span>
               <button className="btn sm ghost" title="Los enlaces que ya enviaste dejarán de funcionar" onClick={async () => {
-                if (!confirm('¿Desactivar todos los enlaces de invitación enviados? Los miembros actuales conservan su acceso.')) return;
+                if (!(await platform.confirm('¿Desactivar todos los enlaces de invitación enviados? Los miembros actuales conservan su acceso.', { okLabel: 'Desactivar' }))) return;
                 try { await api.resetInvites(c.room); setLinks({}); toast('Enlaces anteriores desactivados', 'ok'); } catch (e: any) { toast(e.message, 'error'); }
               }}><RotateCcw size={12} />Desactivar enlaces</button>
             </div>
@@ -212,7 +213,7 @@ export function VersionsDialog({ doc, onClose }: { doc: Doc; onClose: () => void
     finally { setBusy(null); }
   };
   const restore = async (v: any) => {
-    if (!session || !confirm(`¿Restaurar «${v.label || 'versión'}» del ${new Date(v.at).toLocaleString()}? Se aplica para todas las personas; puedes deshacerlo con ⌘Z.`)) return;
+    if (!session || !(await platform.confirm(`¿Restaurar «${v.label || 'versión'}» del ${new Date(v.at).toLocaleString()}? Se aplica para todas las personas; puedes deshacerlo con ⌘Z.`, { okLabel: 'Restaurar' }))) return;
     setBusy(v.id);
     try {
       await session.saveVersion('Antes de restaurar', true).catch(() => {});

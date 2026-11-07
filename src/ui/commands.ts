@@ -7,6 +7,7 @@ import { setTool, applyCrop, cancelCrop, cropState } from '../tools/tools';
 import { pickFiles, openFiles, placeFiles, saveProject, saveToBrowserLibrary, autosave } from '../io/fileOps';
 import type { AdjustmentType, ToolId } from '../core/types';
 import { discardAutosave } from '../io/fileOps';
+import { platform } from '../platform';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -65,10 +66,10 @@ export const commands: Record<string, Command> = {
   } satisfies Command])),
   'file.close': {
     label: 'Cerrar documento', keys: 'mod+w', enabled: hasDoc,
-    run: () => {
+    run: async () => {
       const d = activeDoc();
       if (!d) return;
-      if (d.dirty && !confirm(`"${d.name}" tiene cambios sin guardar. ¿Cerrar de todos modos?`)) return;
+      if (d.dirty && !(await platform.confirm(`"${d.name}" tiene cambios sin guardar. ¿Cerrar de todos modos?`, { okLabel: 'Cerrar' }))) return;
       discardAutosave(d.id);
       A.closeDoc(d.id);
     },
