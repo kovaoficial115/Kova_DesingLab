@@ -22,6 +22,10 @@ export type LightPreset = 'studio' | 'soft' | 'contrast';
 export const VIEW_LABELS: Record<ViewPreset, string> = { front: 'Frontal', back: 'Trasera', left: 'Izquierda', right: 'Derecha', threeQuarter: '¾' };
 export const LIGHT_LABELS: Record<LightPreset, string> = { studio: 'Estudio', soft: 'Suave', contrast: 'Contraste' };
 
+// exposición calibrada por iluminación: la tela blanca queda en ~232/255 y los colores impresos
+// cerca de su valor sRGB (sin ella los estampados salían aclarados y menos saturados)
+const EXPOSURE: Record<LightPreset, number> = { studio: 0.55, soft: 0.45, contrast: 0.85 };
+
 const VIEW_DIR: Record<ViewPreset, [number, number, number]> = {
   front: [0, 0.08, 1], back: [0, 0.08, -1], left: [-1, 0.08, 0], right: [1, 0.08, 0], threeQuarter: [0.7, 0.18, 0.7],
 };
@@ -224,6 +228,7 @@ export class GarmentViewer {
     rim.position.set(-2.5, 1.5, -2);
     this.lights.add(key, rim);
     this.scene.environmentIntensity = p === 'soft' ? 1.25 : p === 'studio' ? 0.85 : 0.35;
+    this.renderer.toneMappingExposure = EXPOSURE[p];
     this.invalidate();
   }
 

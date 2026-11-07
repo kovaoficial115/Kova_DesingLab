@@ -209,6 +209,14 @@ const AFTER_ROUGHNESS = /* glsl */ `
 roughnessFactor = mix(roughnessFactor, 0.6, kPrint.a);
 `;
 
+const AFTER_LIGHTS = /* glsl */ `
+// el brillo aterciopelado es de la fibra: sobre la película del estampado casi desaparece
+// (si no, deja un velo blanco que aclara los colores impresos)
+#ifdef USE_SHEEN
+material.sheenColor *= 1.0 - 0.85 * kPrint.a;
+#endif
+`;
+
 const AFTER_NORMAL = /* glsl */ `
 {
   vec3 kD = kFib.xyz * 2.0 - 1.0;
@@ -241,9 +249,10 @@ export function makeFabricMaterial(src: THREE.Material, useBaseMap = true): Fabr
       .replace('#include <common>', '#include <common>\n' + HEADER)
       .replace('#include <map_fragment>', '#include <map_fragment>\n' + AFTER_MAP)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + AFTER_ROUGHNESS)
-      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + AFTER_NORMAL);
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + AFTER_NORMAL)
+      .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n' + AFTER_LIGHTS);
   };
-  m.customProgramCacheKey = () => 'kova-fabric-1';
+  m.customProgramCacheKey = () => 'kova-fabric-2';
   m.userData.kovaFabric = u;
   m.name = (src.name || 'tela') + ' · tela';
   return m as FabricMaterial;
