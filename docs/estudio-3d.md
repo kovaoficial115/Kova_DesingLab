@@ -4,7 +4,7 @@ El Estudio 3D muestra el arte del editor 2D sobre una prenda en 3D. El arte siem
 
 ## Flujo
 
-1. **Prendas.** Importa un modelo `.glb` (Blender, Sketchfab, CGTrader…) desde el panel *Prendas*. Se valida antes de guardarlo en la biblioteca local del equipo.
+1. **Prendas.** Importa un modelo `.glb` (Blender, Sketchfab, CGTrader…) desde el panel *Prendas*. Se valida antes de guardarlo en la biblioteca local del equipo. Con la biblioteca vacía puedes empezar con *Usar camiseta de ejemplo*.
 2. **Material.** Elige la tela (algodón, felpa o poliéster), el color y el acabado (liso, jaspeado o lavado).
 3. **Estampados.** Cada zona (frente, espalda, mangas y cuello) recibe una mesa de trabajo del documento abierto, a su tamaño físico real según sus ppp. Puedes moverla, escalarla y girarla dentro de la zona.
 4. **Exportar render.** Exporta una imagen PNG (1080, 2048 o 4096 px, con fondo transparente o de color) o un video de una vuelta completa (MP4, o WebM si el navegador no graba MP4).
@@ -28,6 +28,8 @@ El agente y la app no modelan prendas: los modelos vienen de un programa 3D o de
 | Licencia | Debe declararse; si no permite redistribuir, el modelo solo vive en la biblioteca local |
 
 Los modelos comprados o sin permiso de redistribución nunca se añaden al repositorio: se guardan en `local-assets/`, que está en `.gitignore`.
+
+La camiseta de ejemplo (`public/garments/camiseta-basica.glb`) es «T-Shirt Low Poly» de [Chirag.Vijay](https://sketchfab.com/Chirag.Vijay), con licencia [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) ([fuente](https://sketchfab.com/3d-models/t-shirt-low-poly-3e4b13a502884acfbd79cee0f9cd8876)). Se ha simplificado y comprimido para KOVA.
 
 ## `garment.json`
 

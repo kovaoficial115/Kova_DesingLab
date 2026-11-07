@@ -4,7 +4,7 @@ import { useStore, set, get, toast } from '../core/store';
 import { KovaK, BrandIcon } from '../ui/components/Brand';
 import { Seg, ColorInput, Select, Slider, Check } from '../ui/components/controls';
 import { GarmentViewer, VIEW_LABELS, LIGHT_LABELS, type ViewPreset, type LightPreset } from './viewer';
-import { listGarments, removeGarment, garmentModel, updateGarmentConfig, type GarmentEntry } from './garments';
+import { listGarments, removeGarment, garmentModel, updateGarmentConfig, addSampleGarment, type GarmentEntry } from './garments';
 import { ImportGarmentDialog } from './ImportGarmentDialog';
 import { ExportRenderDialog } from './ExportRenderDialog';
 import { GARMENT3D_SCHEMA, type Garment3DData, type PrintZoneId, type ZonePrint } from '../core/garment3d';
@@ -69,6 +69,7 @@ export function Studio() {
   const [lost, setLost] = useState(false);
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [addingSample, setAddingSample] = useState(false);
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [results, setResults] = useState<Partial<Record<PrintZoneId, PrintResult>>>({});
   const [activeZone, setActiveZone] = useState<PrintZoneId>('front');
@@ -248,7 +249,13 @@ export function Studio() {
                 <BrandIcon name="orbit" size={40} style={{ color: 'var(--accent)' }} />
                 <span className="small">Aún no hay prendas.</span>
                 <span className="tiny muted">Importa un GLB de Blender, Sketchfab o CGTrader. Se valida antes de guardarlo.</span>
-                <button className="btn primary sm" onClick={() => setImporting(true)}><Plus size={12} />Importar prenda</button>
+                <button className="btn primary sm" disabled={addingSample} onClick={async () => {
+                  setAddingSample(true);
+                  try { const g = await addSampleGarment(); await refresh(); select(g); }
+                  catch (e: any) { toast(e?.message || String(e), 'error'); }
+                  finally { setAddingSample(false); }
+                }}>{addingSample ? <Loader2 size={12} className="spin" /> : <Box size={12} />}Usar camiseta de ejemplo</button>
+                <button className="btn sm" onClick={() => setImporting(true)}><Plus size={12} />Importar prenda</button>
               </div>
             ) : garments.map(g => (
               <div key={g.id} role="button" tabIndex={0} className={'garment-row' + (current?.id === g.id ? ' on' : '')}

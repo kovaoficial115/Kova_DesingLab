@@ -1,0 +1,16 @@
+{
+  "id": "camiseta-basica",
+  "name": "Camiseta básica",
+  "category": "tshirt",
+  "unitScale": 0.7,
+  "fabric": "cotton",
+  "printableMeshes": [],
+  "accessoryMeshes": [],
+  "zones": {},
+  "license": {
+    "name": "CC-BY-4.0",
+    "author": "Chirag.Vijay",
+    "source": "https://sketchfab.com/3d-models/t-shirt-low-poly-3e4b13a502884acfbd79cee0f9cd8876",
+    "redistributable": true
+  }
+}

@@ -50,6 +50,19 @@ export async function addGarment(glb: Blob, config: GarmentConfig, report: Valid
   return toEntry(a)!;
 }
 
+/**
+ * Prenda de ejemplo incluida con la app (public/garments): «T-Shirt Low Poly» de Chirag.Vijay,
+ * CC-BY-4.0, simplificada para KOVA. Pasa por la misma validación que cualquier importación.
+ */
+export async function addSampleGarment(): Promise<GarmentEntry> {
+  const base = new URL('garments/', document.baseURI);
+  const [glbRes, cfgRes] = await Promise.all([fetch(new URL('camiseta-basica.glb', base)), fetch(new URL('camiseta-basica.garment.json', base))]);
+  if (!glbRes.ok || !cfgRes.ok) throw new Error('No se pudo descargar la prenda de ejemplo.');
+  const glb = await glbRes.blob();
+  const { config } = parseConfig(await cfgRes.json(), 'camiseta-basica.glb');
+  return addGarment(glb, config, await inspectGarment(glb, config));
+}
+
 /** Quita la prenda; el GLB se borra si ninguna otra prenda lo usa. */
 export async function removeGarment(e: GarmentEntry) {
   await storage.assets.delete(e.id);

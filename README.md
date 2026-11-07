@@ -135,3 +135,7 @@ El procesamiento pesado se ejecuta en Web Workers para no bloquear la interfaz.
 - **Eliminar fondo con IA:** usa `@imgly/background-removal`, que descarga el modelo la primera vez que se usa y tiene licencia **AGPL-3.0**.
 - **Exportación PDF:** el PDF contiene la imagen rasterizada a la resolución elegida.
 - **Exportación WEBP:** no almacena ppp; el formato no tiene un campo estándar para ello.
+
+## Créditos
+
+- Camiseta de ejemplo del Estudio 3D: «T-Shirt Low Poly» de [Chirag.Vijay](https://sketchfab.com/Chirag.Vijay), [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/), simplificada para KOVA.
