@@ -11,12 +11,18 @@
     "collab:dev": "node server/dev.mjs",
     "liveblocks:dev": "npx --yes liveblocks@1.9.0 dev --no-check",
     "collab:check-perms": "node scripts/check-permissions.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "desktop:dev": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
+    "desktop:build": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri build --target aarch64-apple-darwin",
+    "tauri": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri"
   },
   "dependencies": {
     "@imgly/background-removal": "^1.5.5",
     "@liveblocks/client": "^3.24.5",
     "@liveblocks/react": "^3.24.5",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.8.4",
+    "@tauri-apps/plugin-fs": "2.7.1",
     "ag-psd": "^22.0.2",
     "fflate": "^0.8.2",
     "fractional-indexing": "^3.2.0",
@@ -33,6 +39,7 @@
   },
   "devDependencies": {
     "@liveblocks/node": "^3.24.5",
+    "@tauri-apps/cli": "2.12.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/three": "0.170.0",
