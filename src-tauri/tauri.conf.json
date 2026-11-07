@@ -26,7 +26,22 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self' ipc: http://ipc.localhost",
+        "script-src": "'self' 'wasm-unsafe-eval' 'unsafe-eval'",
+        "worker-src": "'self' blob:",
+        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src": "'self' data: blob: https://fonts.gstatic.com https://cdn.jsdelivr.net",
+        "img-src": "'self' data: blob:",
+        "media-src": "'self' data: blob:",
+        "connect-src": "'self' ipc: http://ipc.localhost data: blob: https://*.supabase.co https://api.liveblocks.io wss://api.liveblocks.io https://api.fontsource.org https://cdn.jsdelivr.net https://staticimgly.com",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'none'"
+      },
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ]
     }
   },
   "bundle": {

@@ -77,7 +77,7 @@ El servidor vive en un proyecto de Supabase propio, **kova-designlab** (`ljwjjhi
    supabase functions deploy kova-collab --no-verify-jwt --project-ref ljwjjhiurgesowiwonyt
    curl https://ljwjjhiurgesowiwonyt.supabase.co/functions/v1/kova-collab/   # → {"ok":true,"service":"kova-collab"}
    ```
-   `--no-verify-jwt` es necesario porque la función usa sus propios tokens, no los de Supabase Auth. Por defecto solo acepta peticiones desde `https://kovaoficial115.github.io` (cámbialo con `ALLOWED_ORIGINS`).
+   `--no-verify-jwt` es necesario porque la función usa sus propios tokens, no los de Supabase Auth. Por defecto solo acepta peticiones desde `https://kovaoficial115.github.io` y desde la app de escritorio (`tauri://localhost`); cámbialo con `ALLOWED_ORIGINS`.
 4. **Comprobar los permisos en el servidor de Liveblocks** (crea una sala temporal, intenta escribir como lector saltándose el SDK y la borra):
    ```bash
    COLLAB_API=https://ljwjjhiurgesowiwonyt.supabase.co/functions/v1/kova-collab npm run collab:check-perms
