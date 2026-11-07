@@ -2,7 +2,8 @@
 
 import { set, get } from '../core/store';
 import type { CollabRole } from '../core/types';
-import { COLLAB_API, collabConfigured } from './config';
+import { COLLAB_API, collabConfigured, PUBLIC_WEB_URL } from './config';
+import { detectPlatform } from '../platform';
 
 export interface CollabUser { id: string; name: string; color: string }
 export interface Identity { token: string; user: CollabUser }
@@ -105,7 +106,19 @@ export async function fetchRoomFile(room: string, fileId: string) {
 export const acceptInvite = (token: string) => call<RoomInfo>('/invites/accept', { body: { token } });
 
 // ---------- enlaces ----------
-const baseLink = () => location.origin + location.pathname;
+// en escritorio la página es tauri://localhost/: los enlaces que se envían deben abrir la versión web
+const baseLink = () => (detectPlatform() === 'desktop' ? PUBLIC_WEB_URL : location.origin + location.pathname);
+
+/** Lee un enlace de KOVA pegado (de la web o de cualquier versión): invitación o proyecto. */
+export function parseCollabLink(text: string): { invite: string } | { room: string } | null {
+  const t = text.trim();
+  const hash = t.includes('#') ? t.slice(t.indexOf('#') + 1) : t;
+  const h = new URLSearchParams(hash);
+  const invite = h.get('invite')?.trim(), room = h.get('room')?.trim();
+  if (invite) return { invite };
+  if (room) return { room };
+  return null;
+}
 export const inviteLink = (token: string) => `${baseLink()}#invite=${token}`;
 export const roomLink = (room: string) => `${baseLink()}#room=${room}`;
 export const roleLabel = (r: CollabRole | null | undefined) => (r === 'owner' ? 'Propietario' : r === 'editor' ? 'Editor' : r === 'viewer' ? 'Lector' : '—');

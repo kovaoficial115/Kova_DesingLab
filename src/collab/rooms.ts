@@ -43,6 +43,15 @@ export async function joinInvite(token: string) {
   }
 }
 
+/** Abre un enlace de KOVA pegado a mano (en escritorio no hay barra de direcciones). */
+export async function openCollabLink(text: string): Promise<boolean> {
+  const link = api.parseCollabLink(text);
+  if (!link) { toast('Ese texto no es un enlace de invitación ni de proyecto de KOVA.', 'warn'); return false; }
+  if ('invite' in link) await joinInvite(link.invite);
+  else { try { await openRoom(link.room); } catch (e: any) { toast(e?.message || String(e), 'error', 7000); return false; } }
+  return true;
+}
+
 /** Lee la URL al arrancar: enlaces de invitación y de proyecto. */
 export async function initFromUrl() {
   if (!collabConfigured) return;

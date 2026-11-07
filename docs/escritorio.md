@@ -12,6 +12,7 @@ KOVA Design Lab para macOS es la misma app web dentro de una ventana nativa (Tau
 | Enlaces externos | Pestaña nueva | Navegador predeterminado |
 | Cerrar con cambios sin guardar | Aviso del navegador | Diálogo nativo |
 | Datos locales (biblioteca, prendas, fuentes, autoguardado) | Del navegador | Propios de la app |
+| Enlaces de colaboración | Se abren en el navegador | Se pegan en *Proyectos compartidos* (inicio); los que crea la app apuntan a la versión web |
 
 Los datos locales **no se comparten** entre la app y los navegadores. Para pasar tu trabajo usa *Exportar todo* / *Importar copia* en la pantalla de inicio, o abre los `.kova`. Las prendas 3D se importan de nuevo (o llegan dentro de un `.kova`).
 
@@ -33,7 +34,7 @@ Los scripts añaden `~/.cargo/bin` al PATH. La primera compilación descarga y c
 
 - **Permisos (capabilities):** solo diálogos (abrir, guardar y mensajes), leer y escribir los archivos que el usuario elige en esos diálogos, y cerrar la ventana. Sin acceso libre al disco ni a comandos del sistema.
 - **CSP:** solo recursos propios, más Google Fonts, Fontsource/jsDelivr (catálogo de fuentes), Supabase y Liveblocks (colaboración) e IMG.LY (modelo de quitar fondo). Requiere `'unsafe-eval'` y `'wasm-unsafe-eval'` porque las librerías de quitar fondo y de color usan WebAssembly y código generado. Comprobada dentro de la app sin violaciones.
-- **Colaboración:** el servidor `kova-collab` acepta por defecto el origen de la app (`tauri://localhost`).
+- **Colaboración:** el servidor `kova-collab` acepta por defecto el origen de la app (`tauri://localhost`). Un mismo proyecto compartido se puede editar a la vez desde la app y desde la web: los enlaces de invitación que genera la app abren la versión publicada (`VITE_PUBLIC_WEB_URL`, por defecto la de GitHub Pages).
 
 ## Fuera de alcance
 
