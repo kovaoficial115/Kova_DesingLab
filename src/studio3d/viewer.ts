@@ -10,6 +10,12 @@ import { fabricOf, type GarmentConfig } from './config';
 import { makeFabricMaterial, applyFabric, cmPerUv, defaultFabric, disposeFabricTextures, type FabricMaterial, type FabricSettings } from './fabric';
 import { isPrintable } from './validate';
 import { PrintLayer, type PreparedPrint, type PrintResult } from './prints';
+import { OffscreenRenderer, RenderMemoryError, resolveRenderSize, smallerSize, fitDistance, boxCorners, encodePng, recordTurntable, type RenderLimits } from './render';
+
+export type ExportView = ViewPreset | 'current';
+export interface ImageExport { size: number; view: ExportView; background: string | null }
+export interface ImageResult { blob: Blob; side: number; warnings: string[] }
+export interface VideoExport { size: number; seconds: number; background: string; onProgress?: (k: number) => void; signal?: AbortSignal }
 
 export type ViewPreset = 'front' | 'back' | 'left' | 'right' | 'threeQuarter';
 export type LightPreset = 'studio' | 'soft' | 'contrast';
@@ -52,6 +58,7 @@ export class GarmentViewer {
   private fabrics: FabricMaterial[] = [];
   private fabric: FabricSettings | null = null;
   private uvCm = 0;
+  private exporting = false;
 
   constructor(private container: HTMLElement, private events: ViewerEvents = {}) {
     this.canvas = document.createElement('canvas');
@@ -100,7 +107,8 @@ export class GarmentViewer {
 
   private render = (now: number) => {
     this.frame = 0;
-    if (!this.visible || document.hidden || this.disposed) return;
+    // durante una exportación la escena puede estar girada para el video: no se dibuja en pantalla
+    if (!this.visible || document.hidden || this.disposed || this.exporting) return;
     let moving = false;
     if (this.tween) {
       const k = Math.min(1, (now - this.tween.t0) / 350), e = 1 - Math.pow(1 - k, 3);
@@ -228,6 +236,116 @@ export class GarmentViewer {
   private applyBackground() {
     if (this.background) { this.scene.background = new THREE.Color(this.background); this.renderer.setClearColor(this.background, 1); }
     else { this.scene.background = null; this.renderer.setClearColor(0x000000, 0); }
+  }
+
+  // ---------- exportación de renders ----------
+
+  /** Límites de la GPU para elegir la resolución de exportación. */
+  renderLimits(): RenderLimits { return OffscreenRenderer.limits(this.renderer); }
+
+  /** Cámara de exportación: la vista actual o una predefinida encuadrada a la prenda (para todos los `dirs`). */
+  private exportCamera(view: ExportView, aspect: number, dirs?: THREE.Vector3[]) {
+    const cam = new THREE.PerspectiveCamera(this.camera.fov, aspect, this.camera.near, this.camera.far);
+    const box = new THREE.Box3().setFromObject(this.pivot);
+    const c = box.getCenter(new THREE.Vector3());
+    if (view === 'current') {
+      cam.position.copy(this.camera.position);
+      cam.quaternion.copy(this.camera.quaternion);
+    } else {
+      const dir = new THREE.Vector3(...VIEW_DIR[view]).normalize();
+      // la silueta real encuadra mucho más ajustado que la caja (las esquinas de la caja están vacías)
+      const pts = this.silhouette(c);
+      const corners = pts.length ? pts : boxCorners(box, c);
+      const dist = Math.max(...(dirs ?? [dir]).map(d => fitDistance(corners, d, cam.fov, aspect)));
+      cam.position.copy(c).addScaledVector(dir, dist);
+      cam.lookAt(c);
+    }
+    cam.updateMatrixWorld();
+    return { cam, center: c };
+  }
+
+  /** Hasta ~4000 vértices de la prenda en coordenadas del mundo, relativos a `center`. */
+  private silhouette(center: THREE.Vector3) {
+    const meshes: THREE.Mesh[] = [];
+    this.model?.traverse(o => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
+    const total = meshes.reduce((a, m) => a + (m.geometry.attributes.position?.count ?? 0), 0);
+    const step = Math.max(1, Math.ceil(total / 4000));
+    const out: THREE.Vector3[] = [];
+    for (const m of meshes) {
+      const p = m.geometry.attributes.position;
+      if (!p) continue;
+      for (let i = 0; i < p.count; i += step) out.push(new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(m.matrixWorld).sub(center));
+    }
+    return out;
+  }
+
+  private beginExport() {
+    if (!this.model) throw new Error('No hay ninguna prenda cargada.');
+    if (this.exporting) throw new Error('Ya hay una exportación en curso.');
+    if (this.renderer.getContext().isContextLost()) throw new Error('El visor 3D se está recuperando; inténtalo en unos segundos.');
+    this.exporting = true;
+    cancelAnimationFrame(this.frame); this.frame = 0;
+  }
+  private endExport(off: OffscreenRenderer, boosted: boolean) {
+    off.dispose();
+    // el atlas vuelve a su tamaño normal (memoria)
+    if (boosted && this.printLayer) this.printLayer.apply(this.prints);
+    this.exporting = false;
+    this.invalidate();
+  }
+
+  /** Render PNG cuadrado fuera de pantalla. Si el equipo no llega a la resolución pedida, la baja y lo avisa. */
+  async exportImage(o: ImageExport): Promise<ImageResult> {
+    this.beginExport();
+    const off = new OffscreenRenderer(this.renderer);
+    const warnings: string[] = [];
+    let boosted = false;
+    try {
+      const r = resolveRenderSize(o.size, this.renderLimits());
+      if (r.reason) warnings.push(r.reason);
+      let side = r.side;
+      // a partir de 2048 px el atlas normal (~15 px/cm) se vería blando: se pinta a 4096 solo para el render
+      if (side >= 2048 && this.printLayer && this.prints.length) { this.printLayer.apply(this.prints, { atlas: 4096 }); boosted = true; }
+      const { cam } = this.exportCamera(o.view, 1);
+      for (;;) {
+        try {
+          const img = await off.render(this.scene, cam, side, side, { background: o.background });
+          return { blob: await encodePng(img), side, warnings };
+        } catch (e) {
+          const next = e instanceof RenderMemoryError ? smallerSize(side) : null;
+          if (!next) throw e;
+          warnings.push(`${(e as Error).message} Se exportó a ${next} px en lugar de ${side} px.`);
+          side = next;
+        }
+      }
+    } finally { this.endExport(off, boosted); }
+  }
+
+  /** Video de una vuelta completa (MP4 o WebM según el navegador), con fondo de color. */
+  async exportTurntable(o: VideoExport) {
+    this.beginExport();
+    const off = new OffscreenRenderer(this.renderer);
+    const lightsY = this.lights.rotation.y, envY = this.scene.environmentRotation.y;
+    try {
+      const r = resolveRenderSize(o.size, this.renderLimits());
+      // encuadre que sirve para toda la vuelta (las mangas abiertas ocupan más de perfil)
+      const dirs = Array.from({ length: 16 }, (_, i) => new THREE.Vector3(...VIEW_DIR.front).applyAxisAngle(new THREE.Vector3(0, 1, 0), (i / 16) * Math.PI * 2));
+      const { cam, center } = this.exportCamera('front', 1, dirs);
+      const start = cam.position.clone().sub(center), Y = new THREE.Vector3(0, 1, 0);
+      // girar cámara, luces y entorno juntos equivale a girar la prenda (y sus calcomanías) delante de ellos
+      const pose = (a: number) => {
+        cam.position.copy(start).applyAxisAngle(Y, a).add(center);
+        cam.lookAt(center);
+        this.lights.rotation.y = lightsY + a;
+        this.scene.environmentRotation.y = envY + a;
+      };
+      const video = await recordTurntable(off, this.scene, cam, { size: r.side, seconds: o.seconds, background: o.background, pose, onProgress: o.onProgress, signal: o.signal });
+      return { ...video, side: r.side, warnings: r.reason ? [r.reason] : [] };
+    } finally {
+      this.lights.rotation.y = lightsY;
+      this.scene.environmentRotation.y = envY;
+      this.endExport(off, false);
+    }
   }
 
   /** Datos para pruebas y diagnóstico. */

@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Home as HomeIcon, Plus, Trash2, Box, Loader2, Crosshair, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Home as HomeIcon, Plus, Trash2, Box, Loader2, Crosshair, ExternalLink, ImageDown } from 'lucide-react';
 import { useStore, set, get, toast } from '../core/store';
 import { KovaK, BrandIcon } from '../ui/components/Brand';
 import { Seg, ColorInput, Select, Slider, Check } from '../ui/components/controls';
 import { GarmentViewer, VIEW_LABELS, LIGHT_LABELS, type ViewPreset, type LightPreset } from './viewer';
 import { listGarments, removeGarment, garmentModel, updateGarmentConfig, type GarmentEntry } from './garments';
 import { ImportGarmentDialog } from './ImportGarmentDialog';
+import { ExportRenderDialog } from './ExportRenderDialog';
 import { GARMENT3D_SCHEMA, type Garment3DData, type PrintZoneId, type ZonePrint } from '../core/garment3d';
 import type { Doc } from '../core/types';
 import { renderArtboard } from '../core/render';
@@ -66,6 +67,7 @@ export function Studio() {
   const [loading, setLoading] = useState(false);
   const [lost, setLost] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [results, setResults] = useState<Partial<Record<PrintZoneId, PrintResult>>>({});
   const [activeZone, setActiveZone] = useState<PrintZoneId>('front');
@@ -229,6 +231,7 @@ export function Studio() {
         </button>
         {doc ? <span className="chip" title="Documento activo: su arte se aplicará a la prenda">{doc.name}</span> : <span className="tiny muted">Sin documento abierto</span>}
         <div className="grow" />
+        <button className="btn sm primary" disabled={!current || loading || lost} title="Exportar imagen PNG o video giratorio" onClick={() => setExporting(true)}><ImageDown size={13} /><span className="btn-label">Exportar render</span></button>
         <button className="icon-btn" title="Menú principal" aria-label="Menú principal" onClick={() => set({ screen: 'home' })}><HomeIcon size={15} /></button>
         <button className="btn sm" disabled={!get().docs.length} onClick={() => set({ screen: 'editor' })}><ArrowLeft size={13} /><span className="btn-label">Editor 2D</span></button>
       </header>
@@ -360,6 +363,7 @@ export function Studio() {
           </div>
         </aside>
       </div>
+      {exporting && viewer.current && current && <ExportRenderDialog viewer={viewer.current} name={doc ? `${doc.name} - ${current.config.name}` : current.config.name} background={prefs.bg} onClose={() => setExporting(false)} />}
       {importing && <ImportGarmentDialog onClose={() => setImporting(false)} onAdded={g => { refresh(); select(g); }} />}
     </div>
   );

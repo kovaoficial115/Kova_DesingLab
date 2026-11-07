@@ -453,3 +453,7 @@ button.avatar:hover { transform: translateY(-1px); z-index: 1; }
   .studio-body { grid-template-columns: 1fr; }
   .studio-bar .btn-label, .studio-bar .brand-name { display: none; }
 }
+
+/* Estudio 3D: progreso de exportación */
+.render-progress { height: 6px; border-radius: 3px; background: var(--panel-3); overflow: hidden; }
+.render-progress > span { display: block; height: 100%; background: var(--accent); transition: width .2s linear; }

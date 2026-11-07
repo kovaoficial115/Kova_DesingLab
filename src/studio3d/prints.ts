@@ -183,7 +183,12 @@ export class PrintLayer {
     return p;
   }
 
-  apply(list: PreparedPrint[]): PrintResult[] {
+  /**
+   * `atlas`: lado mínimo del lienzo al pintar (los renders de alta resolución lo suben a 4096).
+   * Qué estampado va al atlas y cuál a calcomanía se decide siempre con el tamaño normal, para que
+   * el render coincida con lo que se ve en el visor.
+   */
+  apply(list: PreparedPrint[], o: { atlas?: number } = {}): PrintResult[] {
     this.clear();
     const results: PrintResult[] = [];
     const byMaterial = new Map<FabricMaterial, { p: PreparedPrint; uvs: P2[] }[]>();
@@ -226,7 +231,7 @@ export class PrintLayer {
       }
       results.push({ zone: p.zone.id, mode, ...(reason ? { reason } : {}), overflow, inkCm: [f.w * 100, f.h * 100] });
     }
-    for (const [mat, items] of byMaterial) this.paint(mat, items);
+    for (const [mat, items] of byMaterial) this.paint(mat, items, o.atlas);
     return results;
   }
 
@@ -238,17 +243,17 @@ export class PrintLayer {
   }
 
   /** Tamaño del atlas compuesto para un material: el de la tela, subido al menos a 2048 px. */
-  private atlasSize(material: FabricMaterial): [number, number] {
+  private atlasSize(material: FabricMaterial, min = 2048): [number, number] {
     const img = material.map?.image as { width: number; height: number } | undefined;
     const limit = Math.min(MAX_ATLAS, this.renderer.capabilities.maxTextureSize);
-    const side = Math.min(limit, Math.max(2048, img ? Math.max(img.width, img.height) : 0));
+    const side = Math.min(limit, Math.max(min, img ? Math.max(img.width, img.height) : 0));
     if (!img) return [side, side];
     const k = side / Math.max(img.width, img.height);
     return [Math.round(img.width * k), Math.round(img.height * k)];
   }
 
-  private paint(material: FabricMaterial, items: { p: PreparedPrint; uvs: P2[] }[]) {
-    const [W, H] = this.atlasSize(material);
+  private paint(material: FabricMaterial, items: { p: PreparedPrint; uvs: P2[] }[], min?: number) {
+    const [W, H] = this.atlasSize(material, min);
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
     const g = canvas.getContext('2d')!;
