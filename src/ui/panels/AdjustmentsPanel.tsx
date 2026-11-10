@@ -193,13 +193,14 @@ export function AdjustmentsPanel({ doc }: { doc: Doc }) {
       {!l && <div className="tiny muted">Selecciona una capa para añadir ajustes no destructivos.</div>}
       {l && !l.adjustments.length && <div className="tiny muted">Los ajustes se aplican sin modificar los píxeles originales. Puedes editarlos, ocultarlos o reordenarlos en cualquier momento.</div>}
       {l && l.adjustments.map((a, i) => {
-        const Ic = icons[a.type];
+        // un ajuste de una versión más nueva de la app: se muestra con nombre genérico y sin controles
+        const Ic = icons[a.type] ?? Palette;
         const isOpen = open === a.id;
         return (
           <div key={a.id} className="card" style={{ padding: 8 }}>
             <div className="row" style={{ cursor: 'pointer' }} onClick={() => setOpen(isOpen ? null : a.id)}>
               <Ic size={14} />
-              <span className="grow small" style={{ fontWeight: 500, opacity: a.enabled ? 1 : 0.5 }}>{A.adjustmentDefaults[a.type].label}</span>
+              <span className="grow small" style={{ fontWeight: 500, opacity: a.enabled ? 1 : 0.5 }}>{A.adjustmentDefaults[a.type]?.label ?? 'Ajuste de otra versión'}</span>
               <button className="icon-btn sm" onClick={e => { e.stopPropagation(); move(i, 1); }} title="Subir"><ChevronUp size={12} /></button>
               <button className="icon-btn sm" onClick={e => { e.stopPropagation(); move(i, -1); }} title="Bajar"><ChevronDown size={12} /></button>
               <button className="icon-btn sm" onClick={e => { e.stopPropagation(); A.toggleAdjustment(l.id, a.id); }} title="Activar/desactivar">{a.enabled ? <Eye size={12} /> : <EyeOff size={12} />}</button>
