@@ -220,6 +220,35 @@ export async function bakedLayerCanvas(l: Layer): Promise<HTMLCanvasElement | nu
 export function invalidateTextContent() { contentCache.clear(); }
 export function invalidateLayer(id: string) { procCache.delete(id); contentCache.delete(id); vectorCache.delete(id); }
 
+// ---------- reducciones (mipmaps) ----------
+// drawImage reduce con muestreo bilineal: al alejar el zoom no promedia los píxeles que se salta
+// (WebKit nunca; Chrome no siempre). Una trama fina (semitonos, texturas) se ve entonces como un
+// «tejido» de moiré que no existe en el arte. Se dibuja desde una copia reducida a la mitad tantas
+// veces como haga falta (cada paso promedia 2×2) y el último paso, de 2× como mucho, ya no crea moiré.
+const mipCache = new WeakMap<HTMLCanvasElement, HTMLCanvasElement[]>();
+const liveCanvases = new WeakSet<HTMLCanvasElement>();
+/** Lienzo que se modifica en sitio (trazo en curso): no se le guardan reducciones. */
+export function markLiveCanvas(c: HTMLCanvasElement) { liveCanvases.add(c); }
+
+function halve(src: HTMLCanvasElement) {
+  const c = createCanvas(Math.max(1, Math.ceil(src.width / 2)), Math.max(1, Math.ceil(src.height / 2)));
+  const g = ctx2d(c);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(src, 0, 0, c.width, c.height);
+  return c;
+}
+
+/** Versión del lienzo para dibujarlo a `scale` píxeles de destino por píxel de origen. */
+export function mipFor(src: HTMLCanvasElement, scale: number): HTMLCanvasElement {
+  if (!(scale < 0.5) || liveCanvases.has(src) || src.width < 64 || src.height < 64) return src;
+  let levels = mipCache.get(src);
+  if (!levels) mipCache.set(src, (levels = []));
+  let cur = src;
+  for (let i = 0; scale < 0.5 && cur.width >= 32 && cur.height >= 32; i++, scale *= 2) cur = levels[i] ??= halve(cur);
+  return cur;
+}
+
 // ---------- composición ----------
 const pool: HTMLCanvasElement[] = [];
 function borrow(w: number, h: number) {
@@ -265,7 +294,9 @@ function drawLayer(g: CanvasRenderingContext2D, l: Layer, o: RenderOpts, all: La
   g.globalCompositeOperation = forceNormal ? 'source-over' : l.blend;
   g.imageSmoothingEnabled = o.smoothing;
   g.imageSmoothingQuality = 'high';
-  g.drawImage(src, 0, 0, w, h);
+  // escala real: píxeles de destino por píxel del contenido (la mayor de los dos ejes, para no emborronar)
+  const k = Math.max(Math.hypot(m.a, m.b) * (w / src.width), Math.hypot(m.c, m.d) * (h / src.height));
+  g.drawImage(o.smoothing ? mipFor(src, k) : src, 0, 0, w, h);
   g.restore();
 }
 

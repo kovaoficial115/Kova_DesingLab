@@ -11,7 +11,7 @@ import {
 } from '../core/actions';
 import { layerMatrix, layerSize, layerBounds, cloneCanvas, createCanvas, ctx2d, getImageData, resampleCanvas, hexToRgb, unionRect, type Rect } from '../core/util';
 import { shapeLayer, textLayer, defaultText, descendants } from '../core/doc';
-import { renderArtboard, processedContent } from '../core/render';
+import { renderArtboard, processedContent, markLiveCanvas } from '../core/render';
 import { magicWand } from '../engine/alpha';
 
 export interface ToolEvent {
@@ -431,6 +431,7 @@ function brushTool(kind: 'brush' | 'eraser' | 'restore') {
       if (target === 'pixels') { l = await ensureRaster(l); if (!l) return; }
       const base = target === 'mask' ? l.mask! : l.canvas!;
       const working = cloneCanvas(base);
+      markLiveCanvas(working); // cambia en cada movimiento: sin reducciones en caché
       const buffer = createCanvas(base.width, base.height);
       const inv = layerMatrix(l).inverse();
       const scale = Math.max(Math.abs(l.scaleX), Math.abs(l.scaleY));

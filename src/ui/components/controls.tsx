@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
+import { resampleCanvas } from '../../core/util';
 
 /** Campo numérico con arrastre sobre la etiqueta (scrub), flechas y Enter. */
 export function NumberField(props: {
@@ -136,13 +137,25 @@ export function CanvasPreview(props: { canvas: HTMLCanvasElement | null; classNa
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.innerHTML = '';
-    if (props.canvas) {
-      const c = props.canvas;
+    const show = () => {
+      el.innerHTML = '';
+      const src = props.canvas;
+      if (!src) return;
+      // si hay que reducirla, se reduce por pasos (promediando) en vez de dejarlo al navegador:
+      // el escalado por CSS convierte las tramas finas (semitonos) en moiré
+      const dpr = window.devicePixelRatio || 1;
+      const k = Math.min(1, (el.clientWidth * dpr) / src.width || 1, (el.clientHeight * dpr) / src.height || 1);
+      const c = !props.pixelated && k < 0.98 && el.clientWidth > 0 && el.clientHeight > 0 ? resampleCanvas(src, src.width * k, src.height * k) : src;
       c.style.maxWidth = '100%'; c.style.maxHeight = '100%'; c.style.display = 'block';
+      if (c !== src) { c.style.width = c.width / dpr + 'px'; c.style.height = c.height / dpr + 'px'; }
       c.style.imageRendering = props.pixelated ? 'pixelated' : 'auto';
       el.appendChild(c);
-    }
+    };
+    show();
+    let last = el.clientWidth + 'x' + el.clientHeight;
+    const ro = new ResizeObserver(() => { const now = el.clientWidth + 'x' + el.clientHeight; if (now !== last) { last = now; show(); } });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [props.canvas, props.pixelated]);
   return <div ref={ref} className={props.className} style={{ display: 'grid', placeItems: 'center', ...props.style }} />;
 }

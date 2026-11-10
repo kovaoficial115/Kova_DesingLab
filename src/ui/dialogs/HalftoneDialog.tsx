@@ -24,6 +24,9 @@ const PRESETS: { name: string; desc: string; p: Partial<UIParams> }[] = [
   { name: 'Pop CMYK', desc: 'Cuatricromía con ángulos clásicos', p: { mode: 'cmyk', shape: 'round', lpi: 25, antialias: false } },
 ];
 
+/** Celda mínima (px) con la que se calcula la vista previa completa. */
+const MIN_PREVIEW_CELL = 8;
+
 function toEngine(p: UIParams, ppi: number): HalftoneParams {
   const { lpi, ink, ...rest } = p;
   return { ...rest, cellPx: ppi / lpi, inkColor: hexToRgb(ink) };
@@ -77,11 +80,15 @@ export function HalftoneDialog({ onClose }: { onClose: () => void }) {
     if (!base) return null;
     if (view === 'fit') {
       const MAX = 1400;
-      return { x: 0, y: 0, w: base.width, h: base.height, down: base.width * base.height > MAX * MAX ? Math.sqrt((MAX * MAX) / (base.width * base.height)) : 1 };
+      let down = base.width * base.height > MAX * MAX ? Math.sqrt((MAX * MAX) / (base.width * base.height)) : 1;
+      // la trama se calcula a la escala reducida: con celdas de menos de ~8 px los puntos ya no se
+      // pueden dibujar redondos y la vista previa muestra un tejido que el resultado real no tiene
+      down = Math.min(1, Math.max(down, MIN_PREVIEW_CELL / cell));
+      return { x: 0, y: 0, w: base.width, h: base.height, down };
     }
     const W = Math.min(base.width, 560), H = Math.min(base.height, 420);
     return { x: Math.round(Math.max(0, Math.min(base.width - W, detailPos.x * base.width - W / 2))), y: Math.round(Math.max(0, Math.min(base.height - H, detailPos.y * base.height - H / 2))), w: W, h: H, down: 1 };
-  }, [base, view, detailPos]);
+  }, [base, view, detailPos, cell]);
 
   useEffect(() => {
     if (!base || !region) return;
