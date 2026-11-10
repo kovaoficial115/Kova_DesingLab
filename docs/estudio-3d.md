@@ -6,12 +6,42 @@ El Estudio 3D muestra el arte del editor 2D sobre una prenda en 3D. El arte siem
 
 1. **Prendas.** Importa un modelo `.glb` (Blender, Sketchfab, CGTrader…) desde el panel *Prendas*. Se valida antes de guardarlo en la biblioteca local del equipo. Con la biblioteca vacía puedes empezar con *Usar camiseta de ejemplo*.
 2. **Material.** Elige la tela (algodón, felpa o poliéster), el color y el acabado (liso, jaspeado o lavado).
-3. **Estampados.** Cada zona (frente, espalda, mangas y cuello) recibe una mesa de trabajo del documento abierto, a su tamaño físico real según sus ppp. Puedes moverla, escalarla y girarla dentro de la zona.
+3. **Estampados.** Cada zona (frente, espalda, mangas y cuello) recibe una mesa de trabajo del documento abierto, a su tamaño físico real según sus ppp. Se coloca arrastrándola sobre la prenda o con medidas en cm (ver *Colocar estampados*).
 4. **Exportar render.** Exporta una imagen PNG (1080, 2048 o 4096 px, con fondo transparente o de color) o un video de una vuelta completa (MP4, o WebM si el navegador no graba MP4).
 
 Los ajustes 3D (prenda, tela, zonas y estampados) se guardan dentro del `.kova`, en la sección opcional `garment3d`. Si la prenda es un GLB importado, el modelo viaja en el archivo (`models3d`, sin duplicados por hash).
 
 > Si compartes un `.kova` que usa un modelo con licencia sin redistribución, compartes también el modelo. Revisa la licencia antes de enviarlo.
+
+## Colocar estampados
+
+- **Arrastre directo.** Arrastra el estampado sobre la prenda. Se mueve sobre el plano de su zona y sigue la tela. Un clic selecciona la zona y abre su tarjeta. El contorno discontinuo marca el área de impresión; el rojo, la parte con tinta.
+- **Ajuste magnético.** Al arrastrar, la tinta se ajusta al centro y a los bordes del área (umbral de 0,8 cm) y se dibuja la guía usada. Alt lo suspende mientras se arrastra; el botón del imán (M) lo desactiva.
+- **Medidas en cm.** *Ancho* (de la tinta, conserva el borde superior), *Giro*, *Centro* (distancia horizontal del centro del área; positivo a la derecha) y *Arriba* (del borde superior del área a la tinta).
+- **Colocaciones.** Frente: *Pecho*, *Logo pecho* (9 cm, a 10 cm del centro, en el pecho izquierdo de quien la lleva), *Centrar*, *Abajo*. Espalda: *Arriba*, *Centrar*, *Abajo*. Nunca agrandan el arte; solo lo reducen si no cabe.
+- **Alinear** a la izquierda, centro, derecha, arriba, centro vertical o abajo del área.
+- **Herramientas.** Girar ±90°, espejo horizontal, ocultar (no sale ni en el visor ni en los renders), bloquear (no se mueve al arrastrar ni con las flechas) y quitar.
+- **Deshacer / rehacer** propio del estudio (⌘Z / ⇧⌘Z). Un arrastre o un deslizador cuentan como un solo paso. No toca el historial del editor 2D.
+
+Ocultar, bloquear y espejo se guardan en el `.kova` (`hidden`, `locked`, `flipX` de cada zona, solo cuando valen `true`). Una versión anterior de la app los ignora y abre el archivo igual.
+
+### Atajos
+
+| Tecla | Acción |
+| --- | --- |
+| 1 – 5 | Vistas frontal, trasera, izquierda, derecha y ¾ |
+| F / doble clic | Encuadrar la prenda |
+| P | Vista plana (teleobjetivo, casi sin perspectiva) |
+| R | Giro automático |
+| M | Ajuste magnético |
+| ← ↑ → ↓ | Mover 0,5 cm (con ⇧, 5 cm) |
+| H / L | Ocultar / bloquear la zona activa |
+| Supr | Quitar el estampado de la zona activa |
+| ⌘Z / ⇧⌘Z | Deshacer / rehacer |
+| Esc | Cerrar la zona activa |
+| ? | Mostrar los atajos |
+
+Los atajos no actúan mientras se escribe en un campo o hay un diálogo abierto.
 
 ## Requisitos de los modelos
 
@@ -104,5 +134,11 @@ Zonas por defecto (cm):
 ## Rendimiento
 
 - Una sola escena viva. Se dibuja solo cuando algo cambia y el visor es visible. Densidad de píxeles ≤ 2.
+- **Calidad del visor** (panel *Escena*, se recuerda en el equipo):
+  - *Adaptativa* (por defecto): nítida en reposo, con un tope de 2,6 Mpx de dibujo. Mientras la cámara se mueve o se arrastra un estampado, mide la duración real de los fotogramas. Si la mediana de 30 pasa de 34 ms, baja a ¾ y luego a ½ de resolución. No vuelve a un nivel que ya se quedó corto. Al parar recupera la resolución completa.
+  - *Alta*, *Equilibrada* (¾) y *Rápida* (½): resolución fija, para equipos lentos.
+  - Los renders exportados no dependen de este ajuste.
+- El arrastre no lanza rayos contra la malla: corta el rayo del ratón con el plano de la zona. Aplica la nueva posición una vez por fotograma (≈ 1 ms) sin pasar por el documento, que se actualiza al soltar.
+- Las capas de estampado reutilizan su lienzo y su textura al cambiar (subida parcial, sin reservar memoria nueva). Las que dejan de usarse se liberan.
 - Al cambiar de prenda se libera la anterior (geometrías, texturas y materiales). Comprobado con 10 cambios seguidos sin crecimiento.
 - Si el sistema retira el contexto WebGL, el visor lo recupera y rehace prenda, tela y estampados.

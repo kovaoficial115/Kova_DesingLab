@@ -163,13 +163,38 @@ export function atlasFootprint(uvs: P2[], W: number, H: number) {
 
 /** capa de estampados de un material de tela: un lienzo transparente del tamaño del atlas */
 interface Composite { material: FabricMaterial; tex: THREE.CanvasTexture }
+/** lienzo y textura que se reutilizan entre aplicaciones (arrastrar un estampado repinta decenas de veces por segundo) */
+interface Atlas { canvas: HTMLCanvasElement; tex: THREE.CanvasTexture }
+
+/**
+ * Polilíneas sobre la superficie de la prenda que siguen un contorno del plano de la zona
+ * (puntos cada `stepM`, levantados `lift` hacia quien mira). Se cortan donde no hay tela.
+ */
+export function surfacePolylines(proj: Projector, corners: P2[], closed = true, stepM = 0.008, lift = 0.0025): THREE.Vector3[][] {
+  const out: THREE.Vector3[][] = [];
+  let cur: THREE.Vector3[] = [];
+  const pts = closed ? [...corners, corners[0]] : corners;
+  for (let e = 0; e < pts.length - 1; e++) {
+    const [ax, ay] = pts[e], [bx, by] = pts[e + 1];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / stepM));
+    for (let i = e ? 1 : 0; i <= n; i++) {
+      const t = i / n, h = proj.sample(ax + (bx - ax) * t, ay + (by - ay) * t);
+      if (!h) { if (cur.length > 1) out.push(cur); cur = []; continue; }
+      cur.push(h.point.clone().addScaledVector(proj.basis.toward, lift));
+    }
+  }
+  if (cur.length > 1) out.push(cur);
+  return out;
+}
 
 /** Aplica estampados a una prenda cargada y los retira sin dejar nada en la GPU. */
 export class PrintLayer {
   private projectors = new Map<string, Projector>();
   private decals: THREE.Mesh[] = [];
   private composites: Composite[] = [];
-  private top = 0;
+  private atlases = new Map<FabricMaterial, Atlas>();
+  /** borde superior de la prenda en el plano de proyección (m) */
+  readonly top: number = 0;
 
   constructor(private scene: THREE.Object3D, private meshes: THREE.Mesh[], private renderer: THREE.WebGLRenderer) {
     const box = new THREE.Box3();
@@ -177,7 +202,7 @@ export class PrintLayer {
     this.top = box.max.y;
   }
 
-  private projector(zone: ZoneDef) {
+  projector(zone: ZoneDef) {
     let p = this.projectors.get(zone.view);
     if (!p) { p = new Projector(this.meshes, basisFor(zone.view)); this.projectors.set(zone.view, p); }
     return p;
@@ -232,6 +257,8 @@ export class PrintLayer {
       results.push({ zone: p.zone.id, mode, ...(reason ? { reason } : {}), overflow, inkCm: [f.w * 100, f.h * 100] });
     }
     for (const [mat, items] of byMaterial) this.paint(mat, items, o.atlas);
+    // los atlas que ya no se usan se liberan (16 MB por lienzo de 2048 px)
+    for (const [mat, a] of this.atlases) if (!byMaterial.has(mat)) { a.tex.dispose(); this.atlases.delete(mat); }
     return results;
   }
 
@@ -254,18 +281,29 @@ export class PrintLayer {
 
   private paint(material: FabricMaterial, items: { p: PreparedPrint; uvs: P2[] }[], min?: number) {
     const [W, H] = this.atlasSize(material, min);
-    const canvas = document.createElement('canvas');
-    canvas.width = W; canvas.height = H;
-    const g = canvas.getContext('2d')!;
+    let a = this.atlases.get(material);
+    if (!a || a.canvas.width !== W || a.canvas.height !== H) {
+      a?.tex.dispose();
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.flipY = false;
+      tex.premultiplyAlpha = true; // bordes limpios al filtrar un lienzo transparente
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+      a = { canvas, tex };
+      this.atlases.set(material, a);
+    }
+    const g = a.canvas.getContext('2d')!;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, W, H);
     g.imageSmoothingQuality = 'high'; // el arte suele reducirse mucho al entrar en el atlas
     // la capa se muestrea con la UV tal cual (flipY desactivado: v = 0 es la fila superior)
     for (const { p, uvs } of items) paintWarp(g, p.image as any, uvs, W, H, false, GRID, p.ink);
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.flipY = false;
-    tex.premultiplyAlpha = true; // bordes limpios al filtrar un lienzo transparente
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    // misma textura y mismo tamaño: la GPU la actualiza sin volver a reservar memoria
+    const tex = a.tex;
+    tex.needsUpdate = true;
     const u = material.userData.kovaFabric;
     u.kPrintMap.value = tex;
     u.kPrintOn.value = 1;
@@ -321,14 +359,18 @@ export class PrintLayer {
     this.decals = [];
     for (const c of this.composites) {
       const u = c.material.userData.kovaFabric;
-      // de vuelta a la textura vacía: una textura liberada que se siga muestreando se volvería a subir a la GPU
+      // de vuelta a la textura vacía (el lienzo se conserva para la próxima aplicación)
       if (u.kPrintMap.value === c.tex) { u.kPrintMap.value = blankTexture(); u.kPrintOn.value = 0; }
-      c.tex.dispose();
     }
     this.composites = [];
   }
 
-  dispose() { this.clear(); this.projectors.clear(); }
+  dispose() {
+    this.clear();
+    for (const a of this.atlases.values()) a.tex.dispose();
+    this.atlases.clear();
+    this.projectors.clear();
+  }
 }
 
 function push<K, V>(m: Map<K, V[]>, k: K, v: V) { const a = m.get(k); if (a) a.push(v); else m.set(k, [v]); }

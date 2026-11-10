@@ -9,7 +9,11 @@ import { loadGlb, disposeObject } from './loader';
 import { fabricOf, type GarmentConfig } from './config';
 import { makeFabricMaterial, applyFabric, cmPerUv, defaultFabric, disposeFabricTextures, type FabricMaterial, type FabricSettings } from './fabric';
 import { isPrintable } from './validate';
-import { PrintLayer, type PreparedPrint, type PrintResult } from './prints';
+import { PrintLayer, printFrame, inkFrame, framePoint, surfacePolylines, type PreparedPrint, type PrintResult } from './prints';
+import { basisFor, type ZoneDef } from './zones';
+import { FrameGovernor, basePixelRatio, qualityScale, type QualityMode } from './quality';
+import type { PrintZoneId, ZonePrint } from '../core/garment3d';
+import type { Guide } from './placement';
 import { OffscreenRenderer, RenderMemoryError, resolveRenderSize, smallerSize, fitDistance, boxCorners, encodePng, recordTurntable, type RenderLimits } from './render';
 
 export type ExportView = ViewPreset | 'current';
@@ -35,6 +39,19 @@ export interface ViewerEvents {
   onContextRestored?: () => void;
   onError?: (e: unknown) => void;
 }
+
+/** Manipulación directa de los estampados sobre la prenda (la gestiona el estudio). */
+export interface PrintInteraction {
+  /** ¿se puede arrastrar? (no si está bloqueado) */
+  canDrag(zone: PrintZoneId): boolean;
+  select(zone: PrintZoneId): void;
+  /** posición propuesta (fracciones de la zona, sin ajuste); `snap` = falso con Alt pulsado */
+  drag(zone: PrintZoneId, x: number, y: number, snap: boolean): void;
+  end(zone: PrintZoneId): void;
+}
+
+const ACCENT = 0xd21625;
+const FLAT_FOV = 6, NORMAL_FOV = 30;
 
 export class GarmentViewer {
   readonly canvas: HTMLCanvasElement;
@@ -63,6 +80,28 @@ export class GarmentViewer {
   private fabric: FabricSettings | null = null;
   private uvCm = 0;
   private exporting = false;
+  // calidad
+  private quality: QualityMode = 'adaptive';
+  private gov = new FrameGovernor();
+  private cssW = 1; private cssH = 1;
+  private interacting = 0;
+  private chained = false;
+  private lastFrameAt = 0;
+  // selección y arrastre de estampados
+  private interaction: PrintInteraction | null = null;
+  private overlay = new THREE.Group();
+  private selected: ZoneDef | null = null;
+  private guides: Guide[] = [];
+  private lineMats = {
+    zone: new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 }),
+    print: new THREE.LineBasicMaterial({ color: ACCENT }),
+    guide: new THREE.LineBasicMaterial({ color: 0x38d9a9 }),
+  };
+  private drag: { zone: PrintZoneId; plane: THREE.Plane; basis: ReturnType<typeof basisFor>; start: [number, number]; from: [number, number]; size: [number, number]; pointer: number } | null = null;
+  private hoverFrame = 0;
+  private pendingApply = 0;
+  private ray = new THREE.Raycaster();
+  private flat = false;
 
   constructor(private container: HTMLElement, private events: ViewerEvents = {}) {
     this.canvas = document.createElement('canvas');
@@ -71,8 +110,15 @@ export class GarmentViewer {
     this.canvas.addEventListener('webglcontextlost', this.onLost, false);
     this.canvas.addEventListener('webglcontextrestored', this.onRestored, false);
     this.initGl();
-    this.scene.add(this.pivot, this.lights);
+    this.overlay.renderOrder = 2;
+    this.scene.add(this.pivot, this.lights, this.overlay);
     this.setLighting('studio');
+    // en captura sobre el contenedor: decide antes que la órbita si el gesto es un arrastre de estampado
+    container.addEventListener('pointerdown', this.onPointerDown, true);
+    container.addEventListener('pointermove', this.onPointerMove, true);
+    container.addEventListener('pointerup', this.onPointerUp, true);
+    container.addEventListener('pointercancel', this.onPointerUp, true);
+    this.canvas.addEventListener('dblclick', this.onDoubleClick);
     this.resizeObs = new ResizeObserver(() => this.resize());
     this.resizeObs.observe(container);
     this.visObs = new IntersectionObserver(([e]) => { this.visible = e.isIntersecting; if (this.visible) this.invalidate(); });
@@ -83,7 +129,7 @@ export class GarmentViewer {
 
   private initGl() {
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(this.pixelRatio(false));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // tono neutro: no altera el color de la tela
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -94,12 +140,15 @@ export class GarmentViewer {
     pmrem.dispose();
     this.scene.environment = this.envTex;
     this.controls?.dispose();
+    this.interacting = 0; // un gesto que quedara a medias con el contexto anterior no cuenta
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.12;
     this.controls.screenSpacePanning = true;
+    this.controls.autoRotateSpeed = 1.5;
     this.controls.addEventListener('change', () => this.invalidate());
-    this.controls.addEventListener('start', () => { this.tween = null; });
+    this.controls.addEventListener('start', () => { this.tween = null; this.interacting++; });
+    this.controls.addEventListener('end', () => { this.interacting = Math.max(0, this.interacting - 1); this.invalidate(); });
     this.applyBackground();
   }
 
@@ -119,13 +168,40 @@ export class GarmentViewer {
       this.camera.position.lerpVectors(this.tween.from, this.tween.to, e);
       if (k >= 1) this.tween = null; else moving = true;
     }
-    if (this.controls.update()) moving = true; // inercia de la órbita
+    if (this.controls.update()) moving = true; // inercia de la órbita o giro automático
+    const active = moving || this.interacting > 0;
+    this.setPixelRatio(this.pixelRatio(active));
     this.renderer.render(this.scene, this.camera);
+    // duración de los fotogramas encadenados (no los que dicta el ratón) para el modo adaptativo
+    if (this.chained && this.quality === 'adaptive' && this.lastFrameAt && this.gov.push(now - this.lastFrameAt)) this.setPixelRatio(this.pixelRatio(active));
+    this.lastFrameAt = now;
+    this.chained = moving;
     if (moving) this.invalidate();
   };
 
+  private pixelRatio(active: boolean) {
+    return basePixelRatio(window.devicePixelRatio || 1, this.cssW, this.cssH, this.quality) * qualityScale(this.quality, this.gov.level, active);
+  }
+  private setPixelRatio(pr: number) {
+    if (Math.abs(this.renderer.getPixelRatio() - pr) < 1e-3) return;
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(this.cssW, this.cssH, false);
+  }
+
+  /** Calidad del visor (resolución de dibujo). Los renders exportados no dependen de ella. */
+  setQuality(m: QualityMode) {
+    this.quality = m;
+    this.gov.reset();
+    this.setPixelRatio(this.pixelRatio(false));
+    this.invalidate();
+  }
+  /** Resolución actual de dibujo (diagnóstico y pruebas). */
+  get drawing() { return { pixelRatio: this.renderer.getPixelRatio(), level: this.gov.level, width: this.canvas.width, height: this.canvas.height }; }
+
   private resize() {
     const w = Math.max(1, this.container.clientWidth), h = Math.max(1, this.container.clientHeight);
+    this.cssW = w; this.cssH = h;
+    this.renderer.setPixelRatio(this.pixelRatio(false));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -152,8 +228,7 @@ export class GarmentViewer {
     this.pivot.updateMatrixWorld(true);
     const sphere = new THREE.Box3().setFromObject(this.pivot).getBoundingSphere(new THREE.Sphere());
     this.radius = sphere.radius || 0.5;
-    this.camera.near = this.radius / 100; this.camera.far = this.radius * 100; this.camera.updateProjectionMatrix();
-    this.controls.minDistance = this.radius * 0.6; this.controls.maxDistance = this.radius * 8;
+    this.applyLens();
     this.model = model;
     const printable: THREE.Mesh[] = [];
     model.traverse(o => { const m = o as THREE.Mesh; if (m.isMesh && isPrintable(m, config)) printable.push(m); });
@@ -192,10 +267,163 @@ export class GarmentViewer {
   setPrints(list: PreparedPrint[]): PrintResult[] {
     this.prints = list;
     if (!this.printLayer) return [];
+    if (this.pendingApply) { cancelAnimationFrame(this.pendingApply); this.pendingApply = 0; }
     const r = this.printLayer.apply(list);
+    this.refreshOverlay();
     this.invalidate();
     return r;
   }
+
+  /** Cambia la colocación de un estampado ya aplicado sin pasar por el documento (arrastre en vivo). Una vez por fotograma. */
+  previewPrint(zone: PrintZoneId, print: ZonePrint) {
+    const i = this.prints.findIndex(p => p.zone.id === zone);
+    if (i < 0) return;
+    this.prints = this.prints.map((p, k) => (k === i ? { ...p, print } : p));
+    if (this.pendingApply) return;
+    this.pendingApply = requestAnimationFrame(() => {
+      this.pendingApply = 0;
+      this.printLayer?.apply(this.prints);
+      this.refreshOverlay();
+      this.invalidate();
+    });
+  }
+
+  // ---------- selección: contorno del área y del estampado sobre la tela ----------
+
+  /** Zona seleccionada (se dibuja su área de impresión y su estampado), o null. */
+  setSelection(zone: ZoneDef | null) {
+    this.selected = zone;
+    this.refreshOverlay();
+    this.invalidate();
+  }
+  /** Guías del ajuste magnético (cm de la zona seleccionada). */
+  setGuides(g: Guide[]) {
+    if (JSON.stringify(g) === JSON.stringify(this.guides)) return;
+    this.guides = g;
+    this.refreshOverlay();
+    this.invalidate();
+  }
+  setInteraction(h: PrintInteraction | null) { this.interaction = h; }
+
+  private refreshOverlay() {
+    for (const c of [...this.overlay.children]) { this.overlay.remove(c); (c as THREE.LineSegments).geometry.dispose(); }
+    const z = this.selected, layer = this.printLayer;
+    if (!z || !layer) return;
+    const proj = layer.projector(z);
+    const zw = z.sizeCm[0] / 100, zh = z.sizeCm[1] / 100, zx = z.centerCm[0] / 100, zy = layer.top - z.centerCm[1] / 100;
+    const X0 = zx - zw / 2, X1 = zx + zw / 2, Y0 = zy + zh / 2, Y1 = zy - zh / 2;
+    const add = (lines: THREE.Vector3[][], mat: THREE.LineBasicMaterial, dashed = false) => {
+      const pts: THREE.Vector3[] = [];
+      for (const l of lines) for (let i = 0; i < l.length - 1; i++) if (!dashed || i % 2 === 0) pts.push(l[i], l[i + 1]);
+      if (!pts.length) return;
+      const seg = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), mat);
+      seg.renderOrder = 2;
+      seg.frustumCulled = false;
+      this.overlay.add(seg);
+    };
+    // área de impresión: discontinua
+    add(surfacePolylines(proj, [[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]], true, 0.01), this.lineMats.zone, true);
+    // estampado (solo la parte con tinta)
+    const p = this.prints.find(q => q.zone.id === z.id);
+    if (p) {
+      const f = inkFrame(printFrame(p.zone, p.print, p.sizeM, layer.top), p.ink);
+      add(surfacePolylines(proj, [framePoint(f, 0, 0), framePoint(f, 1, 0), framePoint(f, 1, 1), framePoint(f, 0, 1)], true, 0.006), this.lineMats.print);
+    }
+    for (const g of this.guides) {
+      const line: [number, number][] = g.axis === 'x' ? [[X0 + g.at / 100, Y0], [X0 + g.at / 100, Y1]] : [[X0, Y0 - g.at / 100], [X1, Y0 - g.at / 100]];
+      add(surfacePolylines(proj, line, false, 0.008), this.lineMats.guide);
+    }
+  }
+
+  // ---------- arrastre directo de estampados ----------
+
+  private rayAt(e: PointerEvent | MouseEvent) {
+    const r = this.canvas.getBoundingClientRect();
+    this.ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), this.camera);
+    return this.ray.ray;
+  }
+
+  /** Estampado bajo el puntero (el más cercano), con el plano de su zona para arrastrarlo. */
+  private pickPrint(e: PointerEvent | MouseEvent) {
+    const layer = this.printLayer;
+    if (!layer || !this.prints.length) return null;
+    const ray = this.rayAt(e);
+    let best: { p: PreparedPrint; plane: THREE.Plane; basis: ReturnType<typeof basisFor>; at: [number, number]; t: number } | null = null;
+    for (const p of this.prints) {
+      const basis = basisFor(p.zone.view);
+      // solo si se ve de frente su cara (no se agarra la espalda a través de la prenda)
+      if (ray.direction.dot(basis.toward) > -0.25) continue;
+      const f = inkFrame(printFrame(p.zone, p.print, p.sizeM, layer.top), p.ink);
+      const depth = layer.projector(p.zone).sample(f.cx, f.cy)?.depth;
+      if (depth === undefined) continue;
+      const plane = new THREE.Plane(basis.toward.clone(), -depth);
+      const hit = ray.intersectPlane(plane, new THREE.Vector3());
+      if (!hit) continue;
+      const x = hit.dot(basis.right), y = hit.dot(basis.up);
+      // dentro del rectángulo girado (con 1 cm de margen para agarrarlo mejor)
+      const c = Math.cos(-f.angle), s = Math.sin(-f.angle), dx = x - f.cx, dy = y - f.cy;
+      const lx = dx * c - dy * s, ly = dx * s + dy * c;
+      if (Math.abs(lx) > f.w / 2 + 0.01 || Math.abs(ly) > f.h / 2 + 0.01) continue;
+      const t = hit.distanceTo(ray.origin);
+      if (!best || t < best.t) best = { p, plane, basis, at: [x, y], t };
+    }
+    return best;
+  }
+
+  private onPointerDown = (e: PointerEvent) => {
+    if (e.button !== 0 || !this.interaction || this.exporting) return;
+    const hit = this.pickPrint(e);
+    if (!hit) return;
+    const zone = hit.p.zone.id;
+    this.interaction.select(zone);
+    if (!this.interaction.canDrag(zone)) return;
+    // el gesto es nuestro: la órbita no lo recibe
+    e.stopPropagation();
+    e.preventDefault();
+    this.canvas.setPointerCapture?.(e.pointerId);
+    this.drag = { zone, plane: hit.plane, basis: hit.basis, start: hit.at, from: [hit.p.print.x, hit.p.print.y], size: [hit.p.zone.sizeCm[0] / 100, hit.p.zone.sizeCm[1] / 100], pointer: e.pointerId };
+    this.interacting++;
+    this.canvas.style.cursor = 'grabbing';
+  };
+
+  private onPointerMove = (e: PointerEvent) => {
+    const d = this.drag;
+    if (d && e.pointerId === d.pointer) {
+      e.stopPropagation();
+      const hit = this.rayAt(e).intersectPlane(d.plane, new THREE.Vector3());
+      if (!hit) return;
+      const dx = hit.dot(d.basis.right) - d.start[0], dy = hit.dot(d.basis.up) - d.start[1];
+      // el plano tiene y hacia arriba; la zona, hacia abajo
+      this.interaction?.drag(d.zone, d.from[0] + dx / d.size[0], d.from[1] - dy / d.size[1], !e.altKey);
+      return;
+    }
+    if (e.buttons || !this.interaction || this.hoverFrame) return;
+    // cursor de agarre sobre los estampados (como mucho una comprobación por fotograma)
+    this.hoverFrame = requestAnimationFrame(() => {
+      this.hoverFrame = 0;
+      if (this.drag || this.disposed) return;
+      const hit = this.pickPrint(e);
+      this.canvas.style.cursor = hit && this.interaction?.canDrag(hit.p.zone.id) ? 'grab' : '';
+    });
+  };
+
+  private onPointerUp = (e: PointerEvent) => {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.pointer) return;
+    e.stopPropagation();
+    this.drag = null;
+    this.interacting = Math.max(0, this.interacting - 1);
+    this.canvas.releasePointerCapture?.(e.pointerId);
+    this.canvas.style.cursor = 'grab';
+    this.setGuides([]);
+    this.interaction?.end(d.zone);
+    this.invalidate();
+  };
+
+  private onDoubleClick = (e: MouseEvent) => {
+    if (this.pickPrint(e)) return; // doble clic sobre un estampado: solo selección
+    this.fitView();
+  };
 
   private clearModel() {
     this.printLayer?.dispose();
@@ -218,6 +446,42 @@ export class GarmentViewer {
     this.camera.lookAt(0, 0, 0);
     this.invalidate();
   }
+
+  /** Encuadra la prenda desde la dirección actual (también deshace el desplazamiento lateral). */
+  fitView() {
+    const d = this.radius / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2)) * 1.08;
+    const dir = this.camera.position.clone().sub(this.controls.target);
+    if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
+    this.controls.target.set(0, 0, 0);
+    this.tween = { from: this.camera.position.clone(), to: dir.normalize().multiplyScalar(d), t0: performance.now() };
+    this.invalidate();
+  }
+
+  /** Vista plana: teleobjetivo de 6° que casi elimina la perspectiva (para comprobar medidas y simetría). */
+  setFlat(on: boolean) {
+    if (on === this.flat) return;
+    const k = Math.tan(THREE.MathUtils.degToRad((on ? NORMAL_FOV : FLAT_FOV) / 2)) / Math.tan(THREE.MathUtils.degToRad((on ? FLAT_FOV : NORMAL_FOV) / 2));
+    this.flat = on;
+    // misma prenda al mismo tamaño en pantalla: la cámara se aleja tanto como se cierra el ángulo
+    const dir = this.camera.position.clone().sub(this.controls.target).multiplyScalar(k);
+    this.tween = null;
+    this.camera.position.copy(this.controls.target).add(dir);
+    this.applyLens();
+  }
+  get isFlat() { return this.flat; }
+
+  private applyLens() {
+    const k = this.flat ? Math.sin(THREE.MathUtils.degToRad(NORMAL_FOV / 2)) / Math.sin(THREE.MathUtils.degToRad(FLAT_FOV / 2)) : 1;
+    this.camera.fov = this.flat ? FLAT_FOV : NORMAL_FOV;
+    this.camera.near = (this.radius / 100) * k; this.camera.far = this.radius * 100 * k;
+    this.camera.updateProjectionMatrix();
+    this.controls.minDistance = this.radius * 0.6 * k; this.controls.maxDistance = this.radius * 8 * k;
+    this.invalidate();
+  }
+
+  /** Giro automático continuo (para presentar la prenda). Se detiene al pausar la pestaña. */
+  setAutoRotate(on: boolean) { this.controls.autoRotate = on; this.invalidate(); }
+  get autoRotating() { return this.controls.autoRotate; }
 
   setLighting(p: LightPreset) {
     this.light = p;
@@ -289,12 +553,14 @@ export class GarmentViewer {
     if (this.exporting) throw new Error('Ya hay una exportación en curso.');
     if (this.renderer.getContext().isContextLost()) throw new Error('El visor 3D se está recuperando; inténtalo en unos segundos.');
     this.exporting = true;
+    this.overlay.visible = false; // el contorno de selección no sale en los renders
     cancelAnimationFrame(this.frame); this.frame = 0;
   }
   private endExport(off: OffscreenRenderer, boosted: boolean) {
     off.dispose();
     // el atlas vuelve a su tamaño normal (memoria)
     if (boosted && this.printLayer) this.printLayer.apply(this.prints);
+    this.overlay.visible = true;
     this.exporting = false;
     this.invalidate();
   }
@@ -384,7 +650,18 @@ export class GarmentViewer {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.frame);
+    cancelAnimationFrame(this.hoverFrame);
+    cancelAnimationFrame(this.pendingApply);
     this.loadSeq++;
+    this.container.removeEventListener('pointerdown', this.onPointerDown, true);
+    this.container.removeEventListener('pointermove', this.onPointerMove, true);
+    this.container.removeEventListener('pointerup', this.onPointerUp, true);
+    this.container.removeEventListener('pointercancel', this.onPointerUp, true);
+    this.canvas.removeEventListener('dblclick', this.onDoubleClick);
+    this.interaction = null;
+    this.selected = null;
+    this.refreshOverlay();
+    Object.values(this.lineMats).forEach(m => m.dispose());
     this.resizeObs.disconnect();
     this.visObs.disconnect();
     document.removeEventListener('visibilitychange', this.onVisibility);

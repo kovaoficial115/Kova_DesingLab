@@ -124,7 +124,9 @@ export function HalftoneDialog({ onClose }: { onClose: () => void }) {
     return () => clearTimeout(t);
   }, [base, region, p, selMask, ppi]);
 
-  if (!layer) { toast('Selecciona una capa', 'warn'); onClose(); return null; }
+  // sin capa: se avisa y se cierra después de pintar (no se puede cambiar otro estado durante el render)
+  useEffect(() => { if (!layer) { toast('Selecciona una capa', 'warn'); onClose(); } }, []);
+  if (!layer) return null;
 
   const runFull = async (params: HalftoneParams) => {
     const img = getImageData(base!);

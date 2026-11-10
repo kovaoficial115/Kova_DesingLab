@@ -16,6 +16,10 @@ export interface ZonePrint {
   scale: number;
   /** grados */
   rotation: number;
+  /** opcionales (versiones anteriores los ignoran): oculto en el visor y los renders, bloqueado al arrastre, espejo horizontal */
+  hidden?: boolean;
+  locked?: boolean;
+  flipX?: boolean;
 }
 
 export type GarmentModelRef =
@@ -65,6 +69,9 @@ export function sanitizeGarment3D(raw: unknown): Garment3DData | null {
       y: isNum(p.y) ? Math.min(1, Math.max(0, p.y)) : 0.5,
       scale: isNum(p.scale) && p.scale > 0 ? p.scale : 1,
       rotation: isNum(p.rotation) ? p.rotation : 0,
+      ...(p.hidden === true ? { hidden: true } : {}),
+      ...(p.locked === true ? { locked: true } : {}),
+      ...(p.flipX === true ? { flipX: true } : {}),
     };
   }
   const mat = r.material ?? {};

@@ -90,4 +90,9 @@ describe('garment3d', () => {
     expect(sanitizeGarment3D({ ...garment, model: { source: 'asset', hash: 'corto' } })).toBeNull();
     expect(sanitizeGarment3D(null)).toBeNull();
   });
+  it('conserva oculto, bloqueado y espejo; los valores no booleanos se descartan', () => {
+    const g = sanitizeGarment3D({ ...garment, zones: { front: { artboardId: 'ab1', x: 0.5, y: 0.5, scale: 1, rotation: 0, hidden: true, locked: true, flipX: true }, back: { artboardId: 'ab1', x: 0.5, y: 0.5, scale: 1, rotation: 0, hidden: 'sí', flipX: 1 } } })!;
+    expect(g.zones.front).toMatchObject({ hidden: true, locked: true, flipX: true });
+    expect(g.zones.back).toEqual({ artboardId: 'ab1', x: 0.5, y: 0.5, scale: 1, rotation: 0 });
+  });
 });
