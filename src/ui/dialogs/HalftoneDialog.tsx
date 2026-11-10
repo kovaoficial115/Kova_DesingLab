@@ -6,13 +6,19 @@ import { bakedLayerCanvas } from '../../core/render';
 import { getImageData, canvasFromImageData, resampleCanvas, layerSize, createCanvas, ctx2d, cloneCanvas, hexToRgb, uid } from '../../core/util';
 import { selectionInLayer } from '../../core/actions';
 import { invalidateLayer } from '../../core/render';
-import { defaultHalftone, type HalftoneParams, type DotShape, type HalftoneMode } from '../../engine/halftone';
+import { defaultHalftone, type HalftoneParams, type DotShape, type HalftoneMode, type DotColor } from '../../engine/halftone';
+import { ColorField } from '../components/ColorField';
 import { runOp } from '../../engine/workerClient';
 import { hasIcc, rgbaToCmyk } from '../../engine/cms';
 import { rasterLayer, groupLayer } from '../../core/doc';
 import type { Layer } from '../../core/types';
 
-interface UIParams extends Omit<HalftoneParams, 'cellPx' | 'inkColor'> { lpi: number; ink: string }
+type Ch = 'c' | 'm' | 'y' | 'k';
+interface UIParams extends Omit<HalftoneParams, 'cellPx' | 'inkColor' | 'inkColor2' | 'inks'> { lpi: number; ink: string; ink2: string; inkHex: Record<Ch, string> }
+
+/** Tintas de proceso ideales (las que se usaban siempre): con ellas el resultado CMYK no cambia. */
+const PROCESS_HEX: Record<Ch, string> = { c: '#00ffff', m: '#ff00ff', y: '#ffff00', k: '#000000' };
+const CH_NAMES: Record<Ch, string> = { c: 'Cian', m: 'Magenta', y: 'Amarillo', k: 'Negro' };
 
 const PRESETS: { name: string; desc: string; p: Partial<UIParams> }[] = [
   { name: 'Transición DTF', desc: 'Degradados y sombras a puntos sólidos (alfa)', p: { mode: 'alpha', shape: 'round', lpi: 30, angle: 22.5, minDot: 0.04, maxDot: 0.94, knockout: 'none', sample: 'cell', antialias: false } },
@@ -28,15 +34,16 @@ const PRESETS: { name: string; desc: string; p: Partial<UIParams> }[] = [
 const MIN_PREVIEW_CELL = 8;
 
 function toEngine(p: UIParams, ppi: number): HalftoneParams {
-  const { lpi, ink, ...rest } = p;
-  return { ...rest, cellPx: ppi / lpi, inkColor: hexToRgb(ink) };
+  const { lpi, ink, ink2, inkHex, ...rest } = p;
+  const inks = Object.fromEntries((Object.keys(inkHex) as Ch[]).map(k => [k, hexToRgb(inkHex[k])])) as Record<Ch, [number, number, number]>;
+  return { ...rest, cellPx: ppi / lpi, inkColor: hexToRgb(ink), inkColor2: hexToRgb(ink2), inks };
 }
 
 export function HalftoneDialog({ onClose }: { onClose: () => void }) {
   const layer = activeLayer();
   const ab = activeArtboard()!;
   const sel = docState()?.selection ?? null;
-  const [p, setP] = useState<UIParams>({ ...defaultHalftone, lpi: 30, ink: '#000000' } as any);
+  const [p, setP] = useState<UIParams>({ ...defaultHalftone, lpi: 30, ink: '#000000', ink2: '#ffffff', dotColor: 'image', inkHex: { ...PROCESS_HEX } } as any);
   const scale = layer ? Math.max(Math.abs(layer.scaleX), Math.abs(layer.scaleY)) : 1;
   const [printRes, setPrintRes] = useState(Math.abs(scale - 1) > 0.02);
   const [onlySel, setOnlySel] = useState(!!sel);
@@ -141,16 +148,14 @@ export function HalftoneDialog({ onClose }: { onClose: () => void }) {
     const params = toEngine(p, ppi);
     const transform: Partial<Layer> = printRes ? { scaleX: Math.sign(layer.scaleX), scaleY: Math.sign(layer.scaleY) } : {};
     if (output === 'separate' && p.mode === 'cmyk') {
-      const inks: Record<string, string> = { c: '#00aeef', m: '#ec008c', y: '#fff200', k: '#000000' };
-      const names: Record<string, string> = { c: 'Cian', m: 'Magenta', y: 'Amarillo', k: 'Negro' };
       const grp = { ...groupLayer(`${layer.name} · separación CMYK`), parentId: layer.parentId };
       const kids: Layer[] = [];
       for (const k of ['y', 'm', 'c', 'k'] as const) {
         if (!p.channels[k].enabled) continue;
         const only = { ...params, channels: { c: { ...params.channels.c, enabled: k === 'c' }, m: { ...params.channels.m, enabled: k === 'm' }, y: { ...params.channels.y, enabled: k === 'y' }, k: { ...params.channels.k, enabled: k === 'k' } } };
         const c = await runFull(only);
-        kids.push({ ...rasterLayer(c, names[k], layer.x, layer.y), ...transform, rotation: layer.rotation, scaleX: printRes ? Math.sign(layer.scaleX) : layer.scaleX, scaleY: printRes ? Math.sign(layer.scaleY) : layer.scaleY, blend: 'multiply', parentId: grp.id });
-        void inks;
+        const name = p.inkHex[k] === PROCESS_HEX[k] ? CH_NAMES[k] : `${CH_NAMES[k]} (${p.inkHex[k]})`;
+        kids.push({ ...rasterLayer(c, name, layer.x, layer.y), ...transform, rotation: layer.rotation, scaleX: printRes ? Math.sign(layer.scaleX) : layer.scaleX, scaleY: printRes ? Math.sign(layer.scaleY) : layer.scaleY, blend: 'multiply', parentId: grp.id });
       }
       commit('Separación CMYK con semitonos', st => {
         const layers = [...st.layers];
@@ -220,7 +225,20 @@ export function HalftoneDialog({ onClose }: { onClose: () => void }) {
           {p.mode === 'alpha' && <Select value={p.knockout} onChange={v => up({ knockout: v })} options={[
             { value: 'none', label: 'Trama solo en semitransparencias' }, { value: 'dark', label: 'Oscuros → transparentes (prenda negra)' }, { value: 'light', label: 'Claros → transparentes (prenda blanca)' },
           ]} />}
-          {p.mode === 'mono' && <div className="row"><span className="label">Tinta</span><ColorInput value={p.ink} onChange={v => up({ ink: v })} /></div>}
+          {p.mode !== 'cmyk' && <>
+            <div className="section-title">Color de los puntos</div>
+            {p.mode !== 'mono' && <Seg value={p.dotColor ?? 'image'} onChange={(v: DotColor) => up({ dotColor: v })} full options={[
+              { value: 'image', label: 'Imagen', title: 'Cada punto conserva el color de la imagen' },
+              { value: 'solid', label: 'Un color', title: 'Todos los puntos del color que elijas' },
+              { value: 'gradient', label: 'Degradado', title: 'Los puntos de las zonas oscuras toman un color y los de las claras otro' },
+            ]} />}
+            {(p.mode === 'mono' || p.dotColor === 'solid') && <ColorField label="Color" value={p.ink} onChange={v => up({ ink: v })} />}
+            {p.mode !== 'mono' && p.dotColor === 'gradient' && <>
+              <ColorField label="Oscuros" value={p.ink} onChange={v => up({ ink: v })} />
+              <ColorField label="Claros" value={p.ink2} onChange={v => up({ ink2: v })} swatches={false} />
+            </>}
+            <span className="tiny muted">Para colorear la imagen antes de tramarla: Imagen › Ajustes › Colorear o Mapa de degradado (los semitonos usan la capa con sus ajustes).</span>
+          </>}
           <div className="section-title">Trama</div>
           <Select value={p.shape} onChange={(v: DotShape) => up({ shape: v })} options={[
             { value: 'round', label: 'Puntos circulares' }, { value: 'square', label: 'Puntos cuadrados' }, { value: 'diamond', label: 'Rombo' },
@@ -242,12 +260,14 @@ export function HalftoneDialog({ onClose }: { onClose: () => void }) {
             <div className="section-title">Canales CMYK {hasIcc() ? '(perfil ICC)' : '(fórmula)'}</div>
             {(['c', 'm', 'y', 'k'] as const).map(k => (
               <div key={k} className="row">
-                <Check checked={p.channels[k].enabled} onChange={v => upCh(k, { enabled: v })} label={<b style={{ color: { c: '#00aeef', m: '#ec008c', y: '#fff200', k: '#ddd' }[k] }}>{k.toUpperCase()}</b>} />
+                <Check checked={p.channels[k].enabled} onChange={v => upCh(k, { enabled: v })} label={<b>{k.toUpperCase()}</b>} />
+                <ColorInput value={p.inkHex[k]} title={`Color de la tinta ${CH_NAMES[k].toLowerCase()} (cualquier color: tinta plana)`} onChange={v => up({ inkHex: { ...p.inkHex, [k]: v } })} />
                 <NumberField label="∠" value={p.channels[k].angle} onChange={v => upCh(k, { angle: v })} min={0} max={180} digits={1} suffix="°" />
                 <NumberField label="×" value={p.channels[k].lpiScale} onChange={v => upCh(k, { lpiScale: v })} min={0.5} max={2} step={0.05} digits={2} title="Escala de celda del canal" />
               </div>
             ))}
-            <span className="tiny muted">Ángulos clásicos C15° M75° Y0° K45° minimizan el moiré entre canales.</span>
+            <span className="tiny muted">Ángulos clásicos C15° M75° Y0° K45° minimizan el moiré entre canales. El cuadro de color de cada canal cambia su tinta por cualquier color.</span>
+            {(Object.keys(PROCESS_HEX) as Ch[]).some(k => p.inkHex[k] !== PROCESS_HEX[k]) && <button className="btn sm" onClick={() => up({ inkHex: { ...PROCESS_HEX } })}>Volver a las tintas CMYK</button>}
           </>}
           <div className="section-title">Origen</div>
           <Check checked={printRes} onChange={setPrintRes} label={`Generar a resolución de impresión (${ab.dpi} ppp)`} title="Hornea la escala de la capa para que cada punto tenga el tamaño físico exacto" />

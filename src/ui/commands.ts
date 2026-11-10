@@ -108,6 +108,8 @@ export const commands: Record<string, Command> = {
   'image.adj.exposure': adj('exposure'),
   'image.adj.vibrance': adj('vibrance'),
   'image.adj.hueSaturation': { ...adj('hueSaturation'), keys: 'mod+u' },
+  'image.adj.colorize': adj('colorize'),
+  'image.adj.gradientMap': adj('gradientMap'),
   'image.adj.blackWhite': { ...adj('blackWhite'), keys: 'mod+alt+shift+b' },
   'image.adj.invert': { ...adj('invert'), keys: 'mod+i' },
   'image.adj.threshold': adj('threshold'),

@@ -15,7 +15,7 @@ export type BlendMode =
 export type AdjustmentType =
   | 'brightnessContrast' | 'hueSaturation' | 'exposure' | 'levels' | 'curves'
   | 'blackWhite' | 'invert' | 'threshold' | 'posterize' | 'blur' | 'sharpen'
-  | 'denoise' | 'vibrance';
+  | 'denoise' | 'vibrance' | 'colorize' | 'gradientMap';
 
 export interface Adjustment {
   id: string;

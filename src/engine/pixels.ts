@@ -180,6 +180,60 @@ export function vibrance(img: Px, p: { vibrance: number; saturation: number }) {
   }
 }
 
+// ---------- Color ----------
+/** '#rgb' o '#rrggbb' → [r, g, b] (negro si no es válido). Sin DOM: apto para el worker. */
+export function parseHex(hex: string): [number, number, number] {
+  let h = String(hex ?? '').trim().replace(/^#/, '');
+  if (/^[0-9a-f]{3}$/i.test(h)) h = h.replace(/./g, c => c + c);
+  if (!/^[0-9a-f]{6}$/i.test(h)) return [0, 0, 0];
+  const n = parseInt(h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+const lum = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b;
+const amountOf = (v: unknown) => (typeof v === 'number' && isFinite(v) ? Math.min(1, Math.max(0, v / 100)) : 1);
+
+/**
+ * Colorear con cualquier color. 'tint' (teñir) pone el tono y la saturación del color y conserva
+ * las luces y sombras de cada píxel (como el modo de fusión «Color»); 'fill' (rellenar) pinta todo
+ * de ese color y solo conserva la forma (alfa). `amount` 0..100 mezcla con el original.
+ */
+export function colorize(img: Px, p: { color: string; mode?: 'tint' | 'fill'; amount?: number }) {
+  const d = img.data;
+  const [cr, cg, cb] = parseHex(p.color);
+  const k = amountOf(p.amount), lc = lum(cr, cg, cb), fill = p.mode === 'fill';
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue;
+    let r = cr, g = cg, b = cb;
+    if (!fill) {
+      // SetLum + ClipColor (W3C compositing): el color con la luminosidad del píxel
+      const l = lum(d[i], d[i + 1], d[i + 2]), dl = l - lc;
+      r += dl; g += dl; b += dl;
+      const n = Math.min(r, g, b), x = Math.max(r, g, b);
+      if (n < 0) { const f = l / (l - n || 1); r = l + (r - l) * f; g = l + (g - l) * f; b = l + (b - l) * f; }
+      if (x > 255) { const f = (255 - l) / (x - l || 1); r = l + (r - l) * f; g = l + (g - l) * f; b = l + (b - l) * f; }
+    }
+    d[i] = d[i] + (r - d[i]) * k;
+    d[i + 1] = d[i + 1] + (g - d[i + 1]) * k;
+    d[i + 2] = d[i + 2] + (b - d[i + 2]) * k;
+  }
+}
+
+/** Mapa de degradado: la luminosidad de cada píxel elige un color entre `dark` (sombras) y `light` (luces). */
+export function gradientMap(img: Px, p: { dark: string; light: string; amount?: number }) {
+  const [ar, ag, ab] = parseHex(p.dark), [br, bg, bb] = parseHex(p.light);
+  const k = amountOf(p.amount);
+  const R = new Uint8Array(256), G = new Uint8Array(256), B = new Uint8Array(256);
+  for (let v = 0; v < 256; v++) { const t = v / 255; R[v] = ar + (br - ar) * t; G[v] = ag + (bg - ag) * t; B[v] = ab + (bb - ab) * t; }
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue;
+    const v = Math.round(lum(d[i], d[i + 1], d[i + 2]));
+    d[i] = d[i] + (R[v] - d[i]) * k;
+    d[i + 1] = d[i + 1] + (G[v] - d[i + 1]) * k;
+    d[i + 2] = d[i + 2] + (B[v] - d[i + 2]) * k;
+  }
+}
+
 // ---------- Filtros espaciales ----------
 /** Desenfoque de caja separable sobre un canal Float32 (in-place). */
 function boxBlurChannel(src: Float32Array, w: number, h: number, r: number) {
@@ -303,6 +357,8 @@ export function runAdjustment(img: Px, type: string, params: any) {
     case 'threshold': return threshold(img, params);
     case 'posterize': return posterize(img, params);
     case 'vibrance': return vibrance(img, params);
+    case 'colorize': return colorize(img, params);
+    case 'gradientMap': return gradientMap(img, params);
     case 'blur': return gaussianBlur(img, params);
     case 'sharpen': return unsharpMask(img, params);
     case 'denoise': return denoise(img, params);

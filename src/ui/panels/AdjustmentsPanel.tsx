@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, Trash2, ChevronUp, ChevronDown, Check as CheckIcon, Sun, Contrast, Droplet, Palette, SunMedium, Spline, BarChart3, Blend, Layers2, SquareSplitHorizontal, Waves, Focus, Sparkle } from 'lucide-react';
+import { Eye, EyeOff, Trash2, ChevronUp, ChevronDown, Check as CheckIcon, Sun, Contrast, Droplet, Palette, SunMedium, Spline, BarChart3, Blend, Layers2, SquareSplitHorizontal, Waves, Focus, Sparkle, PaintBucket, Rainbow, ArrowLeftRight } from 'lucide-react';
 import { live, finishLive, commit } from '../../core/store';
 import type { Adjustment, AdjustmentType, Doc, Layer } from '../../core/types';
 import * as A from '../../core/actions';
@@ -9,11 +9,24 @@ import { runOp } from '../../engine/workerClient';
 import { layerContent } from '../../core/render';
 import { getImageData } from '../../core/util';
 import { KOVA } from '../theme';
+import { ColorField } from '../components/ColorField';
 
 const icons: Record<AdjustmentType, any> = {
   brightnessContrast: Sun, levels: BarChart3, curves: Spline, exposure: SunMedium, vibrance: Droplet, hueSaturation: Palette,
   blackWhite: Blend, invert: Layers2, threshold: SquareSplitHorizontal, posterize: Contrast, blur: Waves, sharpen: Focus, denoise: Sparkle,
+  colorize: PaintBucket, gradientMap: Rainbow,
 };
+
+// el selector de color avisa en cada movimiento: se ve en vivo y se guarda un solo paso de historial al parar
+const colorCommit = new Map<string, ReturnType<typeof setTimeout>>();
+function setColor(layerId: string, adjId: string, params: any) {
+  setParams(layerId, adjId, params);
+  clearTimeout(colorCommit.get(adjId));
+  colorCommit.set(adjId, setTimeout(() => { colorCommit.delete(adjId); finishLive('Editar color'); }, 400));
+}
+function C(p: { l: Layer; a: Adjustment; k: string; label: string }) {
+  return <ColorField label={p.label} value={p.a.params[p.k]} onChange={v => setColor(p.l.id, p.a.id, { [p.k]: v })} />;
+}
 
 function setParams(layerId: string, adjId: string, params: any, commitIt = false) {
   live(s => ({ ...s, layers: s.layers.map(l => (l.id === layerId ? { ...l, adjustments: l.adjustments.map(a => (a.id === adjId ? { ...a, params: { ...a.params, ...params } } : a)) } : l)) }));
@@ -131,6 +144,22 @@ function Editor({ l, a }: { l: Layer; a: Adjustment }) {
     case 'curves': return <CurvesEditor l={l} a={a} />;
     case 'vibrance': return <><S l={l} a={a} k="vibrance" label="Intensidad" min={-100} max={100} /><S l={l} a={a} k="saturation" label="Saturación" min={-100} max={100} /></>;
     case 'blackWhite': return <><S l={l} a={a} k="r" label="Rojos" min={-1} max={2} step={0.01} digits={2} /><S l={l} a={a} k="g" label="Verdes" min={-1} max={2} step={0.01} digits={2} /><S l={l} a={a} k="b" label="Azules" min={-1} max={2} step={0.01} digits={2} /></>;
+    case 'colorize': return <>
+      <Seg value={a.params.mode ?? 'tint'} onChange={v => setParams(l.id, a.id, { mode: v }, true)} full options={[
+        { value: 'tint', label: 'Teñir', title: 'Pone el color y conserva las luces y sombras de la imagen' },
+        { value: 'fill', label: 'Rellenar', title: 'Todo de ese color: solo se conserva la forma (ideal para logos y semitonos)' },
+      ]} />
+      <C l={l} a={a} k="color" label="Color" />
+      <S l={l} a={a} k="amount" label="Intensidad" min={0} max={100} suffix="%" />
+      <span className="tiny muted">{(a.params.mode ?? 'tint') === 'tint' ? 'El negro puro sigue negro y el blanco sigue blanco. Para pasar un logo negro a otro color usa Rellenar.' : 'Pinta toda la capa del color; la transparencia no cambia.'}</span>
+    </>;
+    case 'gradientMap': return <>
+      <C l={l} a={a} k="dark" label="Sombras" />
+      <C l={l} a={a} k="light" label="Luces" />
+      <button className="btn sm" onClick={() => setParams(l.id, a.id, { dark: a.params.light, light: a.params.dark }, true)}><ArrowLeftRight size={12} />Intercambiar</button>
+      <S l={l} a={a} k="amount" label="Intensidad" min={0} max={100} suffix="%" />
+      <span className="tiny muted">Cada tono de la imagen toma un color entre las sombras y las luces. Con los semitonos, los puntos heredan estos colores.</span>
+    </>;
     case 'invert': return <span className="tiny muted">Invierte los canales RGB (el alfa se conserva).</span>;
     case 'threshold': return <S l={l} a={a} k="level" label="Nivel de umbral" min={1} max={255} />;
     case 'posterize': return <S l={l} a={a} k="levels" label="Niveles" min={2} max={64} />;

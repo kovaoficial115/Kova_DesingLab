@@ -299,6 +299,8 @@ export async function flattenImage() {
 export const adjustmentDefaults: Record<AdjustmentType, { label: string; params: any }> = {
   brightnessContrast: { label: 'Brillo/Contraste', params: { brightness: 0, contrast: 0 } },
   hueSaturation: { label: 'Tono/Saturación', params: { hue: 0, saturation: 0, lightness: 0, colorize: false } },
+  colorize: { label: 'Colorear', params: { color: '#d21625', mode: 'tint', amount: 100 } },
+  gradientMap: { label: 'Mapa de degradado', params: { dark: '#1b1464', light: '#ffd23f', amount: 100 } },
   exposure: { label: 'Exposición', params: { exposure: 0, offset: 0, gamma: 1 } },
   levels: { label: 'Niveles', params: { inBlack: 0, inWhite: 255, gamma: 1, outBlack: 0, outWhite: 255, channel: 'rgb' } },
   curves: { label: 'Curvas', params: { rgb: [[0, 0], [64, 64], [192, 192], [255, 255]] } },

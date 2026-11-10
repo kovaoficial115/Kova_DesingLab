@@ -9,6 +9,11 @@ export type DotShape = 'round' | 'square' | 'diamond' | 'ellipse' | 'line' | 'cr
 export type HalftoneMode = 'mono' | 'color' | 'alpha' | 'cmyk';
 
 export interface ChannelScreen { angle: number; enabled: boolean; lpiScale: number }
+/** Color de los puntos (modos alpha y color; mono siempre usa `inkColor`). */
+export type DotColor = 'image' | 'solid' | 'gradient';
+type Rgb = [number, number, number];
+/** Tintas de proceso ideales: con ellas la mezcla de canales es la sustractiva clásica. */
+export const PROCESS_INKS: Record<'c' | 'm' | 'y' | 'k', Rgb> = { c: [0, 255, 255], m: [255, 0, 255], y: [255, 255, 0], k: [0, 0, 0] };
 
 export interface HalftoneParams {
   mode: HalftoneMode;
@@ -25,6 +30,11 @@ export interface HalftoneParams {
   sample: 'cell' | 'pixel';
   ellipseRatio: number;
   inkColor: [number, number, number];
+  /** 'image': colores de la imagen · 'solid': todos de `inkColor` · 'gradient': de `inkColor` (oscuros) a `inkColor2` (claros). */
+  dotColor?: DotColor;
+  inkColor2?: Rgb;
+  /** CMYK: color de la tinta de cada canal (tintas planas). Sin definir: tintas de proceso. */
+  inks?: Partial<Record<'c' | 'm' | 'y' | 'k', Rgb>> | null;
   knockout: 'none' | 'dark' | 'light'; // modo alpha: tonos que se vuelven transparentes
   channels: { c: ChannelScreen; m: ChannelScreen; y: ChannelScreen; k: ChannelScreen };
   cmyk: CmykSettings;
@@ -157,15 +167,21 @@ export function halftone(img: Px, p: HalftoneParams): Px {
       if (!ch.enabled) return;
       screenPlane(planes[i], w, h, cell * (ch.lpiScale || 1), ch.angle, sub, inks[i]);
     });
+    // cuánto absorbe cada tinta de cada componente (1 − color/255): con las de proceso, la mezcla sustractiva clásica
+    const absorb = keys.map(key => (p.inks?.[key] ?? PROCESS_INKS[key]).map(v => 1 - v / 255));
     for (let j = 0; j < n; j++) {
-      const C = inks[0][j], M = inks[1][j], Y = inks[2][j], K = inks[3][j];
-      const any = Math.max(C, M, Y, K);
       const o = j * 4;
+      let any = 0, r = 255, g = 255, b = 255;
+      for (let i = 0; i < 4; i++) {
+        const v = inks[i][j];
+        if (v <= 0) continue;
+        if (v > any) any = v;
+        const a = absorb[i];
+        r *= 1 - v * a[0]; g *= 1 - v * a[1]; b *= 1 - v * a[2];
+      }
       if (any <= 0) { out[o + 3] = 0; continue; }
-      // composición sustractiva de las tintas sobre el film
-      out[o] = 255 * (1 - C) * (1 - K);
-      out[o + 1] = 255 * (1 - M) * (1 - K);
-      out[o + 2] = 255 * (1 - Y) * (1 - K);
+      // composición de las tintas sobre el film
+      out[o] = r; out[o + 1] = g; out[o + 2] = b;
       out[o + 3] = 255 * any * (d[o + 3] > 0 ? 1 : 0);
     }
   } else {
@@ -182,11 +198,17 @@ export function halftone(img: Px, p: HalftoneParams): Px {
     }
     screenPlane(vals, w, h, cell, p.angle, p, ink);
     const [ir, ig, ib] = p.inkColor;
+    const [jr, jg, jb] = p.inkColor2 ?? [255, 255, 255];
+    const color: DotColor = p.mode === 'mono' ? 'solid' : p.dotColor ?? 'image';
     for (let j = 0; j < n; j++) {
       const o = j * 4;
       const k = ink[j];
-      if (p.mode === 'mono') { out[o] = ir; out[o + 1] = ig; out[o + 2] = ib; }
-      else { out[o] = d[o]; out[o + 1] = d[o + 1]; out[o + 2] = d[o + 2]; }
+      if (color === 'solid') { out[o] = ir; out[o + 1] = ig; out[o + 2] = ib; }
+      else if (color === 'gradient') {
+        // el tono del original elige el color: oscuros → primer color, claros → segundo
+        const t = (0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2]) / 255;
+        out[o] = ir + (jr - ir) * t; out[o + 1] = ig + (jg - ig) * t; out[o + 2] = ib + (jb - ib) * t;
+      } else { out[o] = d[o]; out[o + 1] = d[o + 1]; out[o + 2] = d[o + 2]; }
       out[o + 3] = 255 * k;
     }
   }

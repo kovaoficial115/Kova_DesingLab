@@ -31,7 +31,7 @@ const menus: { label: string; items: Item[] }[] = [
   {
     label: 'Imagen', items: [
       { label: 'Modo', sub: ['image.modeRGB', 'image.modeCMYK'] },
-      { label: 'Ajustes', sub: ['image.adj.brightnessContrast', 'image.adj.levels', 'image.adj.curves', 'image.adj.exposure', '-', 'image.adj.vibrance', 'image.adj.hueSaturation', 'image.adj.blackWhite', '-', 'image.adj.invert', 'image.adj.threshold', 'image.adj.posterize'] },
+      { label: 'Ajustes', sub: ['image.adj.brightnessContrast', 'image.adj.levels', 'image.adj.curves', 'image.adj.exposure', '-', 'image.adj.vibrance', 'image.adj.hueSaturation', 'image.adj.colorize', 'image.adj.gradientMap', 'image.adj.blackWhite', '-', 'image.adj.invert', 'image.adj.threshold', 'image.adj.posterize'] },
       'image.applyAdj', '-', 'image.size', 'image.canvas', 'image.trim', '-',
       { label: 'Rotación de mesa', sub: ['image.rot90', 'image.rot-90', 'image.rot180'] },
     ],
