@@ -3,7 +3,7 @@ import { FlipHorizontal2, FlipVertical2, RotateCw, RotateCcw, Link, Unlink, Alig
 import { useStore, live, finishLive, get } from '../../core/store';
 import type { Doc, Layer, Artboard } from '../../core/types';
 import { NumberField, Select, Seg, Check, ColorInput } from '../components/controls';
-import { fromPx, toPx, layerSize, layerBounds } from '../../core/util';
+import { fromPx, toPx, layerSize, layerBounds, layerPivot, placeAtPivot } from '../../core/util';
 import * as A from '../../core/actions';
 import { AlignIcon } from '../Chrome';
 import { FontPicker } from '../components/FontPicker';
@@ -40,8 +40,8 @@ function LayerProps({ l, ab, doc }: { l: Layer; ab: Artboard; doc: Doc }) {
       let sx = Math.abs(ll.scaleX), sy = Math.abs(ll.scaleY);
       if (nw != null) { const k = nw / sz.w; if (linked) sy *= k / sx; sx = k; }
       if (nh != null) { const k = nh / sz.h; if (linked) sx *= k / sy; sy = k; }
-      const cx = ll.x + (sz.w * Math.abs(ll.scaleX)) / 2, cy = ll.y + (sz.h * Math.abs(ll.scaleY)) / 2;
-      return { scaleX: sx * Math.sign(ll.scaleX || 1), scaleY: sy * Math.sign(ll.scaleY || 1), x: cx - (sz.w * sx) / 2, y: cy - (sz.h * sy) / 2 };
+      const c = layerPivot(ll);
+      return { scaleX: sx * Math.sign(ll.scaleX || 1), scaleY: sy * Math.sign(ll.scaleY || 1), ...placeAtPivot(ll, c.x, c.y, sx, sy) };
     });
     if (c) finishLive('Tamaño de capa');
   };

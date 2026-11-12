@@ -2,7 +2,7 @@
 // ajustes no destructivos) sobre cualquier contexto 2D. Lo usan el visor y la exportación.
 
 import type { Artboard, DocState, Layer } from './types';
-import { createCanvas, ctx2d, layerMatrix, layerSize, textFont, getImageData } from './util';
+import { createCanvas, ctx2d, layerMatrix, layerSize, textFont, textLayout, clearTextMetrics, getImageData } from './util';
 import { childrenOf, descendants } from './doc';
 import { runOp } from '../engine/workerClient';
 import { bumpRender } from './store';
@@ -23,15 +23,17 @@ const vectorCache = new Map<string, { svg: string; scale: number; canvas: HTMLCa
 
 function renderText(l: Layer): HTMLCanvasElement {
   const t = l.text!;
-  const { w, h } = layerSize(l);
+  // caja completa (con lo que sobresale de las letras) y la de las líneas dentro de ella
+  const { w, h, bw, ox, oy } = textLayout(t);
   const c = createCanvas(w, h);
   const g = ctx2d(c);
+  g.translate(ox, oy);
   g.font = textFont(t);
   (g as any).letterSpacing = `${t.letterSpacing}px`;
   g.textBaseline = 'top';
   g.textAlign = t.align;
   const pad = t.strokeWidth + 2;
-  const x = t.align === 'left' ? pad : t.align === 'center' ? w / 2 : w - pad;
+  const x = t.align === 'left' ? pad : t.align === 'center' ? bw / 2 : bw - pad;
   t.text.split('\n').forEach((ln, i) => {
     const y = pad + i * t.fontSize * t.lineHeight + (t.fontSize * (t.lineHeight - 1)) / 2;
     if (t.strokeWidth > 0) {
@@ -217,7 +219,7 @@ export async function bakedLayerCanvas(l: Layer): Promise<HTMLCanvasElement | nu
 }
 
 /** Las fuentes disponibles cambiaron: re-rasterizar textos (y formas, que son baratas). */
-export function invalidateTextContent() { contentCache.clear(); }
+export function invalidateTextContent() { clearTextMetrics(); contentCache.clear(); }
 export function invalidateLayer(id: string) { procCache.delete(id); contentCache.delete(id); vectorCache.delete(id); }
 
 // ---------- reducciones (mipmaps) ----------

@@ -9,7 +9,7 @@ import {
   hitTestLayers, selectLayers, setSelection, shapeSelection, polygonSelection, wandSelect, ensureRaster, selectionInLayer,
   insertLayers, cropArtboard, zoomTo, setActiveArtboard, updateArtboard, addArtboard, maskCanvas,
 } from '../core/actions';
-import { layerMatrix, layerSize, layerBounds, cloneCanvas, createCanvas, ctx2d, getImageData, resampleCanvas, hexToRgb, unionRect, type Rect } from '../core/util';
+import { layerMatrix, layerSize, layerBounds, layerPivot, cloneCanvas, createCanvas, ctx2d, getImageData, resampleCanvas, hexToRgb, unionRect, type Rect } from '../core/util';
 import { shapeLayer, textLayer, defaultText, descendants } from '../core/doc';
 import { renderArtboard, processedContent, markLiveCanvas } from '../core/render';
 import { magicWand } from '../engine/alpha';
@@ -129,8 +129,7 @@ const moveTool = {
     if (t) {
       const h = hitHandle(t, e.sx, e.sy);
       if (h) {
-        const { w, h: hh } = layerSize(t);
-        const c = { x: t.x + (w * Math.abs(t.scaleX)) / 2, y: t.y + (hh * Math.abs(t.scaleY)) / 2 };
+        const c = layerPivot(t);
         drag = { mode: h === 'rot' ? 'rotate' : 'scale', handle: h, l0: t, m0: layerMatrix(t), center: c, start: { x: e.wx, y: e.wy } };
         return;
       }

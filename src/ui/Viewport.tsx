@@ -467,7 +467,21 @@ export function Viewport({ doc }: { doc: Doc }) {
 
   const panDrag = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
   const compareDrag = useRef(false);
+  // El ratón (y más un trackpad o una pantalla de 120 Hz) avisa más veces que fotogramas hay. Cada
+  // aviso de la herramienta Mover rehace el documento y vuelve a pintar paneles y reglas: se junta
+  // en uno por fotograma con la última posición. Pinceles, lazo, etc. reciben todos los puntos.
+  const pending = useRef<{ ev: ToolEvent | null; cursor: { x: number; y: number } | null; raf: number }>({ ev: null, cursor: null, raf: 0 });
+  const flushPending = () => {
+    const p = pending.current;
+    if (p.raf) { cancelAnimationFrame(p.raf); p.raf = 0; }
+    if (p.cursor) { const c = p.cursor; p.cursor = null; set({ cursor: c }); }
+    if (p.ev) { const ev = p.ev; p.ev = null; tools[tool]?.move(ev); }
+  };
+  const schedulePending = () => { if (!pending.current.raf) pending.current.raf = requestAnimationFrame(flushPending); };
+  useEffect(() => () => cancelAnimationFrame(pending.current.raf), []);
   const onPointerDown = (e: React.PointerEvent) => {
+    // un movimiento pendiente de antes de pulsar no debe llegar como arrastre
+    pending.current.ev = null;
     if (textEdit.layerId) { finishLive('Editar texto'); setTextEdit(null); }
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     const ev = toEvent(e);
@@ -482,16 +496,20 @@ export function Viewport({ doc }: { doc: Doc }) {
   };
   const onPointerMove = (e: React.PointerEvent) => {
     const ev = toEvent(e);
-    set({ cursor: { x: ev.wx, y: ev.wy } });
+    pending.current.cursor = { x: ev.wx, y: ev.wy };
+    schedulePending();
     if (compareDrag.current) { setCompareX(Math.max(20, Math.min(size.w - 20, ev.sx))); return; }
     if (panDrag.current) {
       const p = panDrag.current;
       setView({ panX: p.px + e.clientX - p.sx, panY: p.py + e.clientY - p.sy });
       return;
     }
+    if (tool === 'move') { pending.current.ev = ev; return; }
     tools[tool]?.move(ev);
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    // la última posición del arrastre se aplica antes de soltar
+    flushPending();
     if (compareDrag.current) { compareDrag.current = false; return; }
     if (panDrag.current) { panDrag.current = null; return; }
     tools[tool]?.up(toEvent(e));

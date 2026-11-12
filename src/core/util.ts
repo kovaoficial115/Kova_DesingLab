@@ -117,26 +117,95 @@ let measureCtx: CanvasRenderingContext2D | null = null;
 export function textFont(t: { fontWeight: number; italic: boolean; fontSize: number; fontFamily: string }) {
   return `${t.italic ? 'italic ' : ''}${t.fontWeight} ${t.fontSize}px ${t.fontFamily}`;
 }
-export function measureText(t: import('./types').TextProps) {
+
+/**
+ * Disposición de un texto. `bw`×`bh` es la caja de las líneas (la de siempre: define la posición
+ * de la capa y su centro de giro). Las letras de algunas tipografías (caligráficas, con adornos)
+ * se salen de esa caja por arriba, abajo o los lados: `w`×`h` es la caja completa que las
+ * contiene y (`ox`, `oy`) dónde empieza la caja de las líneas dentro de ella. Así nada se recorta
+ * y las letras no se mueven de sitio al crecer la caja.
+ */
+export interface TextLayout { w: number; h: number; bw: number; bh: number; ox: number; oy: number; /** De la línea superior de cada renglón a su línea base (para SVG). */ base: number }
+
+// medir texto es caro (más en WebKit, la app de escritorio, y con fuentes complejas) y la caja se
+// consulta muchas veces por fotograma al mover o transformar: se guarda por contenido y fuente
+const layoutCache = new Map<string, TextLayout>();
+/** Las fuentes cambiaron (terminó de cargar una): las medidas guardadas ya no valen. */
+export function clearTextMetrics() { layoutCache.clear(); }
+
+export function textLayout(t: import('./types').TextProps): TextLayout {
+  const font = textFont(t);
+  const key = `${font}|${t.letterSpacing}|${t.lineHeight}|${t.strokeWidth}|${t.align}|${t.text}`;
+  const hit = layoutCache.get(key);
+  if (hit) return hit;
   if (!measureCtx) measureCtx = ctx2d(createCanvas(4, 4));
-  measureCtx.font = textFont(t);
-  (measureCtx as any).letterSpacing = `${t.letterSpacing}px`;
+  const g = measureCtx;
+  g.font = font;
+  (g as any).letterSpacing = `${t.letterSpacing}px`;
+  g.textBaseline = 'top';
+  g.textAlign = 'left';
   const lines = t.text.split('\n');
-  let w = 0;
-  for (const ln of lines) w = Math.max(w, measureCtx.measureText(ln || ' ').width);
-  const h = lines.length * t.fontSize * t.lineHeight;
-  const pad = t.strokeWidth * 2 + 4;
-  return { w: Math.ceil(w + pad), h: Math.ceil(h + pad) };
+  const ms = lines.map(ln => g.measureText(ln || ' '));
+  const adv = Math.max(0, ...ms.map(m => m.width));
+  const boxPad = t.strokeWidth * 2 + 4;
+  const bw = Math.ceil(adv + boxPad), bh = Math.ceil(lines.length * t.fontSize * t.lineHeight + boxPad);
+  // tinta de cada línea, dibujada como en renderText (margen pad, línea base 'top')
+  const pad = t.strokeWidth + 2, sw = t.strokeWidth;
+  let x0 = 0, y0 = 0, x1 = bw, y1 = bh;
+  lines.forEach((ln, i) => {
+    if (!ln) return;
+    const m = ms[i];
+    const y = pad + i * t.fontSize * t.lineHeight + (t.fontSize * (t.lineHeight - 1)) / 2;
+    const left = t.align === 'left' ? pad : t.align === 'center' ? bw / 2 - m.width / 2 : bw - pad - m.width;
+    x0 = Math.min(x0, left - (m.actualBoundingBoxLeft || 0) - sw);
+    x1 = Math.max(x1, left + (m.actualBoundingBoxRight || 0) + sw);
+    y0 = Math.min(y0, y - (m.actualBoundingBoxAscent || 0) - sw);
+    y1 = Math.max(y1, y + (m.actualBoundingBoxDescent || 0) + sw);
+  });
+  // margen para el suavizado de los bordes de lo que sobresale (la medida de la tinta es aproximada)
+  const M = 3;
+  const ox = x0 < 0 ? Math.ceil(-x0) + M : 0, oy = y0 < 0 ? Math.ceil(-y0) + M : 0;
+  const ex = x1 > bw ? Math.ceil(x1 - bw) + M : 0, ey = y1 > bh ? Math.ceil(y1 - bh) + M : 0;
+  // distancia real de la línea superior a la base de las letras (varía mucho entre tipografías)
+  const ab = -(ms[0]?.alphabeticBaseline ?? NaN);
+  const base = isFinite(ab) && ab > 0 ? ab : t.fontSize * 0.8;
+  const out: TextLayout = { w: bw + ox + ex, h: bh + oy + ey, bw, bh, ox, oy, base };
+  if (layoutCache.size > 500) layoutCache.clear();
+  layoutCache.set(key, out);
+  return out;
+}
+
+export function measureText(t: import('./types').TextProps) {
+  const { w, h } = textLayout(t);
+  return { w, h };
+}
+
+/** Caja de referencia de la capa: define su posición (x, y) y su centro de giro. Solo difiere del
+ *  tamaño en los textos cuyas letras se salen de la caja de las líneas. */
+export function pivotBox(l: Layer): { w: number; h: number; ox: number; oy: number } {
+  if (l.kind === 'text' && l.text) { const t = textLayout(l.text); return { w: t.bw, h: t.bh, ox: t.ox, oy: t.oy }; }
+  const { w, h } = layerSize(l);
+  return { w, h, ox: 0, oy: 0 };
+}
+/** Centro de giro de la capa en el mundo. */
+export function layerPivot(l: Layer) {
+  const b = pivotBox(l);
+  return { x: l.x + (b.w * Math.abs(l.scaleX)) / 2, y: l.y + (b.h * Math.abs(l.scaleY)) / 2 };
+}
+/** Posición (x, y) que deja el centro de giro en (cx, cy) con la escala dada. */
+export function placeAtPivot(l: Layer, cx: number, cy: number, sx = l.scaleX, sy = l.scaleY) {
+  const b = pivotBox(l);
+  return { x: cx - (b.w * Math.abs(sx)) / 2, y: cy - (b.h * Math.abs(sy)) / 2 };
 }
 
 /** Matriz local→mundo de una capa. */
 export function layerMatrix(l: Layer): DOMMatrix {
-  const { w, h } = layerSize(l);
+  const b = pivotBox(l);
   const m = new DOMMatrix();
-  m.translateSelf(l.x + (w * Math.abs(l.scaleX)) / 2, l.y + (h * Math.abs(l.scaleY)) / 2);
+  m.translateSelf(l.x + (b.w * Math.abs(l.scaleX)) / 2, l.y + (b.h * Math.abs(l.scaleY)) / 2);
   m.rotateSelf(l.rotation);
   m.scaleSelf(l.scaleX, l.scaleY);
-  m.translateSelf(-w / 2, -h / 2);
+  m.translateSelf(-b.w / 2 - b.ox, -b.h / 2 - b.oy);
   return m;
 }
 

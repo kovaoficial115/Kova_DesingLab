@@ -1,7 +1,7 @@
 // Exportación real por formato: cada uno con sus características (alfa, DPI, CMYK, capas, vectores).
 
 import type { Artboard, DocState, Layer } from '../core/types';
-import { canvasToBlob, ctx2d, layerMatrix, layerSize, createCanvas, getImageData } from '../core/util';
+import { canvasToBlob, ctx2d, layerMatrix, layerSize, textLayout, createCanvas, getImageData } from '../core/util';
 import { platform } from '../platform';
 import { renderArtboard, processedContent, ensureProcessed, renderLayerAlone } from '../core/render';
 import { childrenOf } from '../core/doc';
@@ -143,11 +143,13 @@ async function buildSvg(state: DocState, ab: Artboard) {
         const t = l.text;
         const anchor = t.align === 'center' ? 'middle' : t.align === 'right' ? 'end' : 'start';
         const pad = t.strokeWidth + 2;
-        const x = t.align === 'left' ? pad : t.align === 'center' ? w / 2 : w - pad;
+        // misma disposición que en pantalla: la caja de las líneas empieza en (ox, oy)
+        const { bw, ox, oy, base } = textLayout(t);
+        const x = ox + (t.align === 'left' ? pad : t.align === 'center' ? bw / 2 : bw - pad);
         const stroke = t.strokeWidth > 0 ? ` stroke="${t.strokeColor}" stroke-width="${t.strokeWidth * 2}" paint-order="stroke" stroke-linejoin="round"` : '';
         parts.push(`<text font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} letter-spacing="${t.letterSpacing}" fill="${t.color}" text-anchor="${anchor}"${stroke}>`);
         t.text.split('\n').forEach((ln, i) => {
-          const y = pad + i * t.fontSize * t.lineHeight + (t.fontSize * (t.lineHeight - 1)) / 2 + t.fontSize * 0.8;
+          const y = oy + pad + i * t.fontSize * t.lineHeight + (t.fontSize * (t.lineHeight - 1)) / 2 + base;
           parts.push(`<tspan x="${x}" y="${y}">${esc(ln)}</tspan>`);
         });
         parts.push('</text>');

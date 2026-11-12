@@ -1,5 +1,5 @@
 import type { Artboard, Doc, DocState, Layer, TextProps, ShapeProps } from './types';
-import { uid, createCanvas, layerSize } from './util';
+import { uid, createCanvas, layerSize, layerBounds } from './util';
 
 export function newArtboard(w: number, h: number, dpi: number, name = 'Mesa 1', x = 0, y = 0, background: string | null = null): Artboard {
   return { id: uid('ab'), name, x, y, w: Math.round(w), h: Math.round(h), dpi, background, margin: Math.round(dpi * 0.2) };
@@ -50,8 +50,9 @@ export function newDoc(name: string, w: number, h: number, dpi: number, backgrou
 
 /** Centra una capa en una mesa de trabajo. */
 export function centerIn(l: Layer, ab: Artboard): Layer {
-  const { w, h } = layerSize(l);
-  return { ...l, x: ab.x + (ab.w - w * Math.abs(l.scaleX)) / 2, y: ab.y + (ab.h - h * Math.abs(l.scaleY)) / 2 };
+  // centra lo que se ve (para un texto, incluidas las letras que sobresalen de sus líneas)
+  const b = layerBounds(l);
+  return { ...l, x: l.x + ab.x + ab.w / 2 - (b.x + b.w / 2), y: l.y + ab.y + ab.h / 2 - (b.y + b.h / 2) };
 }
 
 /** Escala una capa para que quepa en la mesa (solo si es más grande). */

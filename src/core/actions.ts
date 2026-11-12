@@ -6,7 +6,7 @@ import {
   get, set, commit, silent, activeDoc, docState, activeLayer, selectedLayers, activeArtboard, toast, withBusy, setView, bumpRender,
 } from './store';
 import {
-  uid, createCanvas, ctx2d, cloneCanvas, layerSize, layerMatrix, layerBounds, unionRect, getImageData, canvasFromImageData,
+  uid, createCanvas, ctx2d, cloneCanvas, layerSize, layerMatrix, layerBounds, layerPivot, placeAtPivot, unionRect, getImageData, canvasFromImageData,
   resampleCanvas, rectsIntersect, type Rect, pointInLayer, hexToRgb, trimCanvas, fmtUnit,
 } from './util';
 import { rasterLayer, groupLayer, newDoc, fitIn, descendants, isEffectivelyLocked, isEffectivelyVisible, childrenOf } from './doc';
@@ -729,8 +729,8 @@ export function setLayerDisplaySize(id: string, w: number | null, h: number | nu
     let sx = Math.abs(l.scaleX), sy = Math.abs(l.scaleY);
     if (w != null) { const nsx = w / sz.w; if (keepRatio) sy *= nsx / sx; sx = nsx; }
     if (h != null && w == null) { const nsy = h / sz.h; if (keepRatio) sx *= nsy / sy; sy = nsy; }
-    const cx = l.x + (sz.w * Math.abs(l.scaleX)) / 2, cy = l.y + (sz.h * Math.abs(l.scaleY)) / 2;
-    return { scaleX: sx * Math.sign(l.scaleX || 1), scaleY: sy * Math.sign(l.scaleY || 1), x: cx - (sz.w * sx) / 2, y: cy - (sz.h * sy) / 2 };
+    const c = layerPivot(l);
+    return { scaleX: sx * Math.sign(l.scaleX || 1), scaleY: sy * Math.sign(l.scaleY || 1), ...placeAtPivot(l, c.x, c.y, sx, sy) };
   }, 'Cambiar tamaño de capa');
 }
 
@@ -849,11 +849,10 @@ export function imageSize(newW: number, newH: number, dpi: number, resample: boo
       if (l.kind === 'group') return l;
       const b = layerBounds(l);
       if (!rectsIntersect(b, ab)) return l;
-      const { w, h } = layerSize(l);
-      const cx = l.x + (w * Math.abs(l.scaleX)) / 2, cy = l.y + (h * Math.abs(l.scaleY)) / 2;
-      const ncx = ab.x + (cx - ab.x) * fx, ncy = ab.y + (cy - ab.y) * fy;
+      const c = layerPivot(l);
+      const ncx = ab.x + (c.x - ab.x) * fx, ncy = ab.y + (c.y - ab.y) * fy;
       const sx = l.scaleX * fx, sy = l.scaleY * fy;
-      return { ...l, scaleX: sx, scaleY: sy, x: ncx - (w * Math.abs(sx)) / 2, y: ncy - (h * Math.abs(sy)) / 2 };
+      return { ...l, scaleX: sx, scaleY: sy, ...placeAtPivot(l, ncx, ncy, sx, sy) };
     });
     return { ...st, layers, artboards: st.artboards.map(a => (a.id === ab.id ? { ...a, w: Math.round(newW), h: Math.round(newH), dpi, margin: Math.round(a.margin * fx) } : a)) };
   });
@@ -888,11 +887,10 @@ export function rotateArtboard(deg: 90 | -90 | 180) {
       if (l.kind === 'group') return l;
       const b = layerBounds(l);
       if (!rectsIntersect(b, ab)) return l;
-      const { w, h } = layerSize(l);
-      const lcx = l.x + (w * Math.abs(l.scaleX)) / 2, lcy = l.y + (h * Math.abs(l.scaleY)) / 2;
-      const dx = lcx - cx, dy = lcy - cy;
+      const p = layerPivot(l);
+      const dx = p.x - cx, dy = p.y - cy;
       const ncx = cx + dx * Math.cos(rad) - dy * Math.sin(rad), ncy = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
-      return { ...l, rotation: l.rotation + deg, x: ncx - (w * Math.abs(l.scaleX)) / 2, y: ncy - (h * Math.abs(l.scaleY)) / 2 };
+      return { ...l, rotation: l.rotation + deg, ...placeAtPivot(l, ncx, ncy) };
     });
     const nw = deg === 180 ? ab.w : ab.h, nh = deg === 180 ? ab.h : ab.w;
     return { ...st, layers, artboards: st.artboards.map(a => (a.id === ab.id ? { ...a, w: nw, h: nh, x: Math.round(cx - nw / 2), y: Math.round(cy - nh / 2) } : a)) };
