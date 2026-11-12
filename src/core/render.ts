@@ -2,7 +2,7 @@
 // ajustes no destructivos) sobre cualquier contexto 2D. Lo usan el visor y la exportación.
 
 import type { Artboard, DocState, Layer } from './types';
-import { createCanvas, ctx2d, layerMatrix, layerSize, textFont, textLayout, clearTextMetrics, getImageData } from './util';
+import { createCanvas, ctx2d, layerMatrix, layerSize, textFont, textLayout, clearTextMetrics, decorationLines, getImageData } from './util';
 import { childrenOf, descendants } from './doc';
 import { runOp } from '../engine/workerClient';
 import { bumpRender } from './store';
@@ -23,28 +23,38 @@ const vectorCache = new Map<string, { svg: string; scale: number; canvas: HTMLCa
 
 function renderText(l: Layer): HTMLCanvasElement {
   const t = l.text!;
-  // caja completa (con lo que sobresale de las letras) y la de las líneas dentro de ella
-  const { w, h, bw, ox, oy } = textLayout(t);
+  // caja completa (con lo que sobresale de las letras) y las líneas ya cortadas y alineadas
+  const { w, h, ox, oy, lines, base } = textLayout(t);
   const c = createCanvas(w, h);
   const g = ctx2d(c);
   g.translate(ox, oy);
   g.font = textFont(t);
   (g as any).letterSpacing = `${t.letterSpacing}px`;
   g.textBaseline = 'top';
-  g.textAlign = t.align;
-  const pad = t.strokeWidth + 2;
-  const x = t.align === 'left' ? pad : t.align === 'center' ? bw / 2 : bw - pad;
-  t.text.split('\n').forEach((ln, i) => {
-    const y = pad + i * t.fontSize * t.lineHeight + (t.fontSize * (t.lineHeight - 1)) / 2;
-    if (t.strokeWidth > 0) {
-      g.lineJoin = 'round';
-      g.strokeStyle = t.strokeColor;
-      g.lineWidth = t.strokeWidth * 2;
-      g.strokeText(ln, x, y);
+  g.textAlign = 'left';
+  g.lineJoin = 'round';
+  const deco = decorationLines(t, base);
+  const pieces = (ln: (typeof lines)[number]) => (ln.words ? ln.words.map(wd => ({ text: wd.text, x: ln.x + wd.x })) : [{ text: ln.text, x: ln.x }]);
+  const bars = (ln: (typeof lines)[number]) => {
+    const r: [number, number, number, number][] = [];
+    if (!ln.text) return r;
+    if (t.underline) r.push([ln.x, ln.y + deco.underline, ln.width, deco.thickness]);
+    if (t.strike) r.push([ln.x, ln.y + deco.strike, ln.width, deco.thickness]);
+    return r;
+  };
+  if (t.strokeWidth > 0) {
+    g.strokeStyle = t.strokeColor;
+    g.lineWidth = t.strokeWidth * 2;
+    for (const ln of lines) {
+      for (const p of pieces(ln)) if (p.text) g.strokeText(p.text, p.x, ln.y);
+      for (const [x, y, bw, bh] of bars(ln)) g.strokeRect(x, y, bw, bh);
     }
-    g.fillStyle = t.color;
-    g.fillText(ln, x, y);
-  });
+  }
+  g.fillStyle = t.color;
+  for (const ln of lines) {
+    for (const p of pieces(ln)) if (p.text) g.fillText(p.text, p.x, ln.y);
+    for (const [x, y, bw, bh] of bars(ln)) g.fillRect(x, y, bw, bh);
+  }
   return c;
 }
 

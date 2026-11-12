@@ -113,7 +113,7 @@ export function OptionsBar() {
     <FontPicker value={o.fontFamily} onChange={v => setO({ fontFamily: v })} width={190} />
     <OptNum label="Tamaño" value={o.fontSize} onChange={v => setO({ fontSize: v })} min={4} max={3000} suffix="px" />
     <Select value={String(o.fontWeight) as any} onChange={v => setO({ fontWeight: +v })} width={110} options={[300, 400, 500, 600, 700, 800, 900].map(w => ({ value: String(w), label: `Peso ${w}` }))} />
-    <span className="muted small">Clic para crear · doble clic con Mover para editar</span>
+    <span className="muted small">Clic: texto de punto · arrastrar: cuadro de texto · doble clic con Mover para editar</span>
   </>;
   if (tool === 'shape') content = <>
     <Seg value={o.shapeType} onChange={v => setO({ shapeType: v })} options={[{ value: 'rect', label: <Square size={12} /> }, { value: 'ellipse', label: <Circle size={12} /> }, { value: 'line', label: <Slash size={12} /> }]} />

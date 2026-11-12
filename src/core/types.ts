@@ -33,12 +33,25 @@ export interface TextProps {
   fontWeight: number;
   italic: boolean;
   color: string;
-  align: 'left' | 'center' | 'right';
+  /** Alineación del párrafo. Las «justify-*» reparten el ancho del cuadro; el sufijo dice cómo
+   *  se alinea la última línea de cada párrafo ('justify': también la última). En texto de punto
+   *  (sin cuadro) equivalen a izquierda, centro o derecha. */
+  align: TextAlign;
   lineHeight: number;
   letterSpacing: number;
   strokeColor: string;
   strokeWidth: number;
+  /** Cuadro de texto (texto de párrafo): el texto se ajusta a este ancho (px del documento, sin la
+   *  escala de la capa). La altura crece si el texto no cabe. Sin cuadro: texto de punto. */
+  box?: { w: number; h: number } | null;
+  caps?: boolean; // todo en mayúsculas
+  underline?: boolean;
+  strike?: boolean; // tachado
+  paraSpacing?: number; // px añadidos después de cada párrafo
+  indent?: number; // sangría de la primera línea de cada párrafo (px)
 }
+
+export type TextAlign = 'left' | 'center' | 'right' | 'justify-left' | 'justify-center' | 'justify-right' | 'justify';
 
 export interface ShapeProps {
   shape: 'rect' | 'ellipse' | 'line';

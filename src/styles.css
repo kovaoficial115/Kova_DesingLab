@@ -471,3 +471,8 @@ button.avatar:hover { transform: translateY(-1px); z-index: 1; }
 /* Estudio 3D: progreso de exportación */
 .render-progress { height: 6px; border-radius: 3px; background: var(--panel-3); overflow: hidden; }
 .render-progress > span { display: block; height: 100%; background: var(--accent); transition: width .2s linear; }
+
+/* panel Párrafo: siete alineaciones en una fila */
+.para-aligns { display: flex; gap: 2px; flex-wrap: wrap; }
+.para-aligns .icon-btn { width: 26px; height: 24px; }
+.icon-btn.txt-opt { font-size: 10px; font-weight: 700; letter-spacing: -0.5px; }

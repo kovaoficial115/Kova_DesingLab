@@ -6,7 +6,7 @@ import type { Doc, Layer, Selection } from '../core/types';
 import { renderLayers } from '../core/render';
 import { layerMatrix, layerSize, createCanvas, ctx2d, fromPx, toPx, layerBounds } from '../core/util';
 import { tools, overlay, textEdit, setTextEdit, transformTarget, cropState, type ToolEvent } from '../tools/tools';
-import { zoomTo, fitToScreen, addGuide, hitTestLayers, selectLayers } from '../core/actions';
+import { zoomTo, fitToScreen, addGuide, hitTestLayers, selectLayers, textToBox } from '../core/actions';
 import { MenuList, type Item } from './MenuBar';
 import { placeFiles } from '../io/fileOps';
 import { softProof, channelView } from '../engine/cms';
@@ -612,15 +612,21 @@ function TextEditPop({ size }: { size: { w: number; h: number } }) {
     live(s => ({ ...s, layers: s.layers.map(x => (x.id === l.id ? { ...x, text: { ...x.text!, ...patch }, name: patch.text !== undefined ? (patch.text.split('\n')[0].slice(0, 24) || 'Texto') : x.name } : x)) }));
   };
   const done = () => { finishLive('Editar texto'); setTextEdit(null); };
+  // texto de punto más ancho que la mesa (p. ej. un párrafo pegado): ofrecer convertirlo en cuadro
+  const ab = doc?.state.artboards.find(a => a.id === doc.state.activeArtboardId);
+  const wide = !l.text.box && !!ab && b.w > ab.w * 0.9;
   return (
     <div className="text-editor-pop" style={{ left, top }} onPointerDown={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
-      <textarea ref={ref} className="input" rows={3} value={l.text.text} onChange={e => upd({ text: e.target.value })}
+      <textarea ref={ref} className="input" rows={l.text.box ? 6 : 3} value={l.text.text} onChange={e => upd({ text: e.target.value })}
         onKeyDown={e => { if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); done(); } }} />
       <div className="row" style={{ marginTop: 6 }}>
         <div className="grow"><Slider label="Tamaño" value={l.text.fontSize} min={4} max={2000} onChange={v => upd({ fontSize: v })} suffix="px" /></div>
       </div>
       <div className="row" style={{ marginTop: 6, justifyContent: 'space-between' }}>
-        <span className="tiny muted">Ctrl/⌘+Enter para terminar</span>
+        {wide ? (
+          <button className="btn sm" title="Convierte el texto en un cuadro del ancho de la mesa para que se reparta en varias líneas"
+            onClick={() => { finishLive('Editar texto'); textToBox(l.id); }}>Ajustar en cuadro</button>
+        ) : <span className="tiny muted">Ctrl/⌘+Enter para terminar</span>}
         <div className="row">
           <button className="btn sm" onClick={() => { cancelLive(); setTextEdit(null); }}>Cancelar</button>
           <button className="btn sm primary" onClick={done}>Listo</button>

@@ -1,7 +1,7 @@
 // Exportación real por formato: cada uno con sus características (alfa, DPI, CMYK, capas, vectores).
 
 import type { Artboard, DocState, Layer } from '../core/types';
-import { canvasToBlob, ctx2d, layerMatrix, layerSize, textLayout, createCanvas, getImageData } from '../core/util';
+import { canvasToBlob, ctx2d, layerMatrix, layerSize, textLayout, decorationLines, createCanvas, getImageData } from '../core/util';
 import { platform } from '../platform';
 import { renderArtboard, processedContent, ensureProcessed, renderLayerAlone } from '../core/render';
 import { childrenOf } from '../core/doc';
@@ -141,18 +141,24 @@ async function buildSvg(state: DocState, ab: Artboard) {
         parts.push(l.vector.svg.replace(/^<\?xml[^>]*>/, '').replace(/<svg/, `<svg x="0" y="0" width="${w}" height="${h}"`));
       } else if (!needsRaster && l.kind === 'text' && l.text) {
         const t = l.text;
-        const anchor = t.align === 'center' ? 'middle' : t.align === 'right' ? 'end' : 'start';
-        const pad = t.strokeWidth + 2;
-        // misma disposición que en pantalla: la caja de las líneas empieza en (ox, oy)
-        const { bw, ox, oy, base } = textLayout(t);
-        const x = ox + (t.align === 'left' ? pad : t.align === 'center' ? bw / 2 : bw - pad);
+        // misma disposición que en pantalla: las líneas (ya cortadas y alineadas) empiezan en (ox, oy)
+        const { ox, oy, base, lines } = textLayout(t);
+        const deco = decorationLines(t, base);
         const stroke = t.strokeWidth > 0 ? ` stroke="${t.strokeColor}" stroke-width="${t.strokeWidth * 2}" paint-order="stroke" stroke-linejoin="round"` : '';
-        parts.push(`<text font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} letter-spacing="${t.letterSpacing}" fill="${t.color}" text-anchor="${anchor}"${stroke}>`);
-        t.text.split('\n').forEach((ln, i) => {
-          const y = oy + pad + i * t.fontSize * t.lineHeight + (t.fontSize * (t.lineHeight - 1)) / 2 + base;
-          parts.push(`<tspan x="${x}" y="${y}">${esc(ln)}</tspan>`);
-        });
+        parts.push(`<text xml:space="preserve" font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} letter-spacing="${t.letterSpacing}" fill="${t.color}"${stroke}>`);
+        for (const ln of lines) {
+          if (!ln.text) continue;
+          const y = oy + ln.y + base;
+          if (ln.words) for (const wd of ln.words) parts.push(`<tspan x="${ox + ln.x + wd.x}" y="${y}">${esc(wd.text)}</tspan>`);
+          else parts.push(`<tspan x="${ox + ln.x}" y="${y}">${esc(ln.text)}</tspan>`);
+        }
         parts.push('</text>');
+        // subrayado y tachado: rectángulos del mismo color (y contorno) que el texto
+        for (const ln of lines) {
+          if (!ln.text) continue;
+          const ys = [t.underline ? deco.underline : null, t.strike ? deco.strike : null].filter((v): v is number => v !== null);
+          for (const dy of ys) parts.push(`<rect x="${ox + ln.x}" y="${oy + ln.y + dy}" width="${ln.width}" height="${deco.thickness}" fill="${t.color}"${stroke}/>`);
+        }
       } else if (!needsRaster && l.kind === 'shape' && l.shape) {
         const s = l.shape;
         const sw = s.stroke ? s.strokeWidth : 0;

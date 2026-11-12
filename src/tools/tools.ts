@@ -9,7 +9,7 @@ import {
   hitTestLayers, selectLayers, setSelection, shapeSelection, polygonSelection, wandSelect, ensureRaster, selectionInLayer,
   insertLayers, cropArtboard, zoomTo, setActiveArtboard, updateArtboard, addArtboard, maskCanvas,
 } from '../core/actions';
-import { layerMatrix, layerSize, layerBounds, layerPivot, cloneCanvas, createCanvas, ctx2d, getImageData, resampleCanvas, hexToRgb, unionRect, type Rect } from '../core/util';
+import { layerMatrix, layerSize, layerBounds, layerPivot, pivotBox, cloneCanvas, createCanvas, ctx2d, getImageData, resampleCanvas, hexToRgb, unionRect, type Rect } from '../core/util';
 import { shapeLayer, textLayer, defaultText, descendants } from '../core/doc';
 import { renderArtboard, processedContent, markLiveCanvas } from '../core/render';
 import { magicWand } from '../engine/alpha';
@@ -130,7 +130,10 @@ const moveTool = {
       const h = hitHandle(t, e.sx, e.sy);
       if (h) {
         const c = layerPivot(t);
-        drag = { mode: h === 'rot' ? 'rotate' : 'scale', handle: h, l0: t, m0: layerMatrix(t), center: c, start: { x: e.wx, y: e.wy } };
+        // cuadro de texto: las asas cambian el tamaño del cuadro (el texto se vuelve a ajustar);
+        // con Ctrl/⌘ se escala como cualquier capa
+        const boxMode = h !== 'rot' && t.kind === 'text' && !!t.text?.box && !e.ctrl;
+        drag = { mode: h === 'rot' ? 'rotate' : boxMode ? 'box' : 'scale', handle: h, l0: t, m0: layerMatrix(t), center: c, start: { x: e.wx, y: e.wy } };
         return;
       }
     }
@@ -216,6 +219,26 @@ const moveTool = {
       live(s => ({ ...s, layers: s.layers.map(l => (l.id === l0.id ? { ...l, rotation: rot } : l)) }));
       return;
     }
+    if (drag.mode === 'box') {
+      const [hu, hv] = handleLocal[drag.handle as Exclude<Handle, 'rot'>];
+      const m0 = drag.m0 as DOMMatrix, inv = m0.inverse();
+      const p0 = inv.transformPoint(new DOMPoint(drag.start.x, drag.start.y)), p1 = inv.transformPoint(new DOMPoint(e.wx, e.wy));
+      const dx = p1.x - p0.x, dy = p1.y - p0.y;
+      const t0 = l0.text!, b0 = pivotBox(l0);
+      const minW = Math.max(8, t0.fontSize * 0.6 + 2 * (t0.strokeWidth + 2));
+      const w = hu === 0.5 ? b0.w : Math.max(minW, b0.w + (hu === 1 ? dx : -dx) * (e.alt ? 2 : 1));
+      const hh = hv === 0.5 ? t0.box!.h : Math.max(1, b0.h + (hv === 1 ? dy : -dy) * (e.alt ? 2 : 1));
+      const tmp: Layer = { ...l0, text: { ...t0, box: { w: Math.round(w), h: Math.round(hh) } } };
+      const b1 = pivotBox(tmp);
+      // el punto opuesto al asa (o el centro con Alt) queda quieto en el mundo; con las asas de los
+      // lados el borde superior no se mueve, porque el texto crece hacia abajo
+      const u = e.alt ? 0.5 : 1 - hu, v = hv === 0.5 ? 0 : e.alt ? 0.5 : 1 - hv;
+      const Aw0 = m0.transformPoint(new DOMPoint(b0.ox + u * b0.w, b0.oy + v * b0.h));
+      const Aw1 = layerMatrix(tmp).transformPoint(new DOMPoint(b1.ox + u * b1.w, b1.oy + v * b1.h));
+      const nx = l0.x + Aw0.x - Aw1.x, ny = l0.y + Aw0.y - Aw1.y;
+      live(s => ({ ...s, layers: s.layers.map(l => (l.id === l0.id ? { ...l, text: tmp.text, x: nx, y: ny } : l)) }));
+      return;
+    }
     if (drag.mode === 'scale') {
       const { w, h } = layerSize(l0);
       const [hu, hv] = handleLocal[drag.handle as Exclude<Handle, 'rot'>];
@@ -264,7 +287,7 @@ const moveTool = {
       else finishLive('Mover guía');
       return;
     }
-    finishLive(d.mode === 'move' ? 'Mover' : d.mode === 'rotate' ? 'Rotar' : 'Escalar');
+    finishLive(d.mode === 'move' ? 'Mover' : d.mode === 'rotate' ? 'Rotar' : d.mode === 'box' ? 'Tamaño del cuadro de texto' : 'Escalar');
     redraw();
   },
   dblclick(e: ToolEvent) {
@@ -559,16 +582,35 @@ const gradientTool = {
 // ---------- texto ----------
 const textTool = {
   cursor: 'text',
+  // clic: texto de punto (una línea por párrafo); arrastrar: cuadro de texto (el texto se ajusta al ancho)
   down(e: ToolEvent) {
     const hit = hitTestLayers(e.wx, e.wy);
-    if (hit?.kind === 'text') { selectLayers([hit.id]); setTextEdit(hit.id); return; }
+    if (hit?.kind === 'text' && !e.shift) { selectLayers([hit.id]); setTextEdit(hit.id); drag = null; return; }
+    drag = { x: e.wx, y: e.wy, sx: e.sx, sy: e.sy };
+  },
+  move(e: ToolEvent) {
+    if (!drag) return;
+    if (Math.hypot(e.sx - drag.sx, e.sy - drag.sy) < 6 && !overlay.rect) return;
+    overlay.rect = normRect(drag.x, drag.y, e.wx, e.wy);
+    redraw();
+  },
+  up(e: ToolEvent) {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    const r = overlay.rect;
+    overlay.rect = null;
     const { opts, fg } = get();
     const t = { ...defaultText(fg, opts.fontSize), fontFamily: opts.fontFamily, fontWeight: opts.fontWeight, text: 'Texto' };
-    const l = textLayer(t, e.wx, e.wy - opts.fontSize * 0.6);
-    insertLayers([l], 'Nuevo texto');
+    const boxed = r && Math.hypot(e.sx - d.sx, e.sy - d.sy) >= 8 && r.w * getView().zoom >= 8;
+    const l = boxed
+      ? textLayer({ ...t, box: { w: Math.max(t.fontSize, Math.round(r!.w)), h: Math.max(1, Math.round(r!.h)) } }, r!.x, r!.y)
+      : textLayer(t, d.x, d.y - opts.fontSize * 0.6);
+    if (boxed) l.name = 'Cuadro de texto';
+    insertLayers([l], boxed ? 'Nuevo cuadro de texto' : 'Nuevo texto');
     setTextEdit(l.id);
+    redraw();
   },
-  move() {}, up() {},
 };
 
 // ---------- formas ----------

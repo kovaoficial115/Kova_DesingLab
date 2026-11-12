@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { FlipHorizontal2, FlipVertical2, RotateCw, RotateCcw, Link, Unlink, AlignHorizontalSpaceAround, AlignVerticalSpaceAround, AlertTriangle, Bold, Italic, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { FlipHorizontal2, FlipVertical2, RotateCw, RotateCcw, Link, Unlink, AlignHorizontalSpaceAround, AlignVerticalSpaceAround, AlertTriangle, Bold, Italic, Underline, Strikethrough } from 'lucide-react';
 import { useStore, live, finishLive, get } from '../../core/store';
-import type { Doc, Layer, Artboard } from '../../core/types';
-import { NumberField, Select, Seg, Check, ColorInput } from '../components/controls';
+import type { Doc, Layer, Artboard, TextAlign } from '../../core/types';
+import { NumberField, Select, Check, ColorInput } from '../components/controls';
 import { fromPx, toPx, layerSize, layerBounds, layerPivot, placeAtPivot } from '../../core/util';
 import * as A from '../../core/actions';
 import { AlignIcon } from '../Chrome';
@@ -132,17 +132,76 @@ function TextProps({ l }: { l: Layer }) {
       </div>
       <div className="row">
         <ColorInput value={t.color} onChange={v => up({ color: v }, false)} onCommit={() => finishLive('Color de texto')} />
-        <Seg value={t.align} onChange={v => up({ align: v })} options={[{ value: 'left', label: <AlignLeft size={12} /> }, { value: 'center', label: <AlignCenter size={12} /> }, { value: 'right', label: <AlignRight size={12} /> }]} />
+        <div className="grow" />
+        <button className={'icon-btn sm txt-opt' + (t.caps ? ' active' : '')} title="Todo mayúsculas" onClick={() => up({ caps: !t.caps })}>TT</button>
+        <button className={'icon-btn sm' + (t.underline ? ' active' : '')} title="Subrayado" onClick={() => up({ underline: !t.underline })}><Underline size={12} /></button>
+        <button className={'icon-btn sm' + (t.strike ? ' active' : '')} title="Tachado" onClick={() => up({ strike: !t.strike })}><Strikethrough size={12} /></button>
       </div>
       <div className="grid2">
         <NumberField label="↕" value={t.lineHeight} min={0.5} max={4} step={0.05} digits={2} onChange={v => up({ lineHeight: v }, false)} onCommit={v => up({ lineHeight: v })} title="Interlineado" />
         <NumberField label="↔" value={t.letterSpacing} min={-200} max={500} digits={0} suffix="px" onChange={v => up({ letterSpacing: v }, false)} onCommit={v => up({ letterSpacing: v })} title="Espaciado" />
       </div>
+      <ParagraphProps l={l} up={up} />
       <div className="row">
         <span className="small muted">Contorno</span>
         <ColorInput value={t.strokeColor} onChange={v => up({ strokeColor: v }, false)} onCommit={() => finishLive('Contorno de texto')} />
         <NumberField label="px" value={t.strokeWidth} min={0} max={200} digits={0} onChange={v => up({ strokeWidth: v }, false)} onCommit={v => up({ strokeWidth: v })} />
       </div>
+    </>
+  );
+}
+
+// iconos del panel Párrafo: cuatro renglones; la forma de la última línea dice cómo se alinea
+const PARA_ALIGNS: { value: TextAlign; title: string }[] = [
+  { value: 'left', title: 'Alinear a la izquierda' },
+  { value: 'center', title: 'Centrar' },
+  { value: 'right', title: 'Alinear a la derecha' },
+  { value: 'justify-left', title: 'Justificar; última línea a la izquierda' },
+  { value: 'justify-center', title: 'Justificar; última línea centrada' },
+  { value: 'justify-right', title: 'Justificar; última línea a la derecha' },
+  { value: 'justify', title: 'Justificar todo' },
+];
+function ParaIcon({ a }: { a: TextAlign }) {
+  const full = 12, short = 7;
+  const just = a.startsWith('justify');
+  const rows = [0, 1, 2, 3].map(i => {
+    const last = i === 3;
+    const w = just ? (last && a !== 'justify' ? short : full) : i % 2 ? short + 2 : full;
+    const side = a === 'justify' ? 'left' : a.endsWith('center') ? 'center' : a.endsWith('right') ? 'right' : 'left';
+    const x = side === 'left' ? 2 : side === 'center' ? 2 + (full - w) / 2 : 2 + full - w;
+    return <rect key={i} x={x} y={2.5 + i * 3.2} width={w} height={1.6} rx={0.6} />;
+  });
+  return <svg width={16} height={16} viewBox="0 0 16 16" fill="currentColor" aria-hidden>{rows}</svg>;
+}
+
+function ParagraphProps({ l, up }: { l: Layer; up: (p: Partial<NonNullable<Layer['text']>>, c?: boolean) => void }) {
+  const t = l.text!;
+  const box = t.box;
+  return (
+    <>
+      <div className="section-title">Párrafo</div>
+      <div className="para-aligns" role="radiogroup" aria-label="Alineación del párrafo">
+        {PARA_ALIGNS.map(o => (
+          <button key={o.value} role="radio" aria-checked={t.align === o.value} className={'icon-btn sm' + (t.align === o.value ? ' active' : '')} title={o.title + (!box && o.value.startsWith('justify') ? ' (justificar necesita un cuadro de texto)' : '')} onClick={() => up({ align: o.value })}>
+            <ParaIcon a={o.value} />
+          </button>
+        ))}
+      </div>
+      <div className="grid2">
+        <NumberField label="Sangría" value={t.indent ?? 0} min={0} max={5000} digits={0} suffix="px" onChange={v => up({ indent: v }, false)} onCommit={v => up({ indent: v })} title="Sangría de la primera línea de cada párrafo" />
+        <NumberField label="Tras ¶" value={t.paraSpacing ?? 0} min={0} max={5000} digits={0} suffix="px" onChange={v => up({ paraSpacing: v }, false)} onCommit={v => up({ paraSpacing: v })} title="Espacio después de cada párrafo" />
+      </div>
+      {box ? (
+        <>
+          <div className="grid2">
+            <NumberField label="An" value={box.w} min={8} max={100000} digits={0} suffix="px" onChange={v => up({ box: { ...box, w: Math.max(8, v) } }, false)} onCommit={v => up({ box: { ...box, w: Math.max(8, v) } })} title="Ancho del cuadro de texto" />
+            <NumberField label="Al" value={box.h} min={0} max={100000} digits={0} suffix="px" onChange={v => up({ box: { ...box, h: Math.max(0, v) } }, false)} onCommit={v => up({ box: { ...box, h: Math.max(0, v) } })} title="Alto mínimo del cuadro (crece si el texto no cabe)" />
+          </div>
+          <button className="btn sm" onClick={() => A.textToPoint(l.id)} title="Cada línea del cuadro pasa a ser un renglón">Convertir en texto de punto</button>
+        </>
+      ) : (
+        <button className="btn sm" onClick={() => A.textToBox(l.id)} title="El texto se ajusta al ancho del cuadro y se puede justificar">Convertir en cuadro de texto</button>
+      )}
     </>
   );
 }

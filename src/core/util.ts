@@ -1,4 +1,5 @@
 import type { Layer, Unit } from './types';
+import { flowText, type FlowLine } from './textflow';
 
 let counter = 0;
 export const uid = (p = 'id') => `${p}_${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -125,7 +126,15 @@ export function textFont(t: { fontWeight: number; italic: boolean; fontSize: num
  * contiene y (`ox`, `oy`) dónde empieza la caja de las líneas dentro de ella. Así nada se recorta
  * y las letras no se mueven de sitio al crecer la caja.
  */
-export interface TextLayout { w: number; h: number; bw: number; bh: number; ox: number; oy: number; /** De la línea superior de cada renglón a su línea base (para SVG). */ base: number }
+export interface TextLayout {
+  w: number; h: number; bw: number; bh: number; ox: number; oy: number;
+  /** De la línea superior de cada renglón a su línea base (para SVG y el subrayado). */
+  base: number;
+  /** Líneas ya cortadas, alineadas y justificadas (coordenadas de la caja de las líneas). */
+  lines: FlowLine[];
+  /** Texto tal como se dibuja (en mayúsculas si `caps`). */
+  shown: string;
+}
 
 // medir texto es caro (más en WebKit, la app de escritorio, y con fuentes complejas) y la caja se
 // consulta muchas veces por fotograma al mover o transformar: se guarda por contenido y fuente
@@ -133,9 +142,15 @@ const layoutCache = new Map<string, TextLayout>();
 /** Las fuentes cambiaron (terminó de cargar una): las medidas guardadas ya no valen. */
 export function clearTextMetrics() { layoutCache.clear(); }
 
+/** Subrayado y tachado: posición (desde la línea superior del renglón) y grosor. */
+export function decorationLines(t: import('./types').TextProps, base: number) {
+  const th = Math.max(1, t.fontSize * 0.06);
+  return { thickness: th, underline: base + t.fontSize * 0.1, strike: base - t.fontSize * 0.3 };
+}
+
 export function textLayout(t: import('./types').TextProps): TextLayout {
   const font = textFont(t);
-  const key = `${font}|${t.letterSpacing}|${t.lineHeight}|${t.strokeWidth}|${t.align}|${t.text}`;
+  const key = `${font}|${t.letterSpacing}|${t.lineHeight}|${t.strokeWidth}|${t.align}|${t.box ? t.box.w + 'x' + t.box.h : ''}|${t.caps ? 1 : 0}${t.underline ? 1 : 0}${t.strike ? 1 : 0}|${t.paraSpacing ?? 0}|${t.indent ?? 0}|${t.text}`;
   const hit = layoutCache.get(key);
   if (hit) return hit;
   if (!measureCtx) measureCtx = ctx2d(createCanvas(4, 4));
@@ -144,32 +159,33 @@ export function textLayout(t: import('./types').TextProps): TextLayout {
   (g as any).letterSpacing = `${t.letterSpacing}px`;
   g.textBaseline = 'top';
   g.textAlign = 'left';
-  const lines = t.text.split('\n');
-  const ms = lines.map(ln => g.measureText(ln || ' '));
-  const adv = Math.max(0, ...ms.map(m => m.width));
-  const boxPad = t.strokeWidth * 2 + 4;
-  const bw = Math.ceil(adv + boxPad), bh = Math.ceil(lines.length * t.fontSize * t.lineHeight + boxPad);
-  // tinta de cada línea, dibujada como en renderText (margen pad, línea base 'top')
+  const widths = new Map<string, number>();
+  const measure = (s: string) => { let v = widths.get(s); if (v === undefined) { v = g.measureText(s).width; widths.set(s, v); } return v; };
+  const shown = t.caps ? t.text.toLocaleUpperCase('es') : t.text;
   const pad = t.strokeWidth + 2, sw = t.strokeWidth;
+  const flow = flowText({ text: shown, fontSize: t.fontSize, lineHeight: t.lineHeight, align: t.align, pad, box: t.box, paraSpacing: t.paraSpacing, indent: t.indent }, measure);
+  const { bw, bh, lines } = flow;
+  // distancia real de la línea superior a la base de las letras (varía mucho entre tipografías)
+  const ab = -(g.measureText(shown.trim() ? shown.replace(/\n[\s\S]*/, '') || 'M' : 'M').alphabeticBaseline ?? NaN);
+  const base = isFinite(ab) && ab > 0 ? ab : t.fontSize * 0.8;
+  const deco = decorationLines(t, base);
+  // tinta de cada línea, dibujada como en renderText (línea base 'top')
   let x0 = 0, y0 = 0, x1 = bw, y1 = bh;
-  lines.forEach((ln, i) => {
-    if (!ln) return;
-    const m = ms[i];
-    const y = pad + i * t.fontSize * t.lineHeight + (t.fontSize * (t.lineHeight - 1)) / 2;
-    const left = t.align === 'left' ? pad : t.align === 'center' ? bw / 2 - m.width / 2 : bw - pad - m.width;
-    x0 = Math.min(x0, left - (m.actualBoundingBoxLeft || 0) - sw);
-    x1 = Math.max(x1, left + (m.actualBoundingBoxRight || 0) + sw);
-    y0 = Math.min(y0, y - (m.actualBoundingBoxAscent || 0) - sw);
-    y1 = Math.max(y1, y + (m.actualBoundingBoxDescent || 0) + sw);
-  });
+  for (const ln of lines) {
+    if (!ln.text) continue;
+    const m = g.measureText(ln.text);
+    // justificada: los huecos crecen, la tinta va del inicio de la primera palabra al final de la última
+    const right = ln.words ? ln.x + ln.width - m.width + (m.actualBoundingBoxRight || 0) : ln.x + (m.actualBoundingBoxRight || 0);
+    x0 = Math.min(x0, ln.x - (m.actualBoundingBoxLeft || 0) - sw);
+    x1 = Math.max(x1, right + sw);
+    y0 = Math.min(y0, ln.y - (m.actualBoundingBoxAscent || 0) - sw);
+    y1 = Math.max(y1, ln.y + (m.actualBoundingBoxDescent || 0) + sw, t.underline ? ln.y + deco.underline + deco.thickness : 0);
+  }
   // margen para el suavizado de los bordes de lo que sobresale (la medida de la tinta es aproximada)
   const M = 3;
   const ox = x0 < 0 ? Math.ceil(-x0) + M : 0, oy = y0 < 0 ? Math.ceil(-y0) + M : 0;
   const ex = x1 > bw ? Math.ceil(x1 - bw) + M : 0, ey = y1 > bh ? Math.ceil(y1 - bh) + M : 0;
-  // distancia real de la línea superior a la base de las letras (varía mucho entre tipografías)
-  const ab = -(ms[0]?.alphabeticBaseline ?? NaN);
-  const base = isFinite(ab) && ab > 0 ? ab : t.fontSize * 0.8;
-  const out: TextLayout = { w: bw + ox + ex, h: bh + oy + ey, bw, bh, ox, oy, base };
+  const out: TextLayout = { w: bw + ox + ex, h: bh + oy + ey, bw, bh, ox, oy, base, lines, shown };
   if (layoutCache.size > 500) layoutCache.clear();
   layoutCache.set(key, out);
   return out;

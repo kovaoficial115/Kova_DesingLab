@@ -6,7 +6,7 @@ import {
   get, set, commit, silent, activeDoc, docState, activeLayer, selectedLayers, activeArtboard, toast, withBusy, setView, bumpRender,
 } from './store';
 import {
-  uid, createCanvas, ctx2d, cloneCanvas, layerSize, layerMatrix, layerBounds, layerPivot, placeAtPivot, unionRect, getImageData, canvasFromImageData,
+  uid, createCanvas, ctx2d, cloneCanvas, layerSize, layerMatrix, layerBounds, layerPivot, placeAtPivot, textLayout, unionRect, getImageData, canvasFromImageData,
   resampleCanvas, rectsIntersect, type Rect, pointInLayer, hexToRgb, trimCanvas, fmtUnit,
 } from './util';
 import { rasterLayer, groupLayer, newDoc, fitIn, descendants, isEffectivelyLocked, isEffectivelyVisible, childrenOf } from './doc';
@@ -720,6 +720,45 @@ export function distributeLayers(axis: 'h' | 'v') {
     cur += (axis === 'h' ? it.b.w : it.b.h) + gap;
   }
   updateLayers([...moves.keys()], l => (axis === 'h' ? { x: l.x + moves.get(l.id)! } : { y: l.y + moves.get(l.id)! }), 'Distribuir');
+}
+
+// ---------- cuadros de texto ----------
+/** Texto de punto → cuadro de texto. Si una línea es más ancha que la mesa, el cuadro se limita al
+ *  80 % de su ancho para que un texto largo pegado se reparta en varias líneas. */
+export function textToBox(id: string) {
+  updateLayer(id, l => {
+    if (l.kind !== 'text' || !l.text || l.text.box) return {};
+    const t = l.text, { bw } = textLayout(t);
+    const ab = activeArtboard();
+    const limit = ab ? Math.max(t.fontSize * 2, (ab.w * 0.8) / Math.abs(l.scaleX || 1)) : bw;
+    return { text: { ...t, box: { w: Math.round(Math.min(bw, limit)), h: 0 } } };
+  }, 'Convertir en cuadro de texto');
+}
+/** Cuadro de texto → texto de punto: cada línea del cuadro pasa a ser un renglón (como Photoshop). */
+export function textToPoint(id: string) {
+  updateLayer(id, l => {
+    if (l.kind !== 'text' || !l.text || !l.text.box) return {};
+    const t = l.text;
+    const { lines, shown } = textLayout(t);
+    const align = t.align === 'justify' || t.align === 'justify-left' ? 'left' : t.align === 'justify-center' ? 'center' : t.align === 'justify-right' ? 'right' : t.align;
+    return { text: { ...t, box: null, align, text: originalLines(t.text, shown, lines.map(x => x.text)).join('\n') } };
+  }, 'Convertir en texto de punto');
+}
+
+/** Los cortes se calculan sobre el texto tal como se ve (en mayúsculas si `caps`); esto recupera
+ *  los mismos tramos del texto original para no perder las minúsculas al convertir. */
+export function originalLines(orig: string, shown: string, lines: string[]): string[] {
+  if (orig.length !== shown.length) return lines;
+  let i = 0;
+  return lines.map(ln => {
+    while (i < shown.length && (shown[i] === ' ' || shown[i] === '\n')) i++;
+    const start = i;
+    for (const ch of ln) {
+      if (ch === ' ') while (shown[i] === ' ') i++;
+      else i += ch.length;
+    }
+    return orig.slice(start, i).replace(/ +/g, ' ');
+  });
 }
 
 /** Cambia el tamaño físico de la capa (no destructivo, por escala). */
