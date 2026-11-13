@@ -8,7 +8,7 @@ import type { PanelId } from '../core/store';
 
 export type Item = string | '-' | { head: string } | { label: string; sub: Item[] } | { label: string; run: () => void; checked?: () => boolean };
 
-const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propiedades', adjustments: 'Ajustes', layers: 'Capas', history: 'Historial', artboards: 'Mesas de trabajo', channels: 'Canales y color' };
+const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propiedades', adjustments: 'Ajustes', layers: 'Capas', history: 'Historial', artboards: 'Mesas de trabajo', channels: 'Canales y color', social: 'Redes sociales' };
 
 function panelToggle(id: PanelId): Item {
   return {
@@ -48,11 +48,15 @@ const menus: { label: string; items: Item[] }[] = [
     label: 'DTF', items: [{ head: 'Producción' }, 'dtf.preflight', 'dtf.gang', 'dtf.mockup', 'view.studio3d', '-', { head: 'Preparación' }, 'dtf.halftone', 'dtf.bg', 'dtf.refine', 'dtf.underbase', 'dtf.vectorize', '-', { head: 'Color' }, 'dtf.separations', 'dtf.palette', 'edit.color'],
   },
   {
+    label: 'Redes', items: [{ head: 'Social Design Studio' }, 'social.new', 'social.add', 'social.carousel', 'social.panorama', '-', 'social.adapt', 'social.preview', 'social.batch', 'social.export', '-',
+      { label: 'Guías de redes', sub: ['social.g.safe', 'social.g.ui', 'social.g.circle', 'social.g.thirds', 'social.g.crops', 'social.g.numbers'] }, 'social.formats'],
+  },
+  {
     label: 'Vista', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.100', 'view.print', '-', 'view.proof', 'view.compare', '-',
       'view.rulers', 'view.grid', 'view.guides', 'view.snap', 'view.clearGuides', 'view.gridSettings'],
   },
   {
-    label: 'Ventana', items: [panelToggle('color'), panelToggle('properties'), panelToggle('adjustments'), panelToggle('layers'), panelToggle('channels'), panelToggle('artboards'), panelToggle('history'), '-', 'view.hideUI',
+    label: 'Ventana', items: [panelToggle('color'), panelToggle('properties'), panelToggle('adjustments'), panelToggle('layers'), panelToggle('channels'), panelToggle('artboards'), panelToggle('history'), panelToggle('social'), '-', 'view.hideUI',
       { label: 'Restablecer espacio de trabajo', run: () => { localStorage.removeItem('kova.prefs'); location.reload(); } }],
   },
   { label: 'Ayuda', items: ['edit.shortcuts', 'help.about'] },

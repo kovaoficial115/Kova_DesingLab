@@ -8,6 +8,8 @@ import { pickFiles, openFiles, placeFiles, saveProject, saveToBrowserLibrary, au
 import type { AdjustmentType, ToolId } from '../core/types';
 import { discardAutosave } from '../io/fileOps';
 import { platform } from '../platform';
+import * as SA from '../social/actions';
+import type { SocialGuides } from '../core/store';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -16,6 +18,8 @@ export interface Command { label: string; keys?: string; run: () => any; enabled
 const hasDoc = () => !!activeDoc();
 const hasLayer = () => !!activeLayer();
 const hasSel = () => !!docState()?.selection;
+const hasSocial = () => !!docState()?.artboards.some(a => a.social?.preset);
+const A_activeArtboard = () => { const s = docState(); return s ? s.artboards.find(a => a.id === s.activeArtboardId) ?? null : null; };
 export const openDialog = (type: string, props?: any) => set({ dialog: { type, props } });
 
 const adj = (t: AdjustmentType): Command => ({ label: A.adjustmentDefaults[t].label, run: () => A.addAdjustment(t), enabled: hasLayer });
@@ -65,6 +69,21 @@ export const commands: Record<string, Command> = {
       window.dispatchEvent(new Event('kova:library-changed'));
     });
   } },
+  'social.new': { label: 'Nuevo diseño para redes…', run: () => openDialog('social-new', { mode: 'new' }) },
+  'social.add': { label: 'Añadir formato al documento…', run: () => openDialog('social-new', { mode: 'add' }), enabled: hasDoc },
+  'social.carousel': { label: 'Carrusel / destacadas…', run: () => openDialog('social-new', { mode: activeDoc() ? 'add' : 'new', tab: 'series' }) },
+  'social.panorama': {
+    label: 'Carrusel panorámico desde la capa', enabled: () => !!activeLayer() && activeLayer()!.kind !== 'group',
+    run: () => { const f = SA.formatOf(A_activeArtboard()); SA.panoramaFromLayer(activeLayer()!.id, f?.carousel ? f : SA.formats().find(x => x.id === 'ig-carousel')!); },
+  },
+  'social.adapt': { label: 'Adaptar a otros formatos…', run: () => openDialog('social-adapt'), enabled: () => !!SA.formatOf(A_activeArtboard()) },
+  'social.preview': { label: 'Vista previa y planificador del feed…', run: () => openDialog('social-preview'), enabled: hasSocial },
+  'social.batch': { label: 'Plantilla con variables (CSV/JSON)…', run: () => openDialog('social-batch'), enabled: hasDoc },
+  'social.export': { label: 'Exportar para redes…', keys: 'mod+alt+e', run: () => openDialog('social-export'), enabled: hasSocial },
+  'social.formats': { label: 'Editar formatos…', run: () => openDialog('social-new', { mode: activeDoc() ? 'add' : 'new', tab: 'formats' }) },
+  ...Object.fromEntries(([['safe', 'Zona segura'], ['ui', 'Interfaz de la app'], ['circle', 'Recorte circular'], ['thirds', 'Tercios'], ['crops', 'Recortes de cuadrícula'], ['numbers', 'Numeración de diapositivas']] as [keyof SocialGuides, string][]).map(([k, label]) => [
+    `social.g.${k}`, { label, run: () => set(s => ({ socialGuides: { ...s.socialGuides, [k]: !s.socialGuides[k] } })), checked: () => get().socialGuides[k] } as Command,
+  ])),
   'view.studio3d': { label: 'Estudio 3D…', keys: 'mod+alt+3', run: () => set({ screen: 'studio' }) },
   'file.backups': { label: 'Copias de respaldo…', run: () => openDialog('backups') },
   ...Object.fromEntries([0, 4, 30, 120].map(sec => [`file.autosave.${sec}`, {

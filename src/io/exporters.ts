@@ -31,7 +31,7 @@ export const formatInfo: Record<ExportFormat, { label: string; ext: string; alph
   psd: { label: 'PSD (capas)', ext: 'psd', alpha: true, note: 'Conserva capas, grupos, opacidad y modos de fusión.' },
 };
 
-async function rasterFor(state: DocState, ab: Artboard, o: ExportOptions) {
+export async function rasterFor(state: DocState, ab: Artboard, o: ExportOptions) {
   const scale = o.dpi / ab.dpi;
   const c = await renderArtboard(state, ab, scale, { background: o.background === 'artboard' });
   const needFill = o.background === 'white' || !formatInfo[o.format].alpha;

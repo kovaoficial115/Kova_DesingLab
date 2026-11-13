@@ -12,6 +12,8 @@ import { placeFiles } from '../io/fileOps';
 import { softProof, channelView } from '../engine/cms';
 import { Slider } from './components/controls';
 import { KOVA } from './theme';
+import { findFormat, safeRect } from '../social/presets';
+import { seriesArtboards } from '../social/model';
 
 export const keys = { space: false };
 
@@ -105,8 +107,15 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
     if (s.artboards.length > 1 || active) {
       g.fillStyle = active ? KOVA.red : '#8b8b93';
       const unit = st.unit;
-      const label = `${r.a.name}  ·  ${fromPx(r.a.w, unit, r.a.dpi).toFixed(unit === 'px' ? 0 : 1)}×${fromPx(r.a.h, unit, r.a.dpi).toFixed(unit === 'px' ? 0 : 1)} ${unit} @ ${r.a.dpi} ppp`;
-      g.fillText(label, r.x, r.y - 7 * dpr);
+      let label = `${r.a.name}  ·  ${fromPx(r.a.w, unit, r.a.dpi).toFixed(unit === 'px' ? 0 : 1)}×${fromPx(r.a.h, unit, r.a.dpi).toFixed(unit === 'px' ? 0 : 1)} ${unit} @ ${r.a.dpi} ppp`;
+      // que no invada la etiqueta de la mesa de al lado (diapositivas pegadas de un carrusel)
+      const room = r.w - 6 * dpr;
+      if (g.measureText(label).width > room && s.artboards.length > 1) {
+        label = r.a.name;
+        while (label.length > 1 && g.measureText(label + '…').width > room) label = label.slice(0, -1);
+        if (label !== r.a.name) label = room > 20 * dpr ? label + '…' : '';
+      }
+      if (label) g.fillText(label, r.x, r.y - 7 * dpr);
     }
   }
   g.restore();
@@ -147,6 +156,93 @@ function niceStep(pxPerUnit: number, minPx = 60) {
   const p = Math.pow(10, Math.floor(Math.log10(raw)));
   for (const m of [1, 2, 5, 10]) if (m * p >= raw) return m * p;
   return 10 * p;
+}
+
+/** Guías de redes sociales: zona segura, interfaz, círculo, tercios, recortes y números de
+ *  diapositiva. Solo en pantalla: nunca se exportan. */
+function drawSocialGuides(g: CanvasRenderingContext2D, doc: Doc, sx: (x: number) => number, sy: (y: number) => number, zoom: number) {
+  const st = get();
+  const sg = st.socialGuides;
+  const s = doc.state;
+  const abs = s.artboards.filter(a => a.social?.preset);
+  if (!abs.length) return;
+  g.save();
+  g.lineWidth = 1;
+  g.font = `500 10px ${KOVA.font}`;
+  for (const a of abs) {
+    const f = findFormat(a.social!.preset, st.socialFormats);
+    if (!f) continue;
+    const X = sx(a.x), Y = sy(a.y), Wd = a.w * zoom, Hd = a.h * zoom;
+    const kx = a.w / f.w, ky = a.h / f.h;
+    g.save();
+    g.beginPath(); g.rect(X, Y, Wd, Hd); g.clip();
+    if (sg.ui && f.ui) {
+      for (const u of f.ui) {
+        const ux = sx(a.x + u.x * kx), uy = sy(a.y + u.y * ky), uw = u.w * kx * zoom, uh = u.h * ky * zoom;
+        g.fillStyle = 'rgba(10,10,14,.38)';
+        g.fillRect(ux, uy, uw, uh);
+        g.strokeStyle = 'rgba(255,255,255,.25)';
+        g.strokeRect(Math.round(ux) + 0.5, Math.round(uy) + 0.5, Math.round(uw), Math.round(uh));
+        if (uw > 70 && uh > 16) { g.fillStyle = 'rgba(255,255,255,.75)'; g.fillText(u.name, ux + 6, uy + 13); }
+      }
+    }
+    if (sg.circle && f.circle) {
+      const cx = sx(a.x + a.w / 2), cy = sy(a.y + a.h / 2);
+      const r = (f.circle.d * kx * zoom) / 2, rs = (f.circle.safe * kx * zoom) / 2;
+      // lo que queda fuera del círculo se atenúa
+      g.beginPath(); g.rect(X, Y, Wd, Hd); g.arc(cx, cy, r, 0, Math.PI * 2);
+      g.fillStyle = 'rgba(10,10,14,.45)'; g.fill('evenodd');
+      g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.strokeStyle = 'rgba(255,255,255,.8)'; g.stroke();
+      g.setLineDash([5, 4]);
+      g.beginPath(); g.arc(cx, cy, rs, 0, Math.PI * 2); g.strokeStyle = 'rgba(255,196,0,.9)'; g.stroke();
+      g.setLineDash([]);
+    }
+    if (sg.safe && f.safe) {
+      const r = safeRect(f, a.w, a.h);
+      g.setLineDash([6, 4]);
+      g.strokeStyle = 'rgba(255,196,0,.9)';
+      g.strokeRect(Math.round(sx(a.x + r.x)) + 0.5, Math.round(sy(a.y + r.y)) + 0.5, Math.round(r.w * zoom), Math.round(r.h * zoom));
+      g.setLineDash([]);
+    }
+    if (sg.thirds) {
+      g.strokeStyle = 'rgba(255,255,255,.35)';
+      g.beginPath();
+      for (const t of [1 / 3, 2 / 3]) {
+        const x = Math.round(X + Wd * t) + 0.5, y = Math.round(Y + Hd * t) + 0.5;
+        g.moveTo(x, Y); g.lineTo(x, Y + Hd); g.moveTo(X, y); g.lineTo(X + Wd, y);
+      }
+      g.stroke();
+    }
+    if (sg.crops && f.crops) {
+      g.setLineDash([2, 3]);
+      for (const c of f.crops) {
+        const cw = c.w * kx * zoom, ch = c.h * ky * zoom;
+        const cx = X + (Wd - cw) / 2, cy = Y + (Hd - ch) / 2;
+        g.strokeStyle = 'rgba(0,208,255,.85)';
+        g.strokeRect(Math.round(cx) + 0.5, Math.round(cy) + 0.5, Math.round(cw), Math.round(ch));
+        if (cw > 90) { g.fillStyle = 'rgba(0,208,255,.95)'; g.fillText(c.name, cx + 5, cy + ch - 6); }
+      }
+      g.setLineDash([]);
+    }
+    g.restore();
+    // número de diapositiva y cortes del carrusel continuo
+    const ser = a.social!.series;
+    if (ser && sg.numbers) {
+      const total = seriesArtboards(s.artboards, ser.id).length;
+      const label = ser.kind === 'highlights' ? (a.social!.label || `${ser.index + 1}`) : `${ser.index + 1}/${total}`;
+      const tw = g.measureText(label).width + 12;
+      g.fillStyle = ser.kind === 'continuous' ? 'rgba(210,22,37,.92)' : 'rgba(20,20,26,.85)';
+      g.beginPath(); g.roundRect(X + 6, Y + 6, tw, 18, 9); g.fill();
+      g.fillStyle = '#fff'; g.fillText(label, X + 12, Y + 19);
+      if (ser.kind === 'continuous' && ser.index > 0) {
+        g.setLineDash([6, 4]);
+        g.strokeStyle = 'rgba(210,22,37,.95)';
+        g.beginPath(); g.moveTo(Math.round(X) + 0.5, Y); g.lineTo(Math.round(X) + 0.5, Y + Hd); g.stroke();
+        g.setLineDash([]);
+      }
+    }
+  }
+  g.restore();
 }
 
 function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dpr: number, phase: number, compareX: number | null) {
@@ -197,6 +293,7 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
     }
     g.stroke();
   }
+  drawSocialGuides(g, doc, sx, sy, v.zoom);
 
   // selección
   const sel = s.selection;
@@ -396,7 +493,8 @@ export function Viewport({ doc }: { doc: Doc }) {
   const [compareX, setCompareX] = useState<number | null>(null);
   const view = useStore(s => s.views[doc.id]);
   const tick = useStore(s => s.renderTick);
-  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}`);
+  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}`);
+  const socialFormats = useStore(s => s.socialFormats);
   const compare = useStore(s => s.compare);
   const showRulers = useStore(s => s.showRulers);
   const tool = useStore(s => s.tool);
@@ -454,7 +552,7 @@ export function Viewport({ doc }: { doc: Doc }) {
     if (!showRulers) return;
     if (rulerX.current) drawRuler(rulerX.current, 'x', size.w, dpr, doc);
     if (rulerY.current) drawRuler(rulerY.current, 'y', size.h, dpr, doc);
-  }, [doc.state.artboards, doc.state.activeArtboardId, view, size, flags, cursor, showRulers]);
+  }, [doc.state.artboards, doc.state.activeArtboardId, view, size, flags, cursor, showRulers, socialFormats]);
 
   // rueda: desplazar / zoom
   useEffect(() => {

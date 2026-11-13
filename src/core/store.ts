@@ -1,8 +1,23 @@
 import { create } from 'zustand';
 import type { Doc, DocState, ToolId, Unit, View, Layer } from './types';
 import { defaultBrushes, sanitizeBrushes, type BrushSettings, type BrushToolId } from '../engine/brush';
+import { sanitizeUserFormats, emptyUserFormats, type UserFormats } from '../social/presets';
 
-export type PanelId = 'color' | 'properties' | 'adjustments' | 'layers' | 'history' | 'artboards' | 'channels';
+export type PanelId = 'color' | 'properties' | 'adjustments' | 'layers' | 'history' | 'artboards' | 'channels' | 'social';
+
+/** Espacio de trabajo: qué formatos y herramientas se ofrecen primero. */
+export type Workspace = 'dtf' | 'graphic' | 'social';
+
+/** Guías de redes en el visor (nunca se exportan). */
+export interface SocialGuides {
+  safe: boolean;
+  ui: boolean;
+  circle: boolean;
+  thirds: boolean;
+  crops: boolean;
+  numbers: boolean;
+}
+export const defaultSocialGuides = (): SocialGuides => ({ safe: true, ui: false, circle: true, thirds: false, crops: false, numbers: true });
 
 export interface PanelConf { id: PanelId; visible: boolean; collapsed: boolean }
 
@@ -67,9 +82,15 @@ export interface AppState {
   swatches: string[];
   /** segundos entre el último cambio y el autoguardado; 0 = desactivado */
   autosaveSec: number;
+  workspace: Workspace;
+  socialGuides: SocialGuides;
+  /** formatos de redes modificados o creados por el usuario */
+  socialFormats: UserFormats;
 }
 
 const defaultPanels: PanelConf[] = [
+  // solo aparece con documentos de redes (o en el espacio «Redes»); arriba para tenerlo a mano
+  { id: 'social', visible: true, collapsed: false },
   { id: 'color', visible: true, collapsed: false },
   { id: 'properties', visible: true, collapsed: false },
   { id: 'adjustments', visible: true, collapsed: true },
@@ -79,13 +100,25 @@ const defaultPanels: PanelConf[] = [
   { id: 'history', visible: true, collapsed: true },
 ];
 
+/** Paneles guardados + los que una versión nueva añadió (en su posición por defecto). */
+function mergePanels(saved: unknown): PanelConf[] {
+  if (!Array.isArray(saved)) return defaultPanels;
+  const known = new Set(defaultPanels.map(p => p.id));
+  const out: PanelConf[] = [];
+  for (const p of saved) if (p && known.has(p.id) && !out.some(o => o.id === p.id)) out.push({ id: p.id, visible: !!p.visible, collapsed: !!p.collapsed });
+  defaultPanels.forEach((d, i) => { if (!out.some(o => o.id === d.id)) out.splice(Math.min(i, out.length), 0, d); });
+  return out;
+}
+
 function loadPrefs(): Partial<AppState> {
   try {
     const raw = localStorage.getItem('kova.prefs');
     if (!raw) return {};
     const p = JSON.parse(raw);
-    const panels: PanelConf[] = Array.isArray(p.panels) && p.panels.length === defaultPanels.length ? p.panels : defaultPanels;
-    return { ...p, panels, brushes: sanitizeBrushes(p.brushes) };
+    const workspace: Workspace = p.workspace === 'graphic' || p.workspace === 'social' ? p.workspace : 'dtf';
+    const sg = { ...defaultSocialGuides(), ...(p.socialGuides && typeof p.socialGuides === 'object' ? p.socialGuides : {}) };
+    for (const k of Object.keys(sg) as (keyof SocialGuides)[]) sg[k] = !!sg[k];
+    return { ...p, panels: mergePanels(p.panels), brushes: sanitizeBrushes(p.brushes), workspace, socialGuides: sg, socialFormats: sanitizeUserFormats(p.socialFormats) };
   } catch { return {}; }
 }
 
@@ -125,6 +158,9 @@ export const useStore = create<AppState>(() => ({
   renderTick: 0,
   cursor: null,
   autosaveSec: 4,
+  workspace: 'dtf',
+  socialGuides: defaultSocialGuides(),
+  socialFormats: emptyUserFormats(),
   swatches: ['#000000', '#ffffff', '#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#8e8e93', '#d21625', '#00001f', '#f0e7de'],
   ...loadPrefs(),
 }));
@@ -132,9 +168,11 @@ export const useStore = create<AppState>(() => ({
 // Persistencia de preferencias de interfaz
 useStore.subscribe((s, prev) => {
   if (s.panels !== prev.panels || s.unit !== prev.unit || s.rightWidth !== prev.rightWidth || s.showRulers !== prev.showRulers ||
-    s.gridSize !== prev.gridSize || s.swatches !== prev.swatches || s.snap !== prev.snap || s.autosaveSec !== prev.autosaveSec || s.brushes !== prev.brushes) {
+    s.gridSize !== prev.gridSize || s.swatches !== prev.swatches || s.snap !== prev.snap || s.autosaveSec !== prev.autosaveSec || s.brushes !== prev.brushes ||
+    s.workspace !== prev.workspace || s.socialGuides !== prev.socialGuides || s.socialFormats !== prev.socialFormats) {
     try {
-      localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap, autosaveSec: s.autosaveSec, brushes: s.brushes }));
+      localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap, autosaveSec: s.autosaveSec, brushes: s.brushes,
+        workspace: s.workspace, socialGuides: s.socialGuides, socialFormats: s.socialFormats }));
     } catch { /* almacenamiento no disponible */ }
   }
 });

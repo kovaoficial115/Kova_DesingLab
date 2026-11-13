@@ -72,11 +72,52 @@ describe('formato .kova', () => {
     expect(out.format).toBe('kova-designlab');
   });
 
-  it('v1 → v2 → v1 es reversible sin pérdidas', () => {
+  it('v1 → actual → v1 es reversible sin pérdidas', () => {
     const v2 = buildKova({ ...parseKova(v1()).file, garment3d: sanitizeGarment3D(garment)! });
-    expect(v2.version).toBe(2);
+    expect(v2.version).toBe(KOVA_SCHEMA);
     expect(v2.app?.name).toBe('KOVA Design Lab');
     const back = downgradeToV1(JSON.parse(JSON.stringify(v2)));
+    expect(back).toEqual(v1());
+  });
+});
+
+describe('sección social (formato 3)', () => {
+  const social = { profile: { username: 'kova', displayName: 'KOVA', bio: 'Hola' }, plans: [{ id: 'p1', name: 'Junio', order: ['ab1'], updated: 1 }], activePlan: 'p1' };
+  const withSocialAb = () => { const f = v1(); (f.state.artboards[0] as any).social = { preset: 'ig-carousel', series: { id: 's1', kind: 'carousel', name: 'Drop', index: 0 } }; return f; };
+
+  it('un v2 se abre en v3 sin cambios y sin sección social', () => {
+    const p = parseKova({ ...v1(), version: 2 });
+    expect(p.sourceVersion).toBe(2);
+    expect(p.file.version).toBe(3);
+    expect(p.file.social).toBeUndefined();
+    expect(p.file.state).toEqual(v1().state);
+  });
+
+  it('lee perfil, planes y el formato de cada mesa', () => {
+    const p = parseKova({ ...withSocialAb(), version: 3, social });
+    expect(p.file.social).toEqual(social);
+    expect(p.file.state.artboards[0].social.series).toEqual({ id: 's1', kind: 'carousel', name: 'Drop', index: 0 });
+    expect(p.warnings).toEqual([]);
+  });
+
+  it('datos sociales dañados no impiden abrir: se avisa y se conservan o se quitan', () => {
+    const f = withSocialAb(); (f.state.artboards[0] as any).social = { preset: 42 };
+    const p = parseKova({ ...f, version: 3, social: 'roto' });
+    expect(p.file.social).toBeUndefined();
+    expect(p.extra.social).toBe('roto');
+    expect(p.file.state.artboards[0].social).toBeUndefined();
+    expect(p.warnings.length).toBe(2);
+  });
+
+  it('un plan que apunta a un plan activo inexistente se corrige', () => {
+    const p = parseKova({ ...v1(), version: 3, social: { ...social, activePlan: 'nada' } });
+    expect(p.file.social?.activePlan).toBeUndefined();
+  });
+
+  it('bajar a v1 quita la sección social y el formato de las mesas', () => {
+    const out = buildKova({ ...parseKova({ ...withSocialAb(), version: 3, social }).file });
+    expect(out.social).toEqual(social);
+    const back = downgradeToV1(JSON.parse(JSON.stringify(out)));
     expect(back).toEqual(v1());
   });
 });

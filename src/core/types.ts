@@ -1,5 +1,6 @@
 import type { SaveTarget } from '../platform';
 import type { Garment3DData } from './garment3d';
+import type { ArtboardSocial, DocSocial } from '../social/model';
 
 // Modelo de datos del documento. Los bitmaps (HTMLCanvasElement) se tratan como
 // inmutables: cualquier edición de píxeles crea un canvas nuevo (copy-on-write),
@@ -107,6 +108,8 @@ export interface Artboard {
   dpi: number;
   background: string | null; // null = transparente
   margin: number; // zona de seguridad en px
+  /** formato de redes sociales y serie (carrusel, destacadas) — Social Design Studio */
+  social?: ArtboardSocial | null;
 }
 
 export interface Guide {
@@ -154,6 +157,8 @@ export interface Doc {
   createdAt: number;
   /** configuración del Estudio 3D (sección opcional `garment3d` del .kova) */
   garment3d?: Garment3DData;
+  /** perfil y planes del feed de Social Design Studio (sección opcional `social` del .kova) */
+  social?: DocSocial;
   /** origen del archivo: versión de formato y secciones desconocidas que se conservan al guardar */
   kova?: { sourceVersion: number; extra?: Record<string, unknown> };
   /** documento compartido en una sala de Liveblocks */

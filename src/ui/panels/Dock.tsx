@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, GripVertical, X, Palette, SlidersHorizontal, Layers, History, Frame, Settings2, Plus, Trash2, Copy, FileUp } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical, X, Palette, SlidersHorizontal, Layers, History, Frame, Settings2, Plus, Trash2, Copy, FileUp, Smartphone } from 'lucide-react';
+import { SocialPanel } from '../../social/ui/SocialPanel';
 import { useStore, set, jumpHistory, commit } from '../../core/store';
 import type { PanelId } from '../../core/store';
 import type { Doc } from '../../core/types';
@@ -22,6 +23,7 @@ const meta: Record<PanelId, { title: string; icon: any }> = {
   history: { title: 'Historial', icon: History },
   artboards: { title: 'Mesas de trabajo', icon: Frame },
   channels: { title: 'Canales y color', icon: Palette },
+  social: { title: 'Redes sociales', icon: Smartphone },
 };
 
 function HistoryPanel({ doc }: { doc: Doc }) {
@@ -117,6 +119,9 @@ function ChannelsPanel({ doc }: { doc: Doc }) {
 export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?: boolean; open?: boolean }) {
   const panels = useStore(s => s.panels);
   const width = useStore(s => s.rightWidth);
+  // el panel de redes aparece en el espacio «Redes» o cuando el documento tiene mesas sociales
+  const workspace = useStore(s => s.workspace);
+  const socialDoc = workspace === 'social' || doc.state.artboards.some(a => a.social?.preset);
   const [dragId, setDragId] = useState<PanelId | null>(null);
   const [overId, setOverId] = useState<PanelId | null>(null);
   const toggle = (id: PanelId, patch: Partial<{ visible: boolean; collapsed: boolean }>) => set(s => ({ panels: s.panels.map(p => (p.id === id ? { ...p, ...patch } : p)) }));
@@ -142,6 +147,7 @@ export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?:
       case 'history': return <HistoryPanel doc={doc} />;
       case 'artboards': return <ArtboardsPanel doc={doc} />;
       case 'channels': return <ChannelsPanel doc={doc} />;
+      case 'social': return <SocialPanel doc={doc} />;
     }
   };
   return (
@@ -153,7 +159,7 @@ export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?:
           <button className="icon-btn sm" title="Cerrar paneles" aria-label="Cerrar paneles" onClick={() => set({ dockOpen: false })}><X size={13} /></button>
         </div>
       ) : <div className="dock-resizer" onPointerDown={startResize} title="Arrastra para cambiar el ancho" />}
-      {panels.filter(p => p.visible).map(p => {
+      {panels.filter(p => p.visible && (p.id !== 'social' || socialDoc)).map(p => {
         const M = meta[p.id];
         return (
           <div key={p.id} className={'panel' + (p.id === 'layers' && !p.collapsed ? ' fill' : '') + (overId === p.id && dragId !== p.id ? ' drag-over' : '')}

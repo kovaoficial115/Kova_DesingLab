@@ -504,3 +504,74 @@ button.avatar:hover { transform: translateY(-1px); z-index: 1; }
   background: #2a2a33; border: 1px solid rgba(255,255,255,.18); color: #ddd; padding: 0; cursor: pointer;
 }
 .brush-item-wrap:hover .brush-del { display: grid; }
+
+/* ---------- Social Design Studio ---------- */
+.preset.active { border-color: var(--accent); background: var(--accent-soft); }
+.preset.active .shape div { border-color: var(--accent); }
+.social-thumb { display: block; background: repeating-conic-gradient(#2a2a3a 0% 25%, #1e1e2c 0% 50%) 50% / 10px 10px; border-radius: 3px; height: auto; }
+.slide-list { max-height: 260px; overflow-y: auto; }
+.slide-row { display: flex; align-items: center; gap: 5px; padding: 3px 4px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+.slide-row:hover { background: var(--panel-3); }
+.slide-row.current { background: var(--blue-soft); border-color: var(--accent-line); }
+.slide-row.drop { border-style: dashed; border-color: var(--border-2); }
+.slide-row .input { height: 22px; font-size: 11px; min-width: 0; }
+.social-export-list { overflow-y: auto; min-height: 120px; }
+.export-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); cursor: pointer; }
+.export-row input[type=checkbox] { margin-top: 3px; }
+.adapt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; max-height: 240px; overflow-y: auto; padding: 2px; }
+.batch-table { max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.batch-table table { border-collapse: collapse; width: 100%; font-size: 11px; }
+.batch-table th, .batch-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.batch-table th { position: sticky; top: 0; background: var(--panel-3); font-weight: 600; }
+.batch-table tr { cursor: pointer; }
+.batch-table tr.on td { background: var(--accent-soft); }
+
+/* simulador: imita un teléfono en tema claro, como las apps (no usa marcas ni logotipos) */
+.sim-split { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 18px; align-items: start; }
+@media (max-width: 760px) { .sim-split { grid-template-columns: 1fr; } }
+.sim-phone { background: #fff; color: #111; border-radius: 22px; border: 6px solid #1a1a1f; overflow: hidden; max-height: 66vh; overflow-y: auto; }
+.sim-phone .tiny, .sim-phone .small { color: #111; }
+.sim-phone.tall { max-height: none; }
+.sim-cover { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sim-cover.round { border-radius: 50%; }
+.sim-avatar { border-radius: 50%; overflow: hidden; background: linear-gradient(135deg, #ddd, #bbb); display: grid; place-items: center; flex: none; color: #555; font-weight: 700; }
+.sim-profile-head { display: flex; align-items: center; gap: 14px; padding: 14px 14px 8px; }
+.sim-bio { padding: 0 14px 8px; display: flex; flex-direction: column; gap: 2px; }
+.sim-highlights { display: flex; gap: 12px; padding: 6px 14px 12px; overflow-x: auto; }
+.sim-hl { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 62px; flex: none; }
+.sim-hl span { max-width: 62px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.sim-hl-ring { width: 58px; height: 58px; border-radius: 50%; padding: 2px; border: 1px solid #ccc; overflow: hidden; }
+.sim-hl-ring canvas { width: 100%; height: 100%; }
+.sim-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: #fff; }
+.sim-cell { position: relative; aspect-ratio: 3 / 4; overflow: hidden; background: #eee; }
+.sim-cell.draggable { cursor: grab; }
+.sim-cell.drop { outline: 2px dashed rgba(210, 22, 37, .6); outline-offset: -3px; }
+.sim-badge { position: absolute; top: 5px; right: 5px; color: #fff; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+.sim-num { position: absolute; left: 4px; top: 4px; font-size: 10px; background: rgba(0,0,0,.6); color: #fff; border-radius: 8px; padding: 0 6px; line-height: 16px; }
+.sim-post-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+.sim-actions { display: flex; gap: 12px; padding: 8px 12px 12px; color: #111; }
+.sim-glyph { display: inline-flex; color: inherit; }
+.sim-swipe-wrap { position: relative; width: 100%; background: #000; }
+.sim-swipe { display: flex; width: 100%; height: 100%; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.sim-swipe::-webkit-scrollbar { display: none; }
+.sim-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: start; }
+.sim-count { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.65); color: #fff; font-size: 11px; border-radius: 10px; padding: 1px 8px; }
+.sim-arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; border-radius: 50%; border: none; background: rgba(255,255,255,.85); color: #111; display: grid; place-items: center; cursor: pointer; }
+.sim-arrow.left { left: 8px; } .sim-arrow.right { right: 8px; }
+.sim-dots { position: absolute; bottom: -16px; left: 0; right: 0; display: flex; justify-content: center; gap: 4px; }
+.sim-dots span { width: 6px; height: 6px; border-radius: 50%; background: #c7c7c7; }
+.sim-dots span.on { background: #111; }
+.sim-vertical { position: relative; aspect-ratio: 9 / 16; background: #000; color: #fff; }
+.sim-vertical .tiny, .sim-vertical .small { color: #fff; }
+.sim-progress { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; gap: 3px; }
+.sim-progress span { flex: 1; height: 2px; border-radius: 2px; background: rgba(255,255,255,.35); }
+.sim-progress span.on { background: #fff; }
+.sim-story-head { position: absolute; top: 18px; left: 10px; display: flex; align-items: center; gap: 8px; }
+.sim-story-foot { position: absolute; bottom: 12px; left: 10px; right: 10px; display: flex; align-items: center; gap: 10px; }
+.sim-reply { flex: 1; border: 1px solid rgba(255,255,255,.7); border-radius: 20px; padding: 6px 12px; font-size: 11px; }
+.sim-reel-side { position: absolute; right: 10px; bottom: 90px; display: flex; flex-direction: column; gap: 18px; }
+.sim-reel-foot { position: absolute; left: 10px; right: 60px; bottom: 16px; }
+.sim-tap { position: absolute; top: 15%; bottom: 15%; width: 35%; background: transparent; border: none; cursor: pointer; }
+.sim-tap.left { left: 0; } .sim-tap.right { right: 0; }
+.sim-palette { display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; }
+.sim-palette span { aspect-ratio: 1; border-radius: 3px; border: 1px solid var(--border); }

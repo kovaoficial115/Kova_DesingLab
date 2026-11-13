@@ -214,7 +214,7 @@ function plainFromJSON<T>(id: string, j: any, prev?: T, only?: string[]): T {
   }
   return { id, ...rest } as T;
 }
-const artboardJSON = (a: Artboard) => ({ name: a.name, x: a.x, y: a.y, w: a.w, h: a.h, dpi: a.dpi, background: a.background ?? null, margin: a.margin ?? 0, z: '' });
+const artboardJSON = (a: Artboard) => ({ name: a.name, x: a.x, y: a.y, w: a.w, h: a.h, dpi: a.dpi, background: a.background ?? null, margin: a.margin ?? 0, social: a.social ?? null, z: '' });
 const guideJSON = (g: Guide) => ({ axis: g.axis, pos: g.pos });
 
 /** Claves fraccionarias mínimas para que el orden por `z` coincida con el orden local. */

@@ -135,7 +135,7 @@ export function deleteSelectedLayers() {
   });
 }
 
-function cloneLayerDeep(l: Layer, all: Layer[], parentId: string | null): Layer[] {
+export function cloneLayerDeep(l: Layer, all: Layer[], parentId: string | null): Layer[] {
   const copy: Layer = { ...l, id: uid('ly'), name: l.name + ' copia', parentId };
   const out = [copy];
   if (l.kind === 'group') for (const c of childrenOf(all, l.id)) out.push(...cloneLayerDeep({ ...c, name: c.name.replace(/ copia$/, '') }, all, copy.id));

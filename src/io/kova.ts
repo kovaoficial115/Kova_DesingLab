@@ -5,12 +5,17 @@
 //        garment3d  configuración del Estudio 3D
 //        models3d   GLB propios embebidos, por hash: { name, mime, data: dataURL }
 //      Un v1 es un v2 válido sin secciones nuevas: migrar solo cambia el número de versión.
+//  v3  v2 + Social Design Studio:
+//        social                 perfil de las vistas previas y planes del feed
+//        state.artboards[].social  formato de redes y serie (carrusel, destacadas) de cada mesa
+//      Un v2 es un v3 válido sin mesas sociales.
 //  Las secciones desconocidas (archivos de versiones futuras) se conservan al volver a guardar.
 
 import { sanitizeGarment3D, type Garment3DData } from '../core/garment3d';
+import { sanitizeArtboardSocial, sanitizeDocSocial, type DocSocial } from '../social/model';
 
 export const KOVA_FORMAT = 'kova-designlab';
-export const KOVA_SCHEMA = 2;
+export const KOVA_SCHEMA = 3;
 
 export interface EmbeddedModel { name: string; mime: string; data: string }
 
@@ -27,9 +32,10 @@ export interface KovaFile {
   fonts?: unknown[];
   garment3d?: Garment3DData;
   models3d?: Record<string, EmbeddedModel>;
+  social?: DocSocial;
 }
 
-const KNOWN_KEYS = new Set(['format', 'version', 'app', 'id', 'name', 'colorMode', 'createdAt', 'state', 'assets', 'fonts', 'garment3d', 'models3d']);
+const KNOWN_KEYS = new Set(['format', 'version', 'app', 'id', 'name', 'colorMode', 'createdAt', 'state', 'assets', 'fonts', 'garment3d', 'models3d', 'social']);
 
 export interface ParsedKova {
   file: KovaFile;
@@ -93,6 +99,26 @@ export function parseKova(input: string | object): ParsedKova {
       else warnings.push('Se ignoró un modelo 3D embebido dañado.');
     }
   }
+  let social: DocSocial | undefined;
+  if (raw.social !== undefined) {
+    social = sanitizeDocSocial(raw.social) ?? undefined;
+    if (!social) { warnings.push('Los datos de redes sociales del proyecto no son válidos y se ignoraron.'); extra.social = raw.social; }
+  }
+  // formato de redes de cada mesa: lo que no se entienda se quita (la mesa se abre como una mesa normal)
+  let state = raw.state;
+  if (raw.state.artboards.some((a: any) => a?.social !== undefined)) {
+    let dropped = 0;
+    state = {
+      ...raw.state,
+      artboards: raw.state.artboards.map((a: any) => {
+        if (a?.social === undefined || a.social === null) return a;
+        const so = sanitizeArtboardSocial(a.social);
+        if (!so) { dropped++; const { social: _s, ...rest } = a; return rest; }
+        return { ...a, social: so };
+      }),
+    };
+    if (dropped) warnings.push(`Se ignoró el formato de redes de ${dropped} mesa(s) porque estaba dañado.`);
+  }
   const file: KovaFile = {
     format: KOVA_FORMAT,
     version: Math.max(sourceVersion, KOVA_SCHEMA),
@@ -101,11 +127,12 @@ export function parseKova(input: string | object): ParsedKova {
     name: typeof raw.name === 'string' ? raw.name : 'Sin título',
     colorMode: raw.colorMode === 'CMYK' ? 'CMYK' : 'RGB',
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
-    state: raw.state,
+    state,
     assets: raw.assets ?? {},
     fonts: Array.isArray(raw.fonts) ? raw.fonts : [],
     ...(garment3d ? { garment3d } : {}),
     ...(Object.keys(models3d).length ? { models3d } : {}),
+    ...(social ? { social } : {}),
   };
   return { file, sourceVersion, newer, extra, warnings };
 }
@@ -117,8 +144,10 @@ export function buildKova(file: Omit<KovaFile, 'format' | 'version' | 'app'>, ex
 
 /** Conversión inversa a v1 (para abrirlo en versiones anteriores de la app): quita lo que v1 no conoce. */
 export function downgradeToV1(file: KovaFile & Record<string, unknown>) {
-  const { garment3d: _g, models3d: _m, app: _a, ...rest } = file;
+  const { garment3d: _g, models3d: _m, social: _s, app: _a, ...rest } = file;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rest)) if (KNOWN_KEYS.has(k)) out[k] = v;
+  const st = out.state as any;
+  if (st && Array.isArray(st.artboards)) out.state = { ...st, artboards: st.artboards.map(({ social: _x, ...a }: any) => a) };
   return { ...out, format: KOVA_FORMAT, version: 1 };
 }

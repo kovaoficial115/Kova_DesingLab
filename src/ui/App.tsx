@@ -34,6 +34,11 @@ const dialogs: Record<string, React.LazyExoticComponent<any>> = {
   gang: lazy(() => import('./dialogs/GangSheetDialog').then(m => ({ default: m.GangSheetDialog }))),
   mockup: lazy(() => import('./dialogs/MockupDialog').then(m => ({ default: m.MockupDialog }))),
   backups: lazy(() => import('./dialogs/BackupsDialog').then(m => ({ default: m.BackupsDialog }))),
+  'social-new': lazy(() => import('../social/ui/SocialNewDialog').then(m => ({ default: m.SocialNewDialog }))),
+  'social-export': lazy(() => import('../social/ui/SocialExportDialog').then(m => ({ default: m.SocialExportDialog }))),
+  'social-adapt': lazy(() => import('../social/ui/AdaptDialog').then(m => ({ default: m.AdaptDialog }))),
+  'social-preview': lazy(() => import('../social/ui/PreviewDialog').then(m => ({ default: m.PreviewDialog }))),
+  'social-batch': lazy(() => import('../social/ui/BatchDialog').then(m => ({ default: m.BatchDialog }))),
   'collab-identity': lazy(() => import('../collab/dialogs').then(m => ({ default: m.IdentityDialog }))),
 };
 

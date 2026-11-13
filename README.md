@@ -20,6 +20,7 @@ Editor de imágenes de producción para impresión **DTF (Direct to Film)**. Fun
 - **Colaboración en tiempo real:** comparte un documento con un enlace; cursores, selecciones y cambios de todas las personas al instante, roles Propietario/Editor/Lector, historial de versiones y edición sin conexión.
 - **Herramientas DTF:** base blanca y knockout de prenda, separación de canales, comprobación previa a la impresión, hoja de impresión (gang sheet) con acomodo automático, mockups sobre camiseta o foto propia.
 - **Estudio 3D:** prendas en 3D (GLB) con tela, color y acabado; el arte de las mesas de trabajo se estampa por zonas a tamaño real; renders PNG hasta 4096 px con fondo transparente y video giratorio. Ver [docs/estudio-3d.md](docs/estudio-3d.md), con el formato `garment.json`.
+- **Social Design Studio:** espacio «Redes sociales» con los formatos de Instagram, TikTok, YouTube, Facebook y Pinterest (editables y ampliables), zonas seguras y guías que nunca se exportan, carruseles normales y continuos (panorama partido exacto), portadas de destacadas, adaptación a otros formatos sin deformar, vista previa local del perfil, publicaciones, historias y Reels, planificador del feed, lotes con `{{variables}}` desde CSV/JSON y exportación con nombres por plataforma, validación y ZIP. Todo se publica a mano: no hay conexión con ninguna red social. Ver [docs/social-studio.md](docs/social-studio.md).
 - **App de escritorio para macOS** (Apple Silicon) con diálogos y archivos nativos. Ver [docs/escritorio.md](docs/escritorio.md).
 
 ## Desarrollo
@@ -123,6 +124,7 @@ src/
   ui/       interfaz: menús, paneles, diálogos y pantalla de inicio
   collab/   colaboración: motor de sincronización con Liveblocks, presencia, salas y diálogos
   studio3d/ Estudio 3D: visor (three.js), validación de modelos, telas, estampados por zonas, renders
+  social/   Social Design Studio: formatos, carruseles, adaptación, validación, variables y exportación
   platform/ Platform Adapter: único acceso a archivos y diálogos (web y escritorio)
   storage/  almacenamiento local (IndexedDB) con migraciones y recursos por hash
 src-tauri/           app de escritorio para macOS (Tauri 2)
@@ -138,6 +140,7 @@ El procesamiento pesado se ejecuta en Web Workers para no bloquear la interfaz.
 - **Eliminar fondo con IA:** usa `@imgly/background-removal`, que descarga el modelo la primera vez que se usa y tiene licencia **AGPL-3.0**.
 - **Exportación PDF:** el PDF contiene la imagen rasterizada a la resolución elegida.
 - **Exportación WEBP:** no almacena ppp; el formato no tiene un campo estándar para ello.
+- **Redes sociales:** las zonas seguras son recomendaciones prácticas (cada app y dispositivo tapa algo distinto) y se pueden ajustar en Redes → Editar formatos. La adaptación crea copias independientes (aún no hay variantes vinculadas).
 
 ## Créditos
 

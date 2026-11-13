@@ -52,6 +52,7 @@ export async function serializeDoc(doc: Doc): Promise<string> {
     fonts: embedFonts(doc.state.layers.filter(l => l.kind === 'text' && l.text).map(l => l.text!.fontFamily)),
     ...(doc.garment3d ? { garment3d: doc.garment3d } : {}),
     ...(models3d ? { models3d } : {}),
+    ...(doc.social ? { social: doc.social } : {}),
   }, doc.kova?.extra, Math.max(KOVA_SCHEMA, doc.kova?.sourceVersion ?? 0)));
 }
 
@@ -85,6 +86,7 @@ export async function deserializeDoc(json: string, opts: OpenOptions = {}): Prom
   return {
     id: data.id || uid('doc'), name: data.name, colorMode: data.colorMode, state, past: [], future: [], lastLabel: 'Abrir proyecto', dirty: false, createdAt: data.createdAt,
     ...(data.garment3d ? { garment3d: data.garment3d } : {}),
+    ...(data.social ? { social: data.social } : {}),
     kova: { sourceVersion, ...(Object.keys(extra).length ? { extra } : {}) },
   };
 }
