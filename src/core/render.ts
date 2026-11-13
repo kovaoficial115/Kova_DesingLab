@@ -2,7 +2,7 @@
 // ajustes no destructivos) sobre cualquier contexto 2D. Lo usan el visor y la exportación.
 
 import type { Artboard, DocState, Layer } from './types';
-import { createCanvas, ctx2d, layerMatrix, layerSize, textFont, textLayout, clearTextMetrics, decorationLines, getImageData } from './util';
+import { createCanvas, ctx2d, cloneCanvas, layerMatrix, layerSize, textFont, textLayout, clearTextMetrics, decorationLines, getImageData } from './util';
 import { childrenOf, descendants } from './doc';
 import { runOp } from '../engine/workerClient';
 import { bumpRender } from './store';
@@ -238,22 +238,162 @@ export function invalidateLayer(id: string) { procCache.delete(id); contentCache
 // «tejido» de moiré que no existe en el arte. Se dibuja desde una copia reducida a la mitad tantas
 // veces como haga falta (cada paso promedia 2×2) y el último paso, de 2× como mucho, ya no crea moiré.
 const mipCache = new WeakMap<HTMLCanvasElement, HTMLCanvasElement[]>();
-const liveCanvases = new WeakSet<HTMLCanvasElement>();
-/** Lienzo que se modifica en sitio (trazo en curso): no se le guardan reducciones. */
-export function markLiveCanvas(c: HTMLCanvasElement) { liveCanvases.add(c); }
-
 function halve(src: HTMLCanvasElement) {
   const c = createCanvas(Math.max(1, Math.ceil(src.width / 2)), Math.max(1, Math.ceil(src.height / 2)));
   const g = ctx2d(c);
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = 'high';
-  g.drawImage(src, 0, 0, c.width, c.height);
+  // exactamente a la mitad (la última columna o fila impar queda a medias): cada píxel es el
+  // promedio de un bloque 2×2, lo mismo que calcula `updateLiveRegion`
+  g.drawImage(src, 0, 0, src.width / 2, src.height / 2);
   return c;
+}
+
+/** Promedio 2×2 (con alfa premultiplicado) de una zona alineada a pares. */
+function halveData(src: ImageData): ImageData {
+  const sw = src.width, sh = src.height, w = Math.ceil(sw / 2), h = Math.ceil(sh / 2);
+  const out = new ImageData(w, h), s = src.data, d = out.data;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let r = 0, g = 0, b = 0, a = 0;
+    for (let dy = 0; dy < 2; dy++) {
+      const yy = 2 * y + dy;
+      if (yy >= sh) continue;
+      for (let dx = 0; dx < 2; dx++) {
+        const xx = 2 * x + dx;
+        if (xx >= sw) continue;
+        const i = (yy * sw + xx) * 4, al = s[i + 3];
+        r += s[i] * al; g += s[i + 1] * al; b += s[i + 2] * al; a += al;
+      }
+    }
+    const o = (y * w + x) * 4;
+    if (a > 0) { d[o] = r / a; d[o + 1] = g / a; d[o + 2] = b / a; d[o + 3] = a / 4; }
+  }
+  return out;
+}
+
+// ---------- mosaicos para el visor ----------
+// En Chrome los lienzos con lectura frecuente viven en la CPU y cada drawImage desde uno de
+// 80 megapíxeles cuesta ~25 ms aunque se copie un trocito (se toma una instantánea entera). Con
+// zoom de cerca el visor dibuja la capa a resolución completa: se trocea en mosaicos acelerados
+// de 1024 px, se crean solo los visibles y un trazo en curso actualiza solo los que toca.
+const TILE = 1024;
+const BIG = 4_000_000;
+interface TileSet { cols: number; rows: number; tiles: (HTMLCanvasElement | null)[] }
+const tileCache = new WeakMap<HTMLCanvasElement, TileSet>();
+
+function tileSet(src: HTMLCanvasElement): TileSet {
+  let t = tileCache.get(src);
+  if (!t) {
+    const cols = Math.ceil(src.width / TILE), rows = Math.ceil(src.height / TILE);
+    t = { cols, rows, tiles: new Array(cols * rows).fill(null) };
+    tileCache.set(src, t);
+  }
+  return t;
+}
+/** Zona del lienzo que cubre un mosaico, con 1 px de borde compartido (evita costuras al escalar). */
+function tileRect(src: HTMLCanvasElement, i: number, j: number) {
+  const x0 = Math.max(0, i * TILE - 1), y0 = Math.max(0, j * TILE - 1);
+  const x1 = Math.min(src.width, (i + 1) * TILE + 1), y1 = Math.min(src.height, (j + 1) * TILE + 1);
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+function getTile(src: HTMLCanvasElement, ts: TileSet, i: number, j: number) {
+  const k = j * ts.cols + i;
+  let c = ts.tiles[k];
+  if (!c) {
+    const r = tileRect(src, i, j);
+    c = createCanvas(r.w, r.h);
+    ctx2d(c, { willReadFrequently: false }).putImageData(ctx2d(src).getImageData(r.x, r.y, r.w, r.h), 0, 0);
+    ts.tiles[k] = c;
+  }
+  return c;
+}
+/** Copia en los mosaicos ya creados una zona modificada del lienzo. */
+function refreshTiles(src: HTMLCanvasElement, r: { x: number; y: number; w: number; h: number }, data?: ImageData) {
+  const ts = tileCache.get(src);
+  if (!ts) return;
+  const sg = ctx2d(src);
+  for (let j = Math.max(0, Math.floor((r.y - 1) / TILE)); j <= Math.min(ts.rows - 1, Math.floor((r.y + r.h) / TILE)); j++) {
+    for (let i = Math.max(0, Math.floor((r.x - 1) / TILE)); i <= Math.min(ts.cols - 1, Math.floor((r.x + r.w) / TILE)); i++) {
+      const c = ts.tiles[j * ts.cols + i];
+      if (!c) continue;
+      const tr = tileRect(src, i, j);
+      const x0 = Math.max(tr.x, r.x), y0 = Math.max(tr.y, r.y), x1 = Math.min(tr.x + tr.w, r.x + r.w), y1 = Math.min(tr.y + tr.h, r.y + r.h);
+      if (x1 <= x0 || y1 <= y0) continue;
+      const tg = ctx2d(c, { willReadFrequently: false });
+      if (data) tg.putImageData(data, r.x - tr.x, r.y - tr.y, x0 - r.x, y0 - r.y, x1 - x0, y1 - y0);
+      else tg.putImageData(sg.getImageData(x0, y0, x1 - x0, y1 - y0), x0 - tr.x, y0 - tr.y);
+    }
+  }
+}
+/** Dibuja un lienzo grande por mosaicos, solo los que caen dentro del destino. */
+function drawTiled(g: CanvasRenderingContext2D, src: HTMLCanvasElement, w: number, h: number, o: RenderOpts) {
+  g.save();
+  g.scale(w / src.width, h / src.height);
+  const inv = g.getTransform().inverse();
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [px, py] of [[0, 0], [o.width, 0], [0, o.height], [o.width, o.height]]) {
+    const q = inv.transformPoint(new DOMPoint(px, py));
+    x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x); y1 = Math.max(y1, q.y);
+  }
+  const ts = tileSet(src);
+  const i0 = Math.max(0, Math.floor((x0 - 2) / TILE)), i1 = Math.min(ts.cols - 1, Math.floor((x1 + 2) / TILE));
+  const j0 = Math.max(0, Math.floor((y0 - 2) / TILE)), j1 = Math.min(ts.rows - 1, Math.floor((y1 + 2) / TILE));
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    const c = getTile(src, ts, i, j), tr = tileRect(src, i, j);
+    // se dibuja solo la parte propia del mosaico; el borde de 1 px es para el filtrado
+    const ox = i * TILE, oy = j * TILE;
+    const cw = Math.min(TILE, src.width - ox), ch = Math.min(TILE, src.height - oy);
+    g.drawImage(c, ox - tr.x, oy - tr.y, cw, ch, ox, oy, cw, ch);
+  }
+  g.restore();
+}
+
+/**
+ * Lienzo que se va a modificar en sitio (trazo en curso). Hereda las reducciones del lienzo del que
+ * se copió y quien lo modifica las mantiene al día con `updateLiveRegion`: así el visor sigue
+ * dibujando una copia pequeña y no el lienzo entero (que puede tener 80 megapíxeles) a cada fotograma.
+ */
+export function beginLiveCanvas(c: HTMLCanvasElement, copiedFrom?: HTMLCanvasElement) {
+  const lv = copiedFrom && mipCache.get(copiedFrom);
+  if (lv?.length && lv[0].width === Math.ceil(c.width / 2) && lv[0].height === Math.ceil(c.height / 2)) {
+    // copias por zonas (sin drawImage desde los niveles grandes)
+    mipCache.set(c, lv.map(x => { const k = createCanvas(x.width, x.height); ctx2d(k).putImageData(ctx2d(x).getImageData(0, 0, x.width, x.height), 0, 0); return k; }));
+  }
+  // los mosaicos visibles del original sirven tal cual (son acelerados: copiarlos es barato)
+  const ts = copiedFrom && tileCache.get(copiedFrom);
+  if (ts && copiedFrom.width === c.width && copiedFrom.height === c.height) {
+    tileCache.set(c, { cols: ts.cols, rows: ts.rows, tiles: ts.tiles.map(t => { if (!t) return null; const k = createCanvas(t.width, t.height); ctx2d(k, { willReadFrequently: false }).drawImage(t, 0, 0); return k; }) });
+  }
+}
+/**
+ * Un rectángulo del lienzo cambió: actualiza sus mosaicos y la zona correspondiente de cada
+ * reducción (promedios 2×2 calculados aquí, sin drawImage desde el lienzo grande).
+ */
+export function updateLiveRegion(c: HTMLCanvasElement, r: { x: number; y: number; w: number; h: number }, data?: ImageData) {
+  refreshTiles(c, r, data);
+  const levels = mipCache.get(c);
+  if (!levels?.length) return;
+  let prev = c;
+  // zona alineada a pares en el nivel anterior
+  let x0 = r.x & ~1, y0 = r.y & ~1, x1 = Math.min(prev.width, r.x + r.w), y1 = Math.min(prev.height, r.y + r.h);
+  for (const lv of levels) {
+    if (x1 <= x0 || y1 <= y0) return;
+    const src = ctx2d(prev).getImageData(x0, y0, x1 - x0, y1 - y0);
+    const half = halveData(src);
+    const lx = x0 / 2, ly = y0 / 2;
+    const cw = Math.min(half.width, lv.width - lx), chh = Math.min(half.height, lv.height - ly);
+    if (cw <= 0 || chh <= 0) return;
+    ctx2d(lv).putImageData(half, lx, ly, 0, 0, cw, chh);
+    const lr = { x: lx, y: ly, w: cw, h: chh };
+    refreshTiles(lv, lr, half.width === cw && half.height === chh ? half : undefined);
+    prev = lv;
+    x0 = lx & ~1; y0 = ly & ~1; x1 = Math.min(lv.width, lx + cw + 1); y1 = Math.min(lv.height, ly + chh + 1);
+  }
 }
 
 /** Versión del lienzo para dibujarlo a `scale` píxeles de destino por píxel de origen. */
 export function mipFor(src: HTMLCanvasElement, scale: number): HTMLCanvasElement {
-  if (!(scale < 0.5) || liveCanvases.has(src) || src.width < 64 || src.height < 64) return src;
+  if (!(scale < 0.5) || src.width < 64 || src.height < 64) return src;
   let levels = mipCache.get(src);
   if (!levels) mipCache.set(src, (levels = []));
   let cur = src;
@@ -265,7 +405,8 @@ export function mipFor(src: HTMLCanvasElement, scale: number): HTMLCanvasElement
 const pool: HTMLCanvasElement[] = [];
 function borrow(w: number, h: number) {
   const c = pool.pop() ?? document.createElement('canvas');
-  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; } else ctx2d(c).clearRect(0, 0, w, h);
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; } else ctx2d(c, { willReadFrequently: false }).clearRect(0, 0, w, h);
+  ctx2d(c, { willReadFrequently: false });
   return c;
 }
 function giveBack(c: HTMLCanvasElement) { if (pool.length < 8) pool.push(c); }
@@ -278,6 +419,8 @@ export interface RenderOpts {
   bypassIds?: Set<string> | null; // capas renderizadas sin ajustes (antes/después)
   only?: Set<string> | null; // renderizar solo estas capas (y sus grupos)
   hidden?: Set<string> | null; // ocultar estas capas temporalmente
+  /** visor: dibujar los lienzos grandes por mosaicos (solo lo visible) */
+  tiles?: boolean;
 }
 
 function drawLayer(g: CanvasRenderingContext2D, l: Layer, o: RenderOpts, all: Layer[], forceNormal = false) {
@@ -308,7 +451,9 @@ function drawLayer(g: CanvasRenderingContext2D, l: Layer, o: RenderOpts, all: La
   g.imageSmoothingQuality = 'high';
   // escala real: píxeles de destino por píxel del contenido (la mayor de los dos ejes, para no emborronar)
   const k = Math.max(Math.hypot(m.a, m.b) * (w / src.width), Math.hypot(m.c, m.d) * (h / src.height));
-  g.drawImage(o.smoothing ? mipFor(src, k) : src, 0, 0, w, h);
+  const pick = o.smoothing ? mipFor(src, k) : src;
+  if (o.tiles && pick.width * pick.height > BIG) drawTiled(g, pick, w, h, o);
+  else g.drawImage(pick, 0, 0, w, h);
   g.restore();
 }
 

@@ -4,6 +4,7 @@
 import type { Layer, ToolId } from '../core/types';
 import {
   get, set, live, finishLive, cancelLive, docState, activeLayer, activeArtboard, commit, toast, bumpRender, getView, setView, silent,
+  redrawScene, redrawOverlay, brushFor,
 } from '../core/store';
 import {
   hitTestLayers, selectLayers, setSelection, shapeSelection, polygonSelection, wandSelect, ensureRaster, selectionInLayer,
@@ -11,7 +12,8 @@ import {
 } from '../core/actions';
 import { layerMatrix, layerSize, layerBounds, layerPivot, pivotBox, cloneCanvas, createCanvas, ctx2d, getImageData, resampleCanvas, hexToRgb, unionRect, type Rect } from '../core/util';
 import { shapeLayer, textLayer, defaultText, descendants } from '../core/doc';
-import { renderArtboard, processedContent, markLiveCanvas } from '../core/render';
+import { renderArtboard, processedContent, beginLiveCanvas, updateLiveRegion, invalidateLayer } from '../core/render';
+import { makeStamp, makeTextureMask, dabPositions, type BrushSettings, type BrushToolId } from '../engine/brush';
 import { magicWand } from '../engine/alpha';
 
 export interface ToolEvent {
@@ -25,7 +27,7 @@ export interface Overlay {
   line?: { x1: number; y1: number; x2: number; y2: number } | null;
   crop?: Rect | null;
   snapLines?: { axis: 'x' | 'y'; pos: number }[];
-  brush?: { x: number; y: number; r: number } | null;
+  brush?: { x: number; y: number; r: number; ry?: number; angle?: number } | null;
   artboardDraft?: Rect | null;
   hoverLayerId?: string | null;
 }
@@ -191,7 +193,7 @@ const moveTool = {
     }
     if (drag.mode === 'marquee') {
       overlay.rect = normRect(drag.x, drag.y, e.wx, e.wy);
-      redraw();
+      redrawOverlay();
       return;
     }
     if (drag.mode === 'guide') {
@@ -310,7 +312,7 @@ function marqueeTool(ellipse: boolean) {
         const w = p.x - drag.x, h = p.y - drag.y;
         overlay.rect = { x: drag.x - Math.abs(w), y: drag.y - Math.abs(h), w: Math.abs(w) * 2, h: Math.abs(h) * 2, ellipse };
       }
-      redraw();
+      redrawOverlay();
     },
     up() {
       const r = overlay.rect;
@@ -328,7 +330,7 @@ function marqueeTool(ellipse: boolean) {
 const lassoTool = {
   cursor: 'crosshair',
   down(e: ToolEvent) { drag = { e }; overlay.lasso = [{ x: e.wx, y: e.wy }]; },
-  move(e: ToolEvent) { if (!drag) return; overlay.lasso!.push({ x: e.wx, y: e.wy }); redraw(); },
+  move(e: ToolEvent) { if (!drag) return; overlay.lasso!.push({ x: e.wx, y: e.wy }); redrawOverlay(); },
   up() {
     const pts = overlay.lasso;
     const ev = drag?.e;
@@ -359,7 +361,7 @@ const cropTool = {
     const p = snapPoint(e.wx, e.wy);
     cropState.rect = normRect(drag.x, drag.y, p.x, p.y, e.shift);
     overlay.crop = cropState.rect;
-    redraw();
+    redrawOverlay();
   },
   up() { drag = null; overlay.snapLines = []; set({}); redraw(); },
   dblclick() { applyCrop(); },
@@ -391,57 +393,164 @@ const eyedropperTool = {
 };
 
 // ---------- pinceles: pincel, borrador y restaurar ----------
+// El trazo se pinta en un «búfer» del tamaño de la capa (cuánto cubre el trazo, sin pasar de la
+// opacidad) y se compone sobre una copia de la capa. Para que vaya fluido aun en hojas DTF de
+// 80 megapíxeles: cada toque es un sello ya teñido, solo se recompone el rectángulo que cambió,
+// una vez por fotograma, y el visor dibuja reducciones que se actualizan solo en esa zona.
 interface Stroke {
-  layer: Layer; target: 'pixels' | 'mask'; base: HTMLCanvasElement; working: HTMLCanvasElement; buffer: HTMLCanvasElement;
-  last: { x: number; y: number } | null; kind: 'brush' | 'eraser' | 'restore'; inv: DOMMatrix; scale: number; restoreSrc?: HTMLCanvasElement;
-  sel: HTMLCanvasElement | null; color: string;
+  layer: Layer; target: 'pixels' | 'mask'; base: HTMLCanvasElement; working: HTMLCanvasElement; buffer: SparseCanvas;
+  last: { x: number; y: number } | null; carry: number; kind: BrushToolId; inv: DOMMatrix; scale: number; restoreSrc?: HTMLCanvasElement;
+  sel: HTMLCanvasElement | null; brush: BrushSettings; stamp: HTMLCanvasElement; texture: CanvasPattern | null; textureScale: number;
+  dirty: Rect[]; raf: number; procAt: number; rand: () => number;
 }
 let stroke: Stroke | null = null;
 let lastStrokeEnd: { x: number; y: number } | null = null;
 
-function dab(g: CanvasRenderingContext2D, x: number, y: number, r: number, hardness: number, color: string, flow: number) {
-  const grad = g.createRadialGradient(x, y, 0, x, y, r);
-  const [cr, cg, cb] = hexToRgb(color);
-  grad.addColorStop(0, `rgba(${cr},${cg},${cb},${flow})`);
-  grad.addColorStop(Math.min(0.99, Math.max(0, hardness)), `rgba(${cr},${cg},${cb},${flow})`);
-  grad.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-  g.fillStyle = grad;
-  g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+/**
+ * Lienzo disperso: mosaicos de 512 px que se crean solo donde se pinta. El búfer del trazo no
+ * necesita ocupar la capa entera (en una hoja DTF serían otros 300 MB) y cada lectura o copia
+ * toca solo lienzos pequeños.
+ */
+class SparseCanvas {
+  static T = 512;
+  tiles = new Map<number, HTMLCanvasElement>();
+  constructor(public w: number, public h: number) {}
+  /** Pinta con `fn` (en coordenadas de la capa) en los mosaicos que toca el rectángulo. */
+  paint(r: Rect, fn: (g: CanvasRenderingContext2D) => void) {
+    const T = SparseCanvas.T;
+    const i0 = Math.max(0, Math.floor(r.x / T)), i1 = Math.min(Math.ceil(this.w / T) - 1, Math.floor((r.x + r.w) / T));
+    const j0 = Math.max(0, Math.floor(r.y / T)), j1 = Math.min(Math.ceil(this.h / T) - 1, Math.floor((r.y + r.h) / T));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const k = j * 65536 + i;
+      let c = this.tiles.get(k);
+      if (!c) { c = createCanvas(T, T); this.tiles.set(k, c); }
+      const g = ctx2d(c);
+      g.save();
+      g.setTransform(1, 0, 0, 1, -i * T, -j * T);
+      fn(g);
+      g.restore();
+    }
+  }
+  /** Copia el rectángulo (x, y, w, h) de la capa a (0, 0) de `g`. */
+  copyTo(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+    const T = SparseCanvas.T;
+    for (let j = Math.floor(y / T); j <= Math.floor((y + h - 1) / T); j++) for (let i = Math.floor(x / T); i <= Math.floor((x + w - 1) / T); i++) {
+      const c = this.tiles.get(j * 65536 + i);
+      if (!c) continue;
+      const sx = Math.max(x, i * T), sy = Math.max(y, j * T), ex = Math.min(x + w, (i + 1) * T), ey = Math.min(y + h, (j + 1) * T);
+      if (ex > sx && ey > sy) g.drawImage(c, sx - i * T, sy - j * T, ex - sx, ey - sy, sx - x, sy - y, ex - sx, ey - sy);
+    }
+  }
 }
 
-function recomposite(st: Stroke) {
-  const { opts } = get();
-  const g = ctx2d(st.working);
-  g.save();
-  g.globalCompositeOperation = 'copy';
-  g.drawImage(st.base, 0, 0);
-  g.restore();
-  let buf = st.buffer;
+// lienzos auxiliares del tamaño de la zona que se recompone (se reutilizan)
+const scratchW = document.createElement('canvas'), scratchA = document.createElement('canvas');
+const scratchB = document.createElement('canvas'), scratchS = document.createElement('canvas');
+function scratch(c: HTMLCanvasElement, w: number, h: number) {
+  if (c.width < w || c.height < h) { c.width = Math.max(c.width, w); c.height = Math.max(c.height, h); }
+  const g = ctx2d(c);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = 1;
+  g.clearRect(0, 0, w, h);
+  return g;
+}
+
+/**
+ * Recompone una zona: original + trazo (con textura, selección y opacidad). Todo se hace en
+ * lienzos del tamaño de la zona; de los lienzos grandes solo se leen o escriben píxeles de esa
+ * zona (un drawImage desde un lienzo de 80 MP costaría ~25 ms aunque se copiara un trocito).
+ */
+function recomposite(st: Stroke, r: Rect) {
+  const { x, y, w, h } = r;
+  const W = scratch(scratchW, w, h);
+  W.putImageData(ctx2d(st.base).getImageData(x, y, w, h), 0, 0);
+  const A = scratch(scratchA, w, h);
+  st.buffer.copyTo(A, x, y, w, h);
+  if (st.texture) {
+    // la textura está fija en la capa (no se mueve con el pincel)
+    st.texture.setTransform(new DOMMatrix().translateSelf(-x, -y).scaleSelf(st.textureScale, st.textureScale));
+    A.globalCompositeOperation = 'destination-in';
+    A.fillStyle = st.texture;
+    A.fillRect(0, 0, w, h);
+  }
   if (st.sel) {
-    buf = createCanvas(st.buffer.width, st.buffer.height);
-    const bg = ctx2d(buf);
-    bg.drawImage(st.buffer, 0, 0);
-    bg.globalCompositeOperation = 'destination-in';
-    bg.drawImage(st.sel, 0, 0);
+    scratch(scratchS, w, h).putImageData(ctx2d(st.sel).getImageData(x, y, w, h), 0, 0);
+    A.globalCompositeOperation = 'destination-in';
+    A.drawImage(scratchS, 0, 0, w, h, 0, 0, w, h);
   }
-  g.save();
-  g.globalAlpha = opts.brushOpacity;
-  if (st.target === 'mask') {
-    g.drawImage(buf, 0, 0);
-  } else if (st.kind === 'brush') g.drawImage(buf, 0, 0);
-  else if (st.kind === 'eraser') { g.globalCompositeOperation = 'destination-out'; g.drawImage(buf, 0, 0); }
-  else if (st.kind === 'restore' && st.restoreSrc) {
-    const tmp = createCanvas(buf.width, buf.height);
-    const tg = ctx2d(tmp);
-    tg.drawImage(st.restoreSrc, 0, 0);
-    tg.globalCompositeOperation = 'destination-in';
-    tg.drawImage(buf, 0, 0);
-    g.drawImage(tmp, 0, 0);
+  let src = scratchA;
+  if (st.kind === 'restore' && st.target === 'pixels' && st.restoreSrc) {
+    const B = scratch(scratchB, w, h);
+    B.putImageData(ctx2d(st.restoreSrc).getImageData(x, y, w, h), 0, 0);
+    B.globalCompositeOperation = 'destination-in';
+    B.drawImage(scratchA, 0, 0, w, h, 0, 0, w, h);
+    src = scratchB;
   }
-  g.restore();
+  W.globalAlpha = st.brush.opacity;
+  W.globalCompositeOperation = st.target === 'pixels' && st.kind === 'eraser' ? 'destination-out' : 'source-over';
+  W.drawImage(src, 0, 0, w, h, 0, 0, w, h);
+  const out = W.getImageData(0, 0, w, h);
+  ctx2d(st.working).putImageData(out, x, y);
+  updateLiveRegion(st.working, r, out);
 }
 
-function brushTool(kind: 'brush' | 'eraser' | 'restore') {
+/** Aplica lo pintado desde el último fotograma. */
+function flushStroke(st: Stroke) {
+  if (st.raf) { cancelAnimationFrame(st.raf); st.raf = 0; }
+  if (!st.dirty.length) return;
+  const rects = st.dirty;
+  st.dirty = [];
+  for (const d of rects) {
+    const x0 = Math.max(0, Math.floor(d.x)), y0 = Math.max(0, Math.floor(d.y));
+    const x1 = Math.min(st.working.width, Math.ceil(d.x + d.w)), y1 = Math.min(st.working.height, Math.ceil(d.y + d.h));
+    if (x1 > x0 && y1 > y0) recomposite(st, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
+  // capas con máscara o ajustes: su resultado se calcula sobre el lienzo entero, así que se
+  // refresca como mucho cuatro veces por segundo (y al soltar)
+  const l = st.layer;
+  if ((l.mask && l.maskEnabled) || l.adjustments.some(a => a.enabled)) {
+    const now = performance.now();
+    if (now - st.procAt > 250) { st.procAt = now; invalidateLayer(l.id); }
+  }
+  redrawScene();
+}
+
+/** Añade una zona pendiente; se juntan si no crece mucho el área (un trazo rápido en diagonal
+ *  con un pincel grande no debe convertirse en un rectángulo enorme). */
+function addDirty(st: Stroke, r: Rect) {
+  const last = st.dirty[st.dirty.length - 1];
+  if (last) {
+    const u = unionRect([last, r])!;
+    if (u.w * u.h <= 1.5 * (last.w * last.h + r.w * r.h)) { st.dirty[st.dirty.length - 1] = u; return; }
+  }
+  st.dirty.push(r);
+}
+
+function stampDab(st: Stroke, x: number, y: number, d: number) {
+  const b = st.brush;
+  let size = d;
+  if (b.sizeJitter > 0) size *= 1 - b.sizeJitter * st.rand();
+  if (b.scatter > 0) { const a = st.rand() * Math.PI * 2, k = st.rand() * b.scatter * d; x += Math.cos(a) * k; y += Math.sin(a) * k; }
+  const angle = b.angle + (b.angleJitter > 0 ? (st.rand() - 0.5) * 360 * b.angleJitter : 0);
+  const sh = size * b.roundness;
+  // zona afectada (con margen para el giro)
+  const half = (angle === 0 ? Math.max(size, sh) / 2 : Math.hypot(size, sh) / 2) + 2;
+  const r = { x: x - half, y: y - half, w: half * 2, h: half * 2 };
+  st.buffer.paint(r, g => {
+    g.globalAlpha = b.flow;
+    g.imageSmoothingEnabled = true;
+    if (angle === 0) g.drawImage(st.stamp, x - size / 2, y - sh / 2, size, sh);
+    else {
+      g.translate(x, y);
+      g.rotate((angle * Math.PI) / 180);
+      g.drawImage(st.stamp, -size / 2, -sh / 2, size, sh);
+    }
+  });
+  addDirty(st, r);
+}
+
+function brushTool(kind: BrushToolId) {
   return {
     cursor: 'none',
     async down(e: ToolEvent) {
@@ -449,15 +558,16 @@ function brushTool(kind: 'brush' | 'eraser' | 'restore') {
       let l = activeLayer();
       if (!l) return toast('Selecciona una capa', 'warn');
       const { opts, fg } = get();
+      const brush = { ...brushFor(kind) };
       const target = opts.brushTarget === 'mask' && l.mask ? 'mask' : 'pixels';
       if (target === 'pixels') { l = await ensureRaster(l); if (!l) return; }
       const base = target === 'mask' ? l.mask! : l.canvas!;
       const working = cloneCanvas(base);
-      markLiveCanvas(working); // cambia en cada movimiento: sin reducciones en caché
-      const buffer = createCanvas(base.width, base.height);
+      beginLiveCanvas(working, base);
+      const buffer = new SparseCanvas(base.width, base.height);
       const inv = layerMatrix(l).inverse();
       const scale = Math.max(Math.abs(l.scaleX), Math.abs(l.scaleY));
-      let color = fg;
+      let color = kind === 'brush' ? fg : '#000000';
       if (target === 'mask') {
         const [r, g, b] = hexToRgb(fg);
         const lum = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
@@ -470,46 +580,50 @@ function brushTool(kind: 'brush' | 'eraser' | 'restore') {
         restoreSrc = o.width === base.width && o.height === base.height ? o : resampleCanvas(o, base.width, base.height);
       }
       const sel = s.selection ? selectionInLayer(s.selection, l) : null;
-      stroke = { layer: l, target, base, working, buffer, last: null, kind, inv, scale, restoreSrc, sel, color };
+      const stamp = makeStamp(brush, color, brush.size / scale);
+      const texMask = makeTextureMask(brush);
+      const texture = texMask ? ctx2d(scratchA).createPattern(texMask, 'repeat') : null;
+      stroke = {
+        layer: l, target, base, working, buffer, last: null, carry: 0, kind, inv, scale, restoreSrc, sel, brush, stamp,
+        texture, textureScale: Math.max(0.05, brush.textureScale) / scale, dirty: [], raf: 0, procAt: performance.now(), rand: Math.random,
+      };
       const id = l.id;
       live(st => ({ ...st, layers: st.layers.map(x => (x.id === id ? (target === 'mask' ? { ...x, mask: working } : { ...x, canvas: working }) : x)) }));
-      if (e.shift && lastStrokeEnd) { stroke.last = lastStrokeEnd; }
+      if (e.shift && lastStrokeEnd) { const q = inv.transformPoint(new DOMPoint(lastStrokeEnd.x, lastStrokeEnd.y)); stroke.last = { x: q.x, y: q.y }; }
       this.move(e);
     },
     move(e: ToolEvent) {
-      const { opts } = get();
-      overlay.brush = { x: e.wx, y: e.wy, r: opts.brushSize / 2 };
-      if (!stroke) { redraw(); return; }
+      const b = brushFor(kind);
+      overlay.brush = { x: e.wx, y: e.wy, r: b.size / 2, ry: (b.size / 2) * b.roundness, angle: b.angle };
+      if (!stroke) { redrawOverlay(); return; }
       const st = stroke;
       const p = st.inv.transformPoint(new DOMPoint(e.wx, e.wy));
-      const r = Math.max(0.5, (opts.brushSize / 2 / st.scale) * (e.pressure > 0 && e.pressure !== 0.5 ? 0.3 + e.pressure * 0.7 : 1));
-      const g = ctx2d(st.buffer);
-      const col = st.target === 'mask' ? st.color : st.kind === 'brush' ? st.color : '#000000';
-      const spacing = Math.max(0.5, r * 0.18);
-      const from = st.last ?? { x: p.x, y: p.y };
-      const dist = Math.hypot(p.x - from.x, p.y - from.y);
-      const steps = Math.max(1, Math.ceil(dist / spacing));
-      for (let i = st.last ? 1 : 0; i <= steps; i++) {
-        const t = i / steps;
-        dab(g, from.x + (p.x - from.x) * t, from.y + (p.y - from.y) * t, r, opts.brushHardness, col, opts.brushFlow);
+      const pen = st.brush.pressure && e.pressure > 0 && e.pressure !== 0.5;
+      const d = Math.max(1, (st.brush.size / st.scale) * (pen ? 0.3 + e.pressure * 0.7 : 1));
+      const step = Math.max(0.5, d * Math.max(0.01, st.brush.spacing));
+      if (!st.last) stampDab(st, p.x, p.y, d);
+      else {
+        const r = dabPositions(st.last, p, step, st.carry);
+        for (const q of r.points) stampDab(st, q.x, q.y, d);
+        st.carry = r.carry;
       }
       st.last = { x: p.x, y: p.y };
-      recomposite(st);
-      redraw();
+      if (!st.raf && st.dirty.length) st.raf = requestAnimationFrame(() => { st.raf = 0; if (stroke === st) flushStroke(st); });
+      redrawOverlay();
     },
     up(e: ToolEvent) {
       if (!stroke) return;
-      lastStrokeEnd = stroke.last ? (() => { const m = stroke!.inv.inverse(); const q = m.transformPoint(new DOMPoint(stroke!.last!.x, stroke!.last!.y)); return { x: q.x, y: q.y }; })() : null;
       const st = stroke;
       stroke = null;
       void e;
-      // el canvas de trabajo queda congelado como nuevo bitmap inmutable
-      const final = cloneCanvas(st.working);
-      const id = st.layer.id;
-      live(s => ({ ...s, layers: s.layers.map(x => (x.id === id ? (st.target === 'mask' ? { ...x, mask: final } : { ...x, canvas: final }) : x)) }));
+      flushStroke(st);
+      if (st.last) { const q = st.inv.inverse().transformPoint(new DOMPoint(st.last.x, st.last.y)); lastStrokeEnd = { x: q.x, y: q.y }; }
+      // el lienzo de trabajo ya no cambia: pasa a ser el bitmap (inmutable) de la capa tal cual,
+      // sin copiarlo, y conserva sus reducciones al día
+      if (st.layer.mask || st.layer.adjustments.length) invalidateLayer(st.layer.id);
       finishLive(kind === 'brush' ? 'Pincel' : kind === 'eraser' ? 'Borrador' : 'Restaurar');
     },
-    leave() { overlay.brush = null; redraw(); },
+    leave() { overlay.brush = null; redrawOverlay(); },
   };
 }
 
@@ -549,7 +663,7 @@ const gradientTool = {
     let x2 = e.wx, y2 = e.wy;
     if (e.shift) { const a = Math.round(Math.atan2(y2 - drag.y, x2 - drag.x) / (Math.PI / 4)) * (Math.PI / 4); const d = Math.hypot(x2 - drag.x, y2 - drag.y); x2 = drag.x + Math.cos(a) * d; y2 = drag.y + Math.sin(a) * d; }
     overlay.line = { x1: drag.x, y1: drag.y, x2, y2 };
-    redraw();
+    redrawOverlay();
   },
   async up() {
     const ln = overlay.line;
@@ -592,7 +706,7 @@ const textTool = {
     if (!drag) return;
     if (Math.hypot(e.sx - drag.sx, e.sy - drag.sy) < 6 && !overlay.rect) return;
     overlay.rect = normRect(drag.x, drag.y, e.wx, e.wy);
-    redraw();
+    redrawOverlay();
   },
   up(e: ToolEvent) {
     if (!drag) return;
@@ -623,7 +737,7 @@ const shapeTool = {
     const type = get().opts.shapeType;
     if (type === 'line') overlay.line = { x1: drag.x, y1: drag.y, x2: p.x, y2: p.y };
     else overlay.rect = { ...normRect(drag.x, drag.y, p.x, p.y, e.shift), ellipse: type === 'ellipse' };
-    redraw();
+    redrawOverlay();
   },
   up() {
     const { opts, fg, bg } = get();
@@ -686,7 +800,7 @@ const artboardTool = {
   },
   move(e: ToolEvent) {
     if (!drag) return;
-    if (drag.mode === 'new') { overlay.artboardDraft = normRect(drag.sx, drag.sy, e.wx, e.wy, e.shift); redraw(); return; }
+    if (drag.mode === 'new') { overlay.artboardDraft = normRect(drag.sx, drag.sy, e.wx, e.wy, e.shift); redrawOverlay(); return; }
     const a = drag.ab;
     if (drag.mode === 'move') {
       const dx = Math.round(e.wx - drag.sx), dy = Math.round(e.wy - drag.sy);

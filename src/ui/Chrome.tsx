@@ -12,6 +12,7 @@ import { commands, displayKeys, runCommand, openDialog } from './commands';
 import { closeDoc, zoomTo, fitToScreen } from '../core/actions';
 import { fromPx } from '../core/util';
 import { discardAutosave } from '../io/fileOps';import { FontPicker } from './components/FontPicker';
+import { BrushOptions } from './components/BrushPanel';
 import { platform } from '../platform';
 
 
@@ -92,10 +93,7 @@ export function OptionsBar() {
     <OptNum label="Calar" value={o.feather} onChange={v => setO({ feather: v })} min={0} max={250} suffix="px" />
   </>;
   if (tool === 'brush' || tool === 'eraser' || tool === 'restore') content = <>
-    <OptNum label="Tamaño" value={o.brushSize} onChange={v => setO({ brushSize: v })} min={1} max={3000} suffix="px" />
-    <OptNum label="Dureza" value={Math.round(o.brushHardness * 100)} onChange={v => setO({ brushHardness: v / 100 })} min={0} max={100} suffix="%" />
-    <OptNum label="Opacidad" value={Math.round(o.brushOpacity * 100)} onChange={v => setO({ brushOpacity: v / 100 })} min={1} max={100} suffix="%" />
-    <OptNum label="Flujo" value={Math.round(o.brushFlow * 100)} onChange={v => setO({ brushFlow: v / 100 })} min={1} max={100} suffix="%" />
+    <BrushOptions tool={tool} />
     <div className="vsep" />
     <span className="muted small">Pintar en</span>
     <Seg value={o.brushTarget} onChange={v => setO({ brushTarget: v })} options={[{ value: 'pixels', label: 'Píxeles' }, { value: 'mask', label: 'Máscara' }]} />

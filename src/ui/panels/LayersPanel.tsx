@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useStore, docState, live, finishLive } from '../../core/store';
 import type { Doc, DocState, Layer, BlendMode } from '../../core/types';
-import { processedContent, layerContent } from '../../core/render';
+import { processedContent, layerContent, mipFor } from '../../core/render';
 import { childrenOf } from '../../core/doc';
 import * as A from '../../core/actions';
 import { Select, NumberField } from '../components/controls';
@@ -37,7 +37,9 @@ function Thumb({ l, mask }: { l: Layer; mask?: boolean }) {
     const k = Math.min(S / src.width, S / src.height);
     const w = src.width * k, h = src.height * k;
     g.imageSmoothingQuality = 'low';
-    g.drawImage(src, (S - w) / 2, (S - h) / 2, w, h);
+    // desde la reducción más pequeña que sirva: reducir un bitmap de decenas de megapíxeles a 56 px
+    // costaba decenas de milisegundos por capa en cada repintado
+    g.drawImage(mipFor(src, k), (S - w) / 2, (S - h) / 2, w, h);
   }, [l.canvas, l.mask, l.text, l.shape, l.vector, tick, mask]);
   return <canvas ref={ref} style={{ width: 28, height: 28 }} />;
 }

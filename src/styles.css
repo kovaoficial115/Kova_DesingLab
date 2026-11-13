@@ -476,3 +476,31 @@ button.avatar:hover { transform: translateY(-1px); z-index: 1; }
 .para-aligns { display: flex; gap: 2px; flex-wrap: wrap; }
 .para-aligns .icon-btn { width: 26px; height: 24px; }
 .icon-btn.txt-opt { font-size: 10px; font-weight: 700; letter-spacing: -0.5px; }
+
+/* pinceles: botón de punta y panel de punta, forma y textura */
+.brush-opts-anchor { position: relative; display: flex; }
+.brush-tip-btn { gap: 4px; padding: 2px 6px; }
+.brush-tip-btn canvas { border-radius: 4px; background: rgba(255,255,255,.04); }
+.brush-tip-btn.on { border-color: var(--accent, #d21625); }
+.brush-pop {
+  position: fixed; z-index: 400; width: 300px; overflow: auto;
+  background: var(--panel, #15151c); border: 1px solid var(--border, rgba(255,255,255,.1)); border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0,0,0,.45); padding: 12px;
+}
+.brush-panel { display: flex; flex-direction: column; gap: 8px; }
+.brush-panel .grid2 { gap: 8px 12px; }
+.brush-preview { border-radius: 8px; background: repeating-conic-gradient(#24242c 0 25%, #1c1c23 0 50%) 0 0 / 12px 12px; display: block; }
+.brush-lib { display: flex; flex-wrap: wrap; gap: 5px; }
+.brush-item-wrap { position: relative; }
+.brush-item {
+  width: 40px; height: 40px; display: grid; place-items: center; border-radius: 7px; cursor: pointer;
+  background: rgba(255,255,255,.04); border: 1px solid transparent; color: var(--text-2, #aaa); padding: 0;
+}
+.brush-item:hover { background: rgba(255,255,255,.08); }
+.brush-item.on { border-color: var(--accent, #d21625); background: rgba(210,22,37,.12); }
+.brush-item canvas { border-radius: 4px; }
+.brush-del {
+  position: absolute; top: -4px; right: -4px; width: 15px; height: 15px; border-radius: 50%; display: none; place-items: center;
+  background: #2a2a33; border: 1px solid rgba(255,255,255,.18); color: #ddd; padding: 0; cursor: pointer;
+}
+.brush-item-wrap:hover .brush-del { display: grid; }

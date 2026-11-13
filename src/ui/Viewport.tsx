@@ -1,7 +1,7 @@
 import { StageSlot } from '../collab/ui';
 import { platform } from '../platform';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useStore, get, set, getView, setView, activeLayer, live, finishLive, cancelLive } from '../core/store';
+import { useStore, get, set, getView, setView, activeLayer, live, finishLive, cancelLive, onRepaint } from '../core/store';
 import type { Doc, Layer, Selection } from '../core/types';
 import { renderLayers } from '../core/render';
 import { layerMatrix, layerSize, createCanvas, ctx2d, fromPx, toPx, layerBounds } from '../core/util';
@@ -60,7 +60,7 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
   };
   paintArtboards();
   const smoothing = v.zoom < 2;
-  renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing });
+  renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, tiles: true });
 
   if (compareX != null) {
     const cx = compareX * dpr;
@@ -68,7 +68,7 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
     g.beginPath(); g.rect(0, 0, cx, canvas.height); g.clip();
     g.fillStyle = KOVA.pasteboard; g.fillRect(0, 0, cx, canvas.height);
     paintArtboards();
-    renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, bypassIds: new Set(s.layers.map(l => l.id)) });
+    renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, tiles: true, bypassIds: new Set(s.layers.map(l => l.id)) });
     g.restore();
   }
 
@@ -153,7 +153,9 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
   const st = get();
   const v = getView(doc.id);
   if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
-  const g = ctx2d(canvas);
+  // nunca se leen sus píxeles: lienzo acelerado (con lectura frecuente iría por CPU y se subiría
+  // entero a la GPU en cada fotograma)
+  const g = ctx2d(canvas, { willReadFrequently: false });
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.clearRect(0, 0, canvas.width, canvas.height);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -313,10 +315,12 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
   }
   if (overlay.brush && ['brush', 'eraser', 'restore'].includes(st.tool)) {
     const b = overlay.brush;
-    const r = Math.max(1, b.r * v.zoom);
+    const r = Math.max(1, b.r * v.zoom), ry = Math.max(1, (b.ry ?? b.r) * v.zoom), ang = ((b.angle ?? 0) * Math.PI) / 180;
     g.lineWidth = 1;
-    g.strokeStyle = 'rgba(0,0,0,.8)'; g.beginPath(); g.arc(sx(b.x), sy(b.y), r + 1, 0, Math.PI * 2); g.stroke();
-    g.strokeStyle = 'rgba(255,255,255,.9)'; g.beginPath(); g.arc(sx(b.x), sy(b.y), r, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = 'rgba(0,0,0,.8)'; g.beginPath(); g.ellipse(sx(b.x), sy(b.y), r + 1, ry + 1, ang, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,.9)'; g.beginPath(); g.ellipse(sx(b.x), sy(b.y), r, ry, ang, 0, Math.PI * 2); g.stroke();
+    // centro visible con pinceles grandes
+    if (r > 24) { g.fillStyle = 'rgba(255,255,255,.9)'; g.fillRect(sx(b.x) - 0.5, sy(b.y) - 3, 1, 6); g.fillRect(sx(b.x) - 3, sy(b.y) - 0.5, 6, 1); }
   }
   if (compareX != null) {
     g.fillStyle = KOVA.red;
@@ -418,18 +422,31 @@ export function Viewport({ doc }: { doc: Doc }) {
   const sceneRaf = useRef(0);
   useEffect(() => {
     cancelAnimationFrame(sceneRaf.current);
-    sceneRaf.current = requestAnimationFrame(() => { if (sceneRef.current) drawScene(sceneRef.current, doc, size.w, size.h, dpr, compareX); });
+    const paint = () => { if (sceneRef.current) drawScene(sceneRef.current, doc, size.w, size.h, dpr, compareX); };
+    // en desarrollo: para medir cuánto cuesta pintar la escena desde la consola
+    if (import.meta.env.DEV) (window as any).__drawScene = () => { const d = get().docs.find(x => x.id === doc.id); if (d && sceneRef.current) drawScene(sceneRef.current, d, size.w, size.h, dpr, compareX); };
+    sceneRaf.current = requestAnimationFrame(paint);
   }, [doc.state, view, tick, flags, size, compareX, doc.colorMode]);
+  // repintados directos (trazos de pincel): uno por fotograma, con el documento más reciente
+  useEffect(() => onRepaint('scene', () => {
+    cancelAnimationFrame(sceneRaf.current);
+    sceneRaf.current = requestAnimationFrame(() => {
+      const d = get().docs.find(x => x.id === doc.id);
+      if (d && sceneRef.current) drawScene(sceneRef.current, d, size.w, size.h, dpr, compareX);
+    });
+  }), [doc.id, size, compareX, dpr]);
 
   // superposición (animada si hay selección)
   const phase = useRef(0);
   useEffect(() => {
     let raf = 0;
     const draw = () => { if (overRef.current) drawOverlay(overRef.current, doc, size.w, size.h, dpr, phase.current, compareX); };
-    raf = requestAnimationFrame(draw);
+    raf = requestAnimationFrame(() => { raf = 0; draw(); });
     let timer: any = null;
     if (doc.state.selection) timer = setInterval(() => { phase.current = (phase.current + 1) % 8; draw(); }, 140);
-    return () => { cancelAnimationFrame(raf); if (timer) clearInterval(timer); };
+    // lazo, marcos y cursor del pincel: solo la superposición, una vez por fotograma
+    const off = onRepaint('overlay', () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); });
+    return () => { cancelAnimationFrame(raf); if (timer) clearInterval(timer); off(); };
   }, [doc.state, view, tick, flags, size, compareX]);
 
   // reglas

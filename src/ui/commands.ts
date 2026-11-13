@@ -1,7 +1,7 @@
 // Registro central de comandos: lo usan los menús, los atajos de teclado y la barra rápida.
 
 import { collabConfigured } from '../collab/config';
-import { get, set, undo, redo, activeDoc, activeLayer, docState, toast, withBusy, selectedLayers } from '../core/store';
+import { get, set, undo, redo, activeDoc, activeLayer, docState, toast, withBusy, selectedLayers, brushFor, setBrush, redrawOverlay } from '../core/store';
 import * as A from '../core/actions';
 import { setTool, applyCrop, cancelCrop, cropState } from '../tools/tools';
 import { pickFiles, openFiles, placeFiles, saveProject, saveToBrowserLibrary, autosave } from '../io/fileOps';
@@ -20,6 +20,14 @@ export const openDialog = (type: string, props?: any) => set({ dialog: { type, p
 
 const adj = (t: AdjustmentType): Command => ({ label: A.adjustmentDefaults[t].label, run: () => A.addAdjustment(t), enabled: hasLayer });
 const toolCmd = (t: ToolId, label: string, keys: string): Command => ({ label, keys, run: () => setTool(t), checked: () => get().tool === t });
+
+/** [ y ]: tamaño de la herramienta de pintura activa (el pincel si no hay ninguna). */
+function resizeBrush(fn: (v: number) => number) {
+  const t = get().tool;
+  const k = t === 'eraser' || t === 'restore' ? t : 'brush';
+  setBrush(k, { size: fn(brushFor(k).size) });
+  redrawOverlay();
+}
 
 export const commands: Record<string, Command> = {
   // Archivo
@@ -201,8 +209,8 @@ export const commands: Record<string, Command> = {
   'tool.artboard': toolCmd('artboard', 'Mesa de trabajo', 'shift+a'),
   'color.swap': { label: 'Intercambiar colores', keys: 'x', run: () => set(s => ({ fg: s.bg, bg: s.fg })) },
   'color.default': { label: 'Colores por defecto', keys: 'd', run: () => set({ fg: '#000000', bg: '#ffffff' }) },
-  'brush.smaller': { label: 'Pincel más pequeño', keys: '[', run: () => set(s => ({ opts: { ...s.opts, brushSize: Math.max(1, Math.round(s.opts.brushSize / 1.2)) } })) },
-  'brush.bigger': { label: 'Pincel más grande', keys: ']', run: () => set(s => ({ opts: { ...s.opts, brushSize: Math.min(2000, Math.round(s.opts.brushSize * 1.2 + 1)) } })) },
+  'brush.smaller': { label: 'Pincel más pequeño', keys: '[', run: () => resizeBrush(v => Math.max(1, Math.round(v / 1.2))) },
+  'brush.bigger': { label: 'Pincel más grande', keys: ']', run: () => resizeBrush(v => Math.min(5000, Math.round(v * 1.2 + 1))) },
   'crop.apply': { label: 'Aplicar recorte', keys: 'enter', run: () => applyCrop(), enabled: () => get().tool === 'crop' && !!cropState.rect },
   'esc': { label: 'Cancelar', keys: 'escape', run: () => { if (get().tool === 'crop') cancelCrop(); else if (docState()?.selection) A.deselect(); } },
   // Ayuda

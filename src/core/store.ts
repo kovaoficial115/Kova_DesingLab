@@ -1,15 +1,12 @@
 import { create } from 'zustand';
 import type { Doc, DocState, ToolId, Unit, View, Layer } from './types';
+import { defaultBrushes, sanitizeBrushes, type BrushSettings, type BrushToolId } from '../engine/brush';
 
 export type PanelId = 'color' | 'properties' | 'adjustments' | 'layers' | 'history' | 'artboards' | 'channels';
 
 export interface PanelConf { id: PanelId; visible: boolean; collapsed: boolean }
 
 export interface ToolOptions {
-  brushSize: number;
-  brushHardness: number; // 0..1
-  brushOpacity: number; // 0..1
-  brushFlow: number;
   brushTarget: 'pixels' | 'mask';
   wandTolerance: number;
   wandContiguous: boolean;
@@ -43,6 +40,8 @@ export interface AppState {
   views: Record<string, View>;
   tool: ToolId;
   opts: ToolOptions;
+  /** ajustes de punta de cada herramienta de pintura (el borrador tiene los suyos) */
+  brushes: Record<BrushToolId, BrushSettings>;
   fg: string;
   bg: string;
   unit: Unit;
@@ -86,7 +85,7 @@ function loadPrefs(): Partial<AppState> {
     if (!raw) return {};
     const p = JSON.parse(raw);
     const panels: PanelConf[] = Array.isArray(p.panels) && p.panels.length === defaultPanels.length ? p.panels : defaultPanels;
-    return { ...p, panels };
+    return { ...p, panels, brushes: sanitizeBrushes(p.brushes) };
   } catch { return {}; }
 }
 
@@ -97,12 +96,13 @@ export const useStore = create<AppState>(() => ({
   views: {},
   tool: 'move',
   opts: {
-    brushSize: 40, brushHardness: 0.8, brushOpacity: 1, brushFlow: 1, brushTarget: 'pixels',
+    brushTarget: 'pixels',
     wandTolerance: 32, wandContiguous: true, wandSampleAll: false, selMode: 'new', feather: 0,
     shapeType: 'rect', shapeFill: true, shapeStroke: false, shapeStrokeWidth: 8, shapeRadius: 0,
     fillTolerance: 32, fillContiguous: true, gradientType: 'linear', gradientToTransparent: false,
     fontFamily: 'Inter, sans-serif', fontSize: 160, fontWeight: 700, showTransform: true, autoSelect: true,
   },
+  brushes: defaultBrushes(),
   fg: '#ffffff',
   bg: '#000000',
   unit: 'cm',
@@ -132,9 +132,9 @@ export const useStore = create<AppState>(() => ({
 // Persistencia de preferencias de interfaz
 useStore.subscribe((s, prev) => {
   if (s.panels !== prev.panels || s.unit !== prev.unit || s.rightWidth !== prev.rightWidth || s.showRulers !== prev.showRulers ||
-    s.gridSize !== prev.gridSize || s.swatches !== prev.swatches || s.snap !== prev.snap || s.autosaveSec !== prev.autosaveSec) {
+    s.gridSize !== prev.gridSize || s.swatches !== prev.swatches || s.snap !== prev.snap || s.autosaveSec !== prev.autosaveSec || s.brushes !== prev.brushes) {
     try {
-      localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap, autosaveSec: s.autosaveSec }));
+      localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap, autosaveSec: s.autosaveSec, brushes: s.brushes }));
     } catch { /* almacenamiento no disponible */ }
   }
 });
@@ -151,6 +151,19 @@ export function useActiveDoc(): Doc | null {
 }
 
 export function bumpRender() { set(s => ({ renderTick: s.renderTick + 1 })); }
+
+// Repintado directo del visor, sin pasar por React: un trazo de pincel o el lazo cambian a cada
+// movimiento del ratón, y avisar con `renderTick` volvía a pintar también paneles, miniaturas y
+// menús. El visor junta los avisos en uno por fotograma.
+const repaintListeners = { scene: new Set<() => void>(), overlay: new Set<() => void>() };
+export function onRepaint(kind: 'scene' | 'overlay', fn: () => void) { repaintListeners[kind].add(fn); return () => { repaintListeners[kind].delete(fn); }; }
+/** Vuelve a pintar el lienzo (y la superposición) en el próximo fotograma. */
+export function redrawScene() { repaintListeners.scene.forEach(f => f()); }
+/** Solo la superposición: lazo, marcos, cursor del pincel… */
+export function redrawOverlay() { repaintListeners.overlay.forEach(f => f()); }
+/** Ajustes de la herramienta de pintura activa. */
+export function brushFor(tool: BrushToolId): BrushSettings { return get().brushes[tool]; }
+export function setBrush(tool: BrushToolId, patch: Partial<BrushSettings>) { set(s => ({ brushes: { ...s.brushes, [tool]: { ...s.brushes[tool], ...patch } } })); }
 
 let toastId = 1;
 export function toast(text: string, kind: Toast['kind'] = 'info', ms = 3500) {
