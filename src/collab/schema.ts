@@ -1,7 +1,7 @@
 // Modelo del documento compartido en Liveblocks Storage.
 //
 //   root
-//   ├─ meta       LiveObject { name, colorMode, ready }
+//   ├─ meta       LiveObject { name, colorMode, ready, textStyles }
 //   ├─ layers     LiveMap<id, LiveObject<LayerJSON>>   orden: clave fraccionaria `z` (+ id)
 //   ├─ artboards  LiveMap<id, LiveObject<ArtboardJSON>>
 //   ├─ guides     LiveMap<id, LiveObject<GuideJSON>>
@@ -26,6 +26,8 @@ export interface LayerJSON {
   canvas: FileRef | null; cw: number; ch: number;
   origin: FileRef | 'same' | null; ow: number; oh: number;
   mask: FileRef | null; mw: number; mh: number;
+  /** componente principal, variante vinculada y recurso de marca (opcionales) */
+  component?: { name: string } | null; link?: { master: string; src: string } | null; brand?: { kit: string; asset: string; color?: string } | null;
   z: string;
 }
 export const FILE_KEYS = ['svgFile', 'canvas', 'origin', 'mask'] as const;

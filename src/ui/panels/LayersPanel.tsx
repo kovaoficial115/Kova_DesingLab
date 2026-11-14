@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Eye, EyeOff, Lock, Unlock, Plus, Trash2, FolderPlus, Copy, ChevronRight, ChevronDown, Folder, Type, Shapes, PenTool, CornerLeftDown,
+  Eye, EyeOff, Lock, Unlock, Plus, Trash2, FolderPlus, Copy, ChevronRight, ChevronDown, Folder, Type, Shapes, PenTool, CornerLeftDown, Component, Pilcrow, Spline,
   SquareDashedBottom, SlidersHorizontal, Link2,
 } from 'lucide-react';
 import { useStore, docState, live, finishLive } from '../../core/store';
@@ -112,6 +112,10 @@ function LayerRow({ l, depth, doc, drop, setDrop }: { l: Layer; depth: number; d
           <div className="row" style={{ gap: 5 }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.name}</span>
             {kindIcon(l)}
+            {l.component && <span className="layer-badge" title={`Componente principal «${l.component.name}»`}><Component size={11} /></span>}
+            {l.link && l.link.src === l.link.master && <span className="layer-badge" title="Variante vinculada"><Link2 size={11} /></span>}
+            {l.text?.styleId && <span className="layer-badge muted" title="Con estilo de texto vinculado" style={{ color: 'var(--muted)' }}><Pilcrow size={10} /></span>}
+            {l.text?.path && <span className="layer-badge" title="Texto en trayectoria" style={{ color: 'var(--muted)' }}><Spline size={10} /></span>}
             {l.adjustments.length > 0 && <span title={`${l.adjustments.length} ajustes`}><SlidersHorizontal size={11} className="muted" /></span>}
           </div>
         )}

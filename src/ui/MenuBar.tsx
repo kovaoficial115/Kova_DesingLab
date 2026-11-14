@@ -8,7 +8,7 @@ import type { PanelId } from '../core/store';
 
 export type Item = string | '-' | { head: string } | { label: string; sub: Item[] } | { label: string; run: () => void; checked?: () => boolean };
 
-const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propiedades', adjustments: 'Ajustes', layers: 'Capas', history: 'Historial', artboards: 'Mesas de trabajo', channels: 'Canales y color', social: 'Redes sociales' };
+const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propiedades', adjustments: 'Ajustes', layers: 'Capas', history: 'Historial', artboards: 'Mesas de trabajo', channels: 'Canales y color', social: 'Redes sociales', brand: 'Marca' };
 
 function panelToggle(id: PanelId): Item {
   return {
@@ -38,6 +38,8 @@ const menus: { label: string; items: Item[] }[] = [
   },
   {
     label: 'Capa', items: ['layer.new', 'layer.duplicate', 'layer.viaCut', 'layer.delete', '-', 'artboard.fromSelection', 'artboard.copyToNew', '-', 'layer.group', 'layer.ungroup', '-',
+      { label: 'Componentes', sub: ['layer.component', 'layer.variant', 'layer.variantReset', 'layer.variantDetach'] },
+      { label: 'Texto en trayectoria', sub: ['text.pathCircle', 'text.pathArc', 'text.pathWave', 'text.pathNone'] }, '-',
       { label: 'Máscara de capa', sub: ['layer.mask', 'layer.maskHide', 'layer.maskApply', 'layer.maskDelete'] }, 'layer.clip', '-',
       { label: 'Organizar', sub: ['layer.top', 'layer.up', 'layer.down', 'layer.bottom'] }, '-',
       'layer.rasterize', 'layer.resample', 'layer.outline', '-', 'layer.mergeDown', 'layer.flatten'],
@@ -56,7 +58,7 @@ const menus: { label: string; items: Item[] }[] = [
       'view.rulers', 'view.grid', 'view.guides', 'view.snap', 'view.clearGuides', 'view.gridSettings'],
   },
   {
-    label: 'Ventana', items: [panelToggle('color'), panelToggle('properties'), panelToggle('adjustments'), panelToggle('layers'), panelToggle('channels'), panelToggle('artboards'), panelToggle('history'), panelToggle('social'), '-', 'view.hideUI',
+    label: 'Ventana', items: [panelToggle('color'), panelToggle('properties'), panelToggle('adjustments'), panelToggle('layers'), panelToggle('channels'), panelToggle('artboards'), panelToggle('history'), panelToggle('social'), panelToggle('brand'), '-', 'view.hideUI',
       { label: 'Restablecer espacio de trabajo', run: () => { localStorage.removeItem('kova.prefs'); location.reload(); } }],
   },
   { label: 'Ayuda', items: ['edit.shortcuts', 'help.about'] },

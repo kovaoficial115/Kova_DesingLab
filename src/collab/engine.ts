@@ -16,6 +16,7 @@ import type { Artboard, CollabInfo, Doc, Guide, Layer } from '../core/types';
 import { createCanvas, canvasToBlob, blobToCanvas } from '../core/util';
 import { fontsForFamilies, installFontData, listFonts, type FontFormat, type StoredFont } from '../io/fonts';
 import { thumbnail } from '../io/project';
+import { sanitizeStyles } from '../brand/model';
 import * as api from './api';
 import {
   type FileRef, type LayerJSON, type Presence, type VersionJSON,
@@ -169,6 +170,8 @@ class AssetStore {
   }
 }
 
+const parseStyles = (json: string) => { try { return sanitizeStyles(JSON.parse(json)); } catch { return []; } };
+
 // ---------- conversión capa ↔ JSON ----------
 const SCALARS = ['name', 'kind', 'visible', 'locked', 'opacity', 'blend', 'x', 'y', 'rotation', 'scaleX', 'scaleY', 'parentId', 'clip', 'maskEnabled'] as const;
 
@@ -188,6 +191,7 @@ function layerJSON(l: Layer, a: AssetStore, waits: Promise<unknown>[]): LayerJSO
     canvas, cw: l.canvas?.width ?? 0, ch: l.canvas?.height ?? 0,
     origin, ow: origin && origin !== 'same' ? l.origin!.width : 0, oh: origin && origin !== 'same' ? l.origin!.height : 0,
     mask, mw: l.mask?.width ?? 0, mh: l.mask?.height ?? 0,
+    component: l.component ?? null, link: l.link ?? null, brand: l.brand ?? null,
     z: '',
   };
 }
@@ -203,6 +207,7 @@ function layerFromJSON(id: string, j: LayerJSON, a: AssetStore, prev?: Layer, on
   if (has('canvas', 'cw', 'ch')) L.canvas = j.canvas ? a.canvas(j.canvas, j.cw, j.ch, prev?.canvas) : undefined;
   if (has('origin', 'ow', 'oh', 'canvas')) L.origin = j.origin === 'same' ? L.canvas : isFileRef(j.origin) ? a.canvas(j.origin, j.ow, j.oh, prev?.origin) : undefined;
   if (has('mask', 'mw', 'mh')) L.mask = j.mask ? a.canvas(j.mask, j.mw, j.mh, prev?.mask) : null;
+  for (const k of ['component', 'link', 'brand'] as const) if (has(k)) L[k] = j[k] ? clone(j[k]) : null;
   return L as Layer;
 }
 function plainFromJSON<T>(id: string, j: any, prev?: T, only?: string[]): T {
@@ -257,7 +262,7 @@ export class CollabSession {
   info: SessionInfo = { pendingUp: 0, pendingDown: 0, canUndo: false, canRedo: false, canWrite: false, lastSync: 0 };
   private sh = {
     layers: new Map<string, Shadow<Layer>>(), artboards: new Map<string, Shadow<Artboard>>(), guides: new Map<string, Shadow<Guide>>(),
-    name: '', colorMode: '',
+    name: '', colorMode: '', textStyles: '[]',
   };
   private ready = false;
   private disposed = false;
@@ -354,7 +359,8 @@ export class CollabSession {
     if (this.disposed) return;
     this.ready = true;
     this.flush();
-    (this.root!.get('meta') as LiveObject<any>).update({ name: d.name, colorMode: d.colorMode, ready: true });
+    this.sh.textStyles = JSON.stringify(d.state.textStyles ?? []);
+    (this.root!.get('meta') as LiveObject<any>).update({ name: d.name, colorMode: d.colorMode, textStyles: this.sh.textStyles, ready: true });
     this.room.history.clear(); // la carga inicial no se puede «deshacer»
     this.setCollab({ status: 'ready', seed: false, progress: undefined });
     this.emit();
@@ -438,6 +444,9 @@ export class CollabSession {
       const meta = root.get('meta') as LiveObject<any>;
       if (d.name !== this.sh.name) { meta.set('name', d.name); this.sh.name = d.name; wrote = true; }
       if (d.colorMode !== this.sh.colorMode) { meta.set('colorMode', d.colorMode); this.sh.colorMode = d.colorMode; wrote = true; }
+      // estilos de texto del documento: un solo registro (JSON) en meta
+      const ts = JSON.stringify(d.state.textStyles ?? []);
+      if (ts !== this.sh.textStyles) { meta.set('textStyles', ts); this.sh.textStyles = ts; wrote = true; }
       wrote = this.flushCollection(root.get('layers'), d.state.layers, this.sh.layers, (l, w) => layerJSON(l, this.assets, w), true, waits) || wrote;
       wrote = this.flushCollection(root.get('artboards'), d.state.artboards, this.sh.artboards, a => artboardJSON(a), true, waits) || wrote;
       wrote = this.flushCollection(root.get('guides'), d.state.guides, this.sh.guides, g => guideJSON(g), false, waits) || wrote;
@@ -516,8 +525,11 @@ export class CollabSession {
     const guides = this.applyCollection(root.get('guides'), st.guides, this.sh.guides, plainFromJSON as any, false, full);
     const name = meta?.get('name') || d.name;
     const colorMode = meta?.get('colorMode') || d.colorMode;
-    const metaChanged = name !== this.sh.name || colorMode !== this.sh.colorMode;
-    this.sh.name = name; this.sh.colorMode = colorMode;
+    const tsRaw = meta?.get('textStyles');
+    const textStyles = typeof tsRaw === 'string' ? tsRaw : this.sh.textStyles;
+    const stylesChanged = textStyles !== this.sh.textStyles;
+    const metaChanged = name !== this.sh.name || colorMode !== this.sh.colorMode || stylesChanged;
+    this.sh.name = name; this.sh.colorMode = colorMode; this.sh.textStyles = textStyles;
     if (!layers && !artboards && !guides && !metaChanged && !full) return;
     this.changedSinceVersion = true;
     patchRemote(this.docId, s => {
@@ -527,6 +539,7 @@ export class CollabSession {
       const abIds = new Set(A.map(a => a.id));
       return {
         ...s, layers: L, artboards: A.length ? A : s.artboards, guides: (guides ?? s.guides) as Guide[],
+        ...(stylesChanged || full ? { textStyles: parseStyles(textStyles) } : {}),
         selectedLayerIds: full ? [] : s.selectedLayerIds.filter(id => ids.has(id)),
         activeArtboardId: abIds.has(s.activeArtboardId) ? s.activeArtboardId : A[0]?.id ?? s.activeArtboardId,
         ...(full ? { selection: null } : {}),
@@ -722,7 +735,7 @@ export class CollabSession {
     const dump = (m: LiveMap<string, LiveObject<any>>) => { const o: Record<string, any> = {}; m.forEach((lo, id) => { o[id] = readObject(lo); }); return o; };
     const snap = {
       format: 'kova-collab-version', v: 1,
-      meta: { name: (root.get('meta') as LiveObject<any>).get('name'), colorMode: (root.get('meta') as LiveObject<any>).get('colorMode') },
+      meta: { name: (root.get('meta') as LiveObject<any>).get('name'), colorMode: (root.get('meta') as LiveObject<any>).get('colorMode'), textStyles: (root.get('meta') as LiveObject<any>).get('textStyles') ?? '[]' },
       layers: dump(root.get('layers')), artboards: dump(root.get('artboards')), guides: dump(root.get('guides')),
     };
     const file = await this.upload(new Blob([JSON.stringify(snap)], { type: 'application/json' }), 'version.json');
@@ -749,7 +762,7 @@ export class CollabSession {
       fill(root.get('layers'), snap.layers || {});
       fill(root.get('artboards'), snap.artboards || {});
       fill(root.get('guides'), snap.guides || {});
-      (root.get('meta') as LiveObject<any>).update({ name: snap.meta?.name || 'Proyecto', colorMode: snap.meta?.colorMode || 'RGB' });
+      (root.get('meta') as LiveObject<any>).update({ name: snap.meta?.name || 'Proyecto', colorMode: snap.meta?.colorMode || 'RGB', textStyles: typeof snap.meta?.textStyles === 'string' ? snap.meta.textStyles : '[]' });
     });
     this.apply();
     set(s => ({ docs: s.docs.map(d => (d.id === this.docId ? { ...d, past: [...d.past, { label: d.lastLabel, state: d.state, time: Date.now() }], future: [], lastLabel: 'Restaurar versión' } : d)) }));

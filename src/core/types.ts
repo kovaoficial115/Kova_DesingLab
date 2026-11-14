@@ -50,6 +50,61 @@ export interface TextProps {
   strike?: boolean; // tachado
   paraSpacing?: number; // px añadidos después de cada párrafo
   indent?: number; // sangría de la primera línea de cada párrafo (px)
+  /** estilo de texto vinculado (DocState.textStyles): al editar el estilo cambian sus capas */
+  styleId?: string | null;
+  /** texto en trayectoria: las letras siguen una curva en vez de ir en renglones */
+  path?: TextPath | null;
+}
+
+/** Trayectoria de un texto. `d` es la curva (SVG, coordenadas de la capa); las formas
+ *  predefinidas guardan sus medidas para poder editarlas. */
+export interface TextPath {
+  kind: 'circle' | 'arc' | 'wave' | 'custom';
+  d: string;
+  /** círculo y arco: radio; arco: ángulo abarcado (grados) */
+  r?: number;
+  sweep?: number;
+  /** onda: amplitud y longitud de onda (px), número de ondas */
+  amp?: number;
+  wavelength?: number;
+  waves?: number;
+  /** posición del texto a lo largo de la curva (% de su longitud), según la alineación */
+  pos: number;
+  /** recorre la curva al revés (las letras quedan al otro lado) */
+  flip: boolean;
+  /** desplazamiento perpendicular de la línea base (px; positivo = hacia fuera) */
+  shift: number;
+}
+
+/** Estilo de texto con nombre. Solo define las propiedades que trae: un estilo de marca puede
+ *  fijar la tipografía sin imponer un tamaño. */
+export interface TextStyle {
+  id: string;
+  name: string;
+  /** uso según el manual de marca (Titulares, Cuerpo de texto…) */
+  role?: string;
+  /** kit de marca de origen */
+  kit?: string;
+  props: TextStyleProps;
+}
+export type TextStyleProps = Partial<Pick<TextProps, 'fontFamily' | 'fontSize' | 'fontWeight' | 'italic' | 'color' | 'lineHeight' | 'letterSpacing' | 'caps' | 'align' | 'paraSpacing' | 'underline'>>;
+export const TEXT_STYLE_KEYS = ['fontFamily', 'fontSize', 'fontWeight', 'italic', 'color', 'lineHeight', 'letterSpacing', 'caps', 'align', 'paraSpacing', 'underline'] as const;
+
+/** Variante vinculada: copia de un componente que se actualiza cuando cambia el principal.
+ *  Lo que se modifica en la variante (texto, colores…) se conserva: es una sustitución. */
+export interface LayerLink {
+  /** capa raíz del componente principal */
+  master: string;
+  /** capa del principal de la que es copia esta capa */
+  src: string;
+}
+
+/** Recurso de un kit de marca colocado en el documento (logotipo, icono). */
+export interface BrandRef {
+  kit: string;
+  asset: string;
+  /** color aplicado (iconos recoloreables) */
+  color?: string;
 }
 
 export type TextAlign = 'left' | 'center' | 'right' | 'justify-left' | 'justify-center' | 'justify-right' | 'justify';
@@ -96,6 +151,12 @@ export interface Layer {
   text?: TextProps;
   shape?: ShapeProps;
   vector?: VectorProps;
+  /** componente principal: sus variantes vinculadas siguen sus cambios */
+  component?: { name: string } | null;
+  /** variante vinculada a un componente */
+  link?: LayerLink | null;
+  /** recurso de marca (logotipo, marca responsive, icono) */
+  brand?: BrandRef | null;
 }
 
 export interface Artboard {
@@ -135,6 +196,8 @@ export interface DocState {
   selection: Selection | null;
   selectedLayerIds: string[];
   activeArtboardId: string;
+  /** estilos de texto del documento (vinculados a sus capas) */
+  textStyles?: TextStyle[];
 }
 
 export interface HistoryEntry {

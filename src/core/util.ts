@@ -1,5 +1,6 @@
 import type { Layer, Unit } from './types';
 import { flowText, type FlowLine } from './textflow';
+import { samplePath, layoutOnPath, pathBounds, glyphBounds, type PathGlyph } from './textpath';
 
 let counter = 0;
 export const uid = (p = 'id') => `${p}_${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -134,6 +135,8 @@ export interface TextLayout {
   lines: FlowLine[];
   /** Texto tal como se dibuja (en mayúsculas si `caps`). */
   shown: string;
+  /** Texto en trayectoria: cada letra con su posición (caja de las líneas) y giro. */
+  glyphs?: PathGlyph[];
 }
 
 // medir texto es caro (más en WebKit, la app de escritorio, y con fuentes complejas) y la caja se
@@ -150,11 +153,15 @@ export function decorationLines(t: import('./types').TextProps, base: number) {
 
 export function textLayout(t: import('./types').TextProps): TextLayout {
   const font = textFont(t);
-  const key = `${font}|${t.letterSpacing}|${t.lineHeight}|${t.strokeWidth}|${t.align}|${t.box ? t.box.w + 'x' + t.box.h : ''}|${t.caps ? 1 : 0}${t.underline ? 1 : 0}${t.strike ? 1 : 0}|${t.paraSpacing ?? 0}|${t.indent ?? 0}|${t.text}`;
+  const key = `${font}|${t.letterSpacing}|${t.lineHeight}|${t.strokeWidth}|${t.align}|${t.box ? t.box.w + 'x' + t.box.h : ''}|${t.caps ? 1 : 0}${t.underline ? 1 : 0}${t.strike ? 1 : 0}|${t.paraSpacing ?? 0}|${t.indent ?? 0}|${t.path ? JSON.stringify(t.path) : ''}|${t.text}`;
   const hit = layoutCache.get(key);
   if (hit) return hit;
   if (!measureCtx) measureCtx = ctx2d(createCanvas(4, 4));
   const g = measureCtx;
+  if (t.path?.d) {
+    const p = pathLayout(t, g, font);
+    if (p) { if (layoutCache.size > 500) layoutCache.clear(); layoutCache.set(key, p); return p; }
+  }
   g.font = font;
   (g as any).letterSpacing = `${t.letterSpacing}px`;
   g.textBaseline = 'top';
@@ -189,6 +196,45 @@ export function textLayout(t: import('./types').TextProps): TextLayout {
   if (layoutCache.size > 500) layoutCache.clear();
   layoutCache.set(key, out);
   return out;
+}
+
+/** Disposición de un texto en trayectoria: la caja de las líneas es la de la curva con un margen
+ *  fijo (no cambia al escribir, así la curva no se mueve) y las letras van sobre ella. */
+function pathLayout(t: import('./types').TextProps, g: CanvasRenderingContext2D, font: string): TextLayout | null {
+  const tp = t.path!;
+  const S = samplePath(tp.d, tp.flip);
+  if (!S) return null;
+  g.font = font;
+  (g as any).letterSpacing = '0px';
+  g.textBaseline = 'alphabetic';
+  const shown = (t.caps ? t.text.toLocaleUpperCase('es') : t.text).replace(/\s*\n\s*/g, ' ');
+  const chars = Array.from(shown);
+  // ancho de cada prefijo (respeta el interletraje de la fuente entre pares de letras)
+  const pre = [0];
+  let acc = '';
+  for (const ch of chars) { acc += ch; pre.push(g.measureText(acc).width); }
+  const sw = t.strokeWidth;
+  const m = g.measureText(shown.trim() || 'M');
+  const ascent = m.actualBoundingBoxAscent || t.fontSize * 0.8, descent = m.actualBoundingBoxDescent || t.fontSize * 0.2;
+  // del otro lado, las letras cuelgan de la curva (como el texto inferior de un sello): la parte
+  // alta toca la curva y el cuerpo queda fuera, en la misma franja que el texto del lado normal
+  const shift = tp.shift - (tp.flip ? ascent : 0);
+  const glyphs = layoutOnPath(chars, i => pre[i], { S, pos: tp.pos, align: t.align, letterSpacing: t.letterSpacing, shift });
+  const pb = pathBounds(S);
+  // la caja de referencia es la de la curva (con un margen fijo): no depende del texto, así
+  // cambiar el tamaño, el contenido o el lado no mueve la curva; las letras que salen de ella
+  // amplían la caja completa (ox, oy) como en el resto de textos
+  const margin = 2;
+  const bw = Math.max(4, Math.ceil(pb.w + 2 * margin)), bh = Math.max(4, Math.ceil(pb.h + 2 * margin));
+  const gx = (bw - pb.w) / 2 - pb.x, gy = (bh - pb.h) / 2 - pb.y;
+  const placed = glyphs.map(q => ({ ...q, x: q.x + gx, y: q.y + gy }));
+  const ink = glyphBounds(placed, ascent, descent, sw + 3);
+  let ox = 0, oy = 0, ex = 0, ey = 0;
+  if (ink) {
+    ox = ink.x < 0 ? Math.ceil(-ink.x) : 0; oy = ink.y < 0 ? Math.ceil(-ink.y) : 0;
+    ex = ink.x + ink.w > bw ? Math.ceil(ink.x + ink.w - bw) : 0; ey = ink.y + ink.h > bh ? Math.ceil(ink.y + ink.h - bh) : 0;
+  }
+  return { w: bw + ox + ex, h: bh + oy + ey, bw, bh, ox, oy, base: ascent, lines: [], shown, glyphs: placed };
 }
 
 export function measureText(t: import('./types').TextProps) {

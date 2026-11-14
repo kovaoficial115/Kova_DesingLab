@@ -8,6 +8,7 @@ import * as A from '../../core/actions';
 import { AlignIcon } from '../Chrome';
 import { FontPicker } from '../components/FontPicker';
 import { runCommand } from '../commands';
+import { TextStyleRow, TextPathProps, VariantProps, BrandAssetProps } from './LinkedProps';
 
 const liveLayer = (id: string, patch: Partial<Layer> | ((l: Layer) => Partial<Layer>)) =>
   live(s => ({ ...s, layers: s.layers.map(l => (l.id === id ? { ...l, ...(typeof patch === 'function' ? patch(l) : patch) } : l)) }));
@@ -86,11 +87,13 @@ function LayerProps({ l, ab, doc }: { l: Layer; ab: Artboard; doc: Doc }) {
         )}
         <div className="tiny muted">Caja: {fromPx(b.w, get().unit, ab.dpi).toFixed(2)} × {fromPx(b.h, get().unit, ab.dpi).toFixed(2)} {get().unit} · contenido {Math.round(w)}×{Math.round(h)} px</div>
       </>}
-      {l.kind === 'text' && l.text && <TextProps l={l} />}
+      {l.kind === 'text' && l.text && <TextProps l={l} doc={doc} />}
       {l.kind === 'shape' && l.shape && <ShapeProps l={l} />}
       {l.kind === 'vector' && (
         <div className="row"><button className="btn sm" onClick={() => runCommand('layer.rasterize')}>Rasterizar</button><span className="tiny muted">Vector editable; se exporta nativo a SVG.</span></div>
       )}
+      {l.brand && <BrandAssetProps l={l} />}
+      <VariantProps l={l} doc={doc} />
       {l.mask && (
         <>
           <div className="section-title">Máscara de capa</div>
@@ -116,12 +119,13 @@ function LayerProps({ l, ab, doc }: { l: Layer; ab: Artboard; doc: Doc }) {
   );
 }
 
-function TextProps({ l }: { l: Layer }) {
+function TextProps({ l, doc }: { l: Layer; doc: Doc }) {
   const t = l.text!;
   const up = (p: Partial<typeof t>, c = true) => { liveLayer(l.id, x => ({ text: { ...x.text!, ...p }, name: p.text !== undefined ? p.text.split('\n')[0].slice(0, 24) || 'Texto' : x.name })); if (c) finishLive('Texto'); };
   return (
     <>
       <div className="section-title">Texto</div>
+      <TextStyleRow l={l} doc={doc} />
       <textarea className="input" rows={2} value={t.text} onChange={e => up({ text: e.target.value }, false)} onBlur={() => finishLive('Editar texto')} onKeyDown={e => e.stopPropagation()} />
       <FontPicker value={t.fontFamily} onChange={v => up({ fontFamily: v })} width="100%" />
       <div className="row">
@@ -141,12 +145,13 @@ function TextProps({ l }: { l: Layer }) {
         <NumberField label="↕" value={t.lineHeight} min={0.5} max={4} step={0.05} digits={2} onChange={v => up({ lineHeight: v }, false)} onCommit={v => up({ lineHeight: v })} title="Interlineado" />
         <NumberField label="↔" value={t.letterSpacing} min={-200} max={500} digits={0} suffix="px" onChange={v => up({ letterSpacing: v }, false)} onCommit={v => up({ letterSpacing: v })} title="Espaciado" />
       </div>
-      <ParagraphProps l={l} up={up} />
       <div className="row">
         <span className="small muted">Contorno</span>
         <ColorInput value={t.strokeColor} onChange={v => up({ strokeColor: v }, false)} onCommit={() => finishLive('Contorno de texto')} />
         <NumberField label="px" value={t.strokeWidth} min={0} max={200} digits={0} onChange={v => up({ strokeWidth: v }, false)} onCommit={v => up({ strokeWidth: v })} />
       </div>
+      <ParagraphProps l={l} up={up} />
+      <TextPathProps l={l} doc={doc} />
     </>
   );
 }
@@ -187,11 +192,11 @@ function ParagraphProps({ l, up }: { l: Layer; up: (p: Partial<NonNullable<Layer
           </button>
         ))}
       </div>
-      <div className="grid2">
+ {!t.path && <div className="grid2">
         <NumberField label="Sangría" value={t.indent ?? 0} min={0} max={5000} digits={0} suffix="px" onChange={v => up({ indent: v }, false)} onCommit={v => up({ indent: v })} title="Sangría de la primera línea de cada párrafo" />
         <NumberField label="Tras ¶" value={t.paraSpacing ?? 0} min={0} max={5000} digits={0} suffix="px" onChange={v => up({ paraSpacing: v }, false)} onCommit={v => up({ paraSpacing: v })} title="Espacio después de cada párrafo" />
-      </div>
-      {box ? (
+      </div>}
+      {t.path ? null : box ? (
         <>
           <div className="grid2">
             <NumberField label="An" value={box.w} min={8} max={100000} digits={0} suffix="px" onChange={v => up({ box: { ...box, w: Math.max(8, v) } }, false)} onCommit={v => up({ box: { ...box, w: Math.max(8, v) } })} title="Ancho del cuadro de texto" />

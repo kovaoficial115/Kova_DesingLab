@@ -9,10 +9,16 @@
 //        social                 perfil de las vistas previas y planes del feed
 //        state.artboards[].social  formato de redes y serie (carrusel, destacadas) de cada mesa
 //      Un v2 es un v3 válido sin mesas sociales.
+//      Campos opcionales añadidos después (un archivo anterior es válido sin ellos):
+//        state.textStyles            estilos de texto del documento (layers[].text.styleId los vincula)
+//        layers[].text.path          texto en trayectoria
+//        layers[].component / link   componente principal y variantes vinculadas
+//        layers[].brand              recurso de un kit de marca (logotipo, icono)
 //  Las secciones desconocidas (archivos de versiones futuras) se conservan al volver a guardar.
 
 import { sanitizeGarment3D, type Garment3DData } from '../core/garment3d';
 import { sanitizeArtboardSocial, sanitizeDocSocial, type DocSocial } from '../social/model';
+import { sanitizeStyles } from '../brand/model';
 
 export const KOVA_FORMAT = 'kova-designlab';
 export const KOVA_SCHEMA = 3;
@@ -118,6 +124,12 @@ export function parseKova(input: string | object): ParsedKova {
       }),
     };
     if (dropped) warnings.push(`Se ignoró el formato de redes de ${dropped} mesa(s) porque estaba dañado.`);
+  }
+  // estilos de texto: los dañados se quitan (sus textos conservan su aspecto, sin vínculo)
+  if (state.textStyles !== undefined) {
+    const ts = sanitizeStyles(state.textStyles);
+    if (!Array.isArray(state.textStyles) || ts.length !== state.textStyles.length) warnings.push('Se ignoraron estilos de texto dañados.');
+    state = { ...state, textStyles: ts };
   }
   const file: KovaFile = {
     format: KOVA_FORMAT,

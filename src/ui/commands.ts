@@ -9,6 +9,11 @@ import type { AdjustmentType, ToolId } from '../core/types';
 import { discardAutosave } from '../io/fileOps';
 import { platform } from '../platform';
 import * as SA from '../social/actions';
+import * as CA from '../core/components';
+import { defaultPath } from '../core/textpath';
+import { live, finishLive } from '../core/store';
+import { layerPivot, placeAtPivot } from '../core/util';
+import type { TextPath } from '../core/types';
 import type { SocialGuides } from '../core/store';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -31,6 +36,24 @@ function resizeBrush(fn: (v: number) => number) {
   const k = t === 'eraser' || t === 'restore' ? t : 'brush';
   setBrush(k, { size: fn(brushFor(k).size) });
   redrawOverlay();
+}
+
+const masterOfActive = () => { const s = docState(), l = activeLayer(); return s && l ? CA.masterRootOf(s.layers, l) : null; };
+const variantOfActive = () => { const s = docState(), l = activeLayer(); return s && l ? CA.variantRootOf(s.layers, l) : null; };
+const activeText = () => { const l = activeLayer(); return l?.kind === 'text' && l.text ? l : null; };
+/** Pone (o quita) una trayectoria al texto activo sin mover su centro. */
+function textPathCmd(kind: TextPath['kind'] | null) {
+  const l = activeText();
+  if (!l) return;
+  live(s => ({
+    ...s, layers: s.layers.map(x => {
+      if (x.id !== l.id || !x.text) return x;
+      const c = layerPivot(x);
+      const nx = { ...x, text: { ...x.text, path: kind ? defaultPath(kind, x.text.fontSize, x.text.path?.kind === kind ? x.text.path : null) : null } };
+      return { ...nx, ...placeAtPivot(nx, c.x, c.y) };
+    }),
+  }));
+  finishLive(kind ? 'Texto en trayectoria' : 'Quitar trayectoria');
 }
 
 export const commands: Record<string, Command> = {
@@ -150,6 +173,14 @@ export const commands: Record<string, Command> = {
   'artboard.copyToNew': { label: 'Copiar a una mesa nueva del mismo tamaño', run: () => A.artboardFromSelection('copy'), enabled: hasLayer },
   'layer.delete': { label: 'Eliminar capa', run: () => A.deleteSelectedLayers(), enabled: hasLayer },
   'layer.group': { label: 'Agrupar capas', keys: 'mod+g', run: () => A.groupSelected(), enabled: hasLayer },
+  'layer.component': { label: 'Crear componente', keys: 'mod+alt+k', run: () => { const l = activeLayer(); if (l) CA.makeComponent(l.id); }, enabled: () => { const s = docState(), l = activeLayer(); return !!s && !!l && CA.canBeComponent(s.layers, l); } },
+  'layer.variant': { label: 'Crear variante vinculada', keys: 'mod+alt+j', run: () => { const m = masterOfActive() ?? (() => { const v = variantOfActive(); return v?.link ? docState()!.layers.find(x => x.id === v.link!.master) ?? null : null; })(); if (m) CA.createVariant(m.id); }, enabled: () => !!masterOfActive() || !!variantOfActive() },
+  'layer.variantReset': { label: 'Restablecer variante', run: () => { const v = variantOfActive(); if (v) CA.resetVariantAction(v.id); }, enabled: () => !!variantOfActive() },
+  'layer.variantDetach': { label: 'Desvincular variante', run: () => { const v = variantOfActive(); if (v) CA.detachVariant(v.id); }, enabled: () => !!variantOfActive() },
+  'text.pathCircle': { label: 'En círculo', run: () => textPathCmd('circle'), enabled: () => !!activeText(), checked: () => activeText()?.text?.path?.kind === 'circle' },
+  'text.pathArc': { label: 'En arco', run: () => textPathCmd('arc'), enabled: () => !!activeText(), checked: () => activeText()?.text?.path?.kind === 'arc' },
+  'text.pathWave': { label: 'En onda', run: () => textPathCmd('wave'), enabled: () => !!activeText(), checked: () => activeText()?.text?.path?.kind === 'wave' },
+  'text.pathNone': { label: 'En renglones', run: () => textPathCmd(null), enabled: () => !!activeText()?.text?.path },
   'layer.ungroup': { label: 'Desagrupar', keys: 'mod+shift+g', run: () => A.ungroupSelected(), enabled: () => activeLayer()?.kind === 'group' },
   'layer.clip': { label: 'Crear/soltar máscara de recorte', keys: 'mod+alt+g', run: () => A.toggleClip(), enabled: hasLayer },
   'layer.mask': { label: 'Añadir máscara de capa (desde selección)', run: () => A.selectionToMask(false), enabled: hasLayer },

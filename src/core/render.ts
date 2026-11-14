@@ -24,11 +24,22 @@ const vectorCache = new Map<string, { svg: string; scale: number; canvas: HTMLCa
 function renderText(l: Layer): HTMLCanvasElement {
   const t = l.text!;
   // caja completa (con lo que sobresale de las letras) y las líneas ya cortadas y alineadas
-  const { w, h, ox, oy, lines, base } = textLayout(t);
+  const { w, h, ox, oy, lines, base, glyphs } = textLayout(t);
   const c = createCanvas(w, h);
   const g = ctx2d(c);
   g.translate(ox, oy);
   g.font = textFont(t);
+  if (glyphs) {
+    // texto en trayectoria: cada letra girada sobre su punto de la curva (línea base en la curva)
+    g.textBaseline = 'alphabetic';
+    g.textAlign = 'left';
+    g.lineJoin = 'round';
+    const each = (fn: (q: NonNullable<typeof glyphs>[number]) => void) => { for (const q of glyphs) { if (!q.ch.trim()) continue; g.save(); g.translate(q.x, q.y); g.rotate(q.a); fn(q); g.restore(); } };
+    if (t.strokeWidth > 0) { g.strokeStyle = t.strokeColor; g.lineWidth = t.strokeWidth * 2; each(q => g.strokeText(q.ch, -q.w / 2, 0)); }
+    g.fillStyle = t.color;
+    each(q => g.fillText(q.ch, -q.w / 2, 0));
+    return c;
+  }
   (g as any).letterSpacing = `${t.letterSpacing}px`;
   g.textBaseline = 'top';
   g.textAlign = 'left';

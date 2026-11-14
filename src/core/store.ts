@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import type { Doc, DocState, ToolId, Unit, View, Layer } from './types';
 import { defaultBrushes, sanitizeBrushes, type BrushSettings, type BrushToolId } from '../engine/brush';
 import { sanitizeUserFormats, emptyUserFormats, type UserFormats } from '../social/presets';
+import { syncLinks } from './links';
 
-export type PanelId = 'color' | 'properties' | 'adjustments' | 'layers' | 'history' | 'artboards' | 'channels' | 'social';
+export type PanelId = 'color' | 'properties' | 'adjustments' | 'layers' | 'history' | 'artboards' | 'channels' | 'social' | 'brand';
 
 /** Espacio de trabajo: qué formatos y herramientas se ofrecen primero. */
 export type Workspace = 'dtf' | 'graphic' | 'social';
@@ -92,6 +93,8 @@ const defaultPanels: PanelConf[] = [
   // solo aparece con documentos de redes (o en el espacio «Redes»); arriba para tenerlo a mano
   { id: 'social', visible: true, collapsed: false },
   { id: 'color', visible: true, collapsed: false },
+  // biblioteca de marca: colores, tipografías, estilos, logotipos e iconos del kit
+  { id: 'brand', visible: true, collapsed: false },
   { id: 'properties', visible: true, collapsed: false },
   { id: 'adjustments', visible: true, collapsed: true },
   { id: 'layers', visible: true, collapsed: false },
@@ -256,7 +259,8 @@ export function commit(label: string, updater: (s: DocState) => DocState, docId 
   liveBase.delete(docId);
   patchDoc(docId, d => {
     const prevState = base ? base.state : d.state;
-    const next = updater(d.state);
+    // las variantes vinculadas siguen a su componente principal en el mismo paso del historial
+    const next = syncLinks(d.state, updater(d.state));
     if (next === d.state && !base) return d;
     const past = [...d.past, { label: d.lastLabel, state: prevState, time: Date.now() }].slice(-HISTORY_LIMIT);
     return { ...d, state: next, past, future: [], lastLabel: label, dirty: true };
@@ -270,7 +274,7 @@ export function live(updater: (s: DocState) => DocState, docId = get().activeDoc
   const doc = get().docs.find(d => d.id === docId);
   if (!doc) return;
   if (!liveBase.has(docId)) liveBase.set(docId, { state: doc.state, label: doc.lastLabel });
-  patchDoc(docId, d => ({ ...d, state: updater(d.state) }));
+  patchDoc(docId, d => ({ ...d, state: syncLinks(d.state, updater(d.state)) }));
 }
 export function finishLive(label: string, docId = get().activeDocId) {
   if (!docId || !liveBase.has(docId)) return;

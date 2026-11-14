@@ -138,13 +138,27 @@ async function buildSvg(state: DocState, ab: Artboard) {
       const needsRaster = l.adjustments.some(a => a.enabled) || (l.mask && l.maskEnabled) || l.clip;
       parts.push(`<g transform="${tf}"${op}${blend}>`);
       if (!needsRaster && l.kind === 'vector' && l.vector) {
-        parts.push(l.vector.svg.replace(/^<\?xml[^>]*>/, '').replace(/<svg/, `<svg x="0" y="0" width="${w}" height="${h}"`));
+        // el <svg> raíz puede traer su propio tamaño: se quita para no repetir atributos (XML inválido)
+        const svg = l.vector.svg.replace(/^\s*<\?xml[^>]*>/, '').replace(/<svg\b[^>]*>/, tag =>
+          tag.replace(/\s(?:x|y|width|height)\s*=\s*(?:"[^"]*"|'[^']*')/g, '').replace(/^<svg/, `<svg x="0" y="0" width="${w}" height="${h}"`));
+        parts.push(svg);
       } else if (!needsRaster && l.kind === 'text' && l.text) {
         const t = l.text;
         // misma disposición que en pantalla: las líneas (ya cortadas y alineadas) empiezan en (ox, oy)
-        const { ox, oy, base, lines } = textLayout(t);
+        const { ox, oy, base, lines, glyphs } = textLayout(t);
         const deco = decorationLines(t, base);
         const stroke = t.strokeWidth > 0 ? ` stroke="${t.strokeColor}" stroke-width="${t.strokeWidth * 2}" paint-order="stroke" stroke-linejoin="round"` : '';
+        if (glyphs) {
+          // texto en trayectoria: una letra por elemento, girada como en pantalla
+          parts.push(`<g font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} fill="${t.color}"${stroke}>`);
+          for (const q of glyphs) {
+            if (!q.ch.trim()) continue;
+            const x = +(ox + q.x).toFixed(2), y = +(oy + q.y).toFixed(2), deg = +((q.a * 180) / Math.PI).toFixed(3);
+            parts.push(`<text x="${+(x - q.w / 2).toFixed(2)}" y="${y}" transform="rotate(${deg} ${x} ${y})">${esc(q.ch)}</text>`);
+          }
+          parts.push('</g></g>');
+          continue;
+        }
         parts.push(`<text xml:space="preserve" font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} letter-spacing="${t.letterSpacing}" fill="${t.color}"${stroke}>`);
         for (const ln of lines) {
           if (!ln.text) continue;
