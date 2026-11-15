@@ -32,7 +32,7 @@ export interface Adjustment {
   name?: string;
 }
 
-export type LayerKind = 'raster' | 'text' | 'shape' | 'group' | 'vector';
+export type LayerKind = 'raster' | 'text' | 'shape' | 'group' | 'vector' | 'adjust';
 
 export interface TextProps {
   text: string;
@@ -158,6 +158,8 @@ export interface Layer {
   text?: TextProps;
   shape?: ShapeProps;
   vector?: VectorProps;
+  /** capa de ajuste: zona (px del documento) donde su pila de ajustes actúa sobre lo de debajo */
+  adjust?: { w: number; h: number } | null;
   /** componente principal: sus variantes vinculadas siguen sus cambios */
   component?: { name: string } | null;
   /** variante vinculada a un componente */

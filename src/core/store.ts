@@ -77,6 +77,12 @@ export interface AppState {
   fxFocus: { layerId: string; adjId: string } | null;
   /** mientras se mantiene pulsado: se ve el original de las capas seleccionadas (sin efectos) */
   peekOriginal: boolean;
+  /** máscara rápida: el Pincel añade a la selección y el Borrador (o Alt) quita; se ve en rojo */
+  quickMask: boolean;
+  /** cómo se ve la selección: hormigas, superposición roja o máscara en blanco y negro */
+  selView: 'ants' | 'overlay' | 'mask';
+  /** capa cuya máscara se muestra en blanco y negro en el lienzo */
+  maskView: string | null;
   proof: boolean;
   channelView: 'all' | 'c' | 'm' | 'y' | 'k' | 'r' | 'g' | 'b' | 'alpha';
   dialog: DialogState;
@@ -161,7 +167,7 @@ export const useStore = create<AppState>(() => ({
   dockOpen: false,
   compare: false,
   fxFocus: null,
-  peekOriginal: false,
+  peekOriginal: false, quickMask: false, selView: 'ants', maskView: null,
   proof: false,
   channelView: 'all',
   dialog: null,

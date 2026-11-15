@@ -28,8 +28,8 @@ export function useEditorKeys() {
         return;
       }
       if (e.key === 'Tab') { e.preventDefault(); set(s => ({ hideUI: !s.hideUI })); return; }
-      // Y mantenida: ver las capas seleccionadas sin efectos (antes/después momentáneo)
-      if (e.key.toLowerCase() === 'y' && !e.metaKey && !e.ctrlKey && !e.altKey) { if (!e.repeat) set({ peekOriginal: true }); e.preventDefault(); return; }
+      // O mantenida: ver las capas seleccionadas sin efectos (antes/después momentáneo)
+      if (e.key.toLowerCase() === 'o' && !e.metaKey && !e.ctrlKey && !e.altKey) { if (!e.repeat) set({ peekOriginal: true }); e.preventDefault(); return; }
       if (isDragging()) return;
       // Ctrl/⌘+V lo gestiona el evento paste (imágenes del sistema) salvo que haya portapapeles interno
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v' && !hasInternalClip()) return;
@@ -37,7 +37,7 @@ export function useEditorKeys() {
     };
     const up = (e: KeyboardEvent) => {
       if (e.code === 'Space') { keys.space = false; const el = document.getElementById('kova-viewport'); if (el) el.style.cursor = ''; }
-      if (e.key.toLowerCase() === 'y' && get().peekOriginal) set({ peekOriginal: false });
+      if (e.key.toLowerCase() === 'o' && get().peekOriginal) set({ peekOriginal: false });
     };
     const paste = async (e: ClipboardEvent) => {
       if (isTyping(e) || get().screen !== 'editor' && get().docs.length) return;

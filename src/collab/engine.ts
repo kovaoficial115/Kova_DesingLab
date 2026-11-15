@@ -191,7 +191,7 @@ function layerJSON(l: Layer, a: AssetStore, waits: Promise<unknown>[]): LayerJSO
     canvas, cw: l.canvas?.width ?? 0, ch: l.canvas?.height ?? 0,
     origin, ow: origin && origin !== 'same' ? l.origin!.width : 0, oh: origin && origin !== 'same' ? l.origin!.height : 0,
     mask, mw: l.mask?.width ?? 0, mh: l.mask?.height ?? 0,
-    component: l.component ?? null, link: l.link ?? null, brand: l.brand ?? null,
+    component: l.component ?? null, link: l.link ?? null, brand: l.brand ?? null, adjust: l.adjust ?? null,
     z: '',
   };
 }
@@ -207,7 +207,7 @@ function layerFromJSON(id: string, j: LayerJSON, a: AssetStore, prev?: Layer, on
   if (has('canvas', 'cw', 'ch')) L.canvas = j.canvas ? a.canvas(j.canvas, j.cw, j.ch, prev?.canvas) : undefined;
   if (has('origin', 'ow', 'oh', 'canvas')) L.origin = j.origin === 'same' ? L.canvas : isFileRef(j.origin) ? a.canvas(j.origin, j.ow, j.oh, prev?.origin) : undefined;
   if (has('mask', 'mw', 'mh')) L.mask = j.mask ? a.canvas(j.mask, j.mw, j.mh, prev?.mask) : null;
-  for (const k of ['component', 'link', 'brand'] as const) if (has(k)) L[k] = j[k] ? clone(j[k]) : null;
+  for (const k of ['component', 'link', 'brand', 'adjust'] as const) if (has(k)) L[k] = j[k] ? clone(j[k]) : null;
   return L as Layer;
 }
 function plainFromJSON<T>(id: string, j: any, prev?: T, only?: string[]): T {

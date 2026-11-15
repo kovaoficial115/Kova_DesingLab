@@ -226,6 +226,7 @@ export async function rasterizeLayer(id: string, opts: { bakeScale?: boolean } =
   const s = docState();
   const l = s?.layers.find(x => x.id === id);
   if (!s || !l || l.kind === 'group') return null;
+  if (l.kind === 'adjust') { toast('Una capa de ajuste no tiene píxeles: combínala hacia abajo para aplicarla', 'warn'); return null; }
   const baked = await bakedLayerCanvas(l);
   if (!baked) return null;
   const { w, h } = layerSize(l);
@@ -246,7 +247,8 @@ export async function rasterizeLayer(id: string, opts: { bakeScale?: boolean } =
 
 async function flattenToLayer(state: DocState, ids: Set<string>, name: string): Promise<Layer | null> {
   const ls = state.layers.filter(l => ids.has(l.id) && l.kind !== 'group' && isEffectivelyVisible(state.layers, l));
-  const b = unionRect(ls.map(layerBounds));
+  // las capas de ajuste ocupan toda su mesa: la caja de la capa combinada sale de las demás
+  const b = unionRect(ls.filter(l => l.kind !== 'adjust').map(layerBounds)) ?? unionRect(ls.map(layerBounds));
   if (!b) return null;
   const x = Math.floor(b.x), y = Math.floor(b.y);
   const ab: Artboard = { id: 'tmp', name: '', x, y, w: Math.ceil(b.x + b.w) - x, h: Math.ceil(b.y + b.h) - y, dpi: 300, background: null, margin: 0 };
@@ -360,6 +362,7 @@ export function selectionInLayer(sel: Selection, l: Layer): HTMLCanvasElement {
 export async function ensureRaster(l: Layer): Promise<Layer | null> {
   if (isEffectivelyLocked(docState()!.layers, l)) { toast('La capa está bloqueada', 'warn'); return null; }
   if (l.kind === 'group') { toast('Selecciona una capa de píxeles', 'warn'); return null; }
+  if (l.kind === 'adjust') { toast('Las capas de ajuste no tienen píxeles: pinta en su máscara', 'warn'); return null; }
   if (l.kind !== 'raster') {
     toast('Capa rasterizada para editar sus píxeles', 'info');
     await rasterizeLayer(l.id);
@@ -513,6 +516,46 @@ export function modifySelection(kind: 'feather' | 'expand' | 'contract' | 'smoot
 }
 
 /** Varita mágica: devuelve la máscara en coordenadas de mundo. */
+/** Refinar borde (cabello): ajusta el borde de la selección a los bordes de la imagen con un
+ *  filtro guiado por lo que se ve (todas las capas visibles). */
+export async function refineSelectionEdges(radius: number, contrast: number) {
+  const s = docState();
+  const ab = activeArtboard();
+  const sel = s?.selection;
+  if (!s || !ab || !sel) return toast('No hay selección', 'warn');
+  await withBusy('Refinando el borde…', async () => {
+    const x0 = sel.x, y0 = sel.y, w = sel.canvas.width, h = sel.canvas.height;
+    const guide = await renderArtboard(s, { ...ab, x: x0, y: y0, w, h }, 1, { background: true });
+    const img = getImageData(guide);
+    const sd = getImageData(sel.canvas).data;
+    for (let i = 3; i < sd.length; i += 4) img.data[i] = sd[i];
+    const r = await runOp('guided', img, { r: radius, eps: 0.0005, contrast });
+    const out = r.image!;
+    for (let i = 0; i < out.data.length; i += 4) out.data[i] = out.data[i + 1] = out.data[i + 2] = 255;
+    setSelection({ x: x0, y: y0, canvas: canvasFromImageData(out), shape: null }, 'Refinar borde', 'new');
+  });
+}
+
+/** Sujeto rápido sin IA: segmentación aproximada (el fondo es lo que toca los bordes). */
+export async function quickSubjectSelection() {
+  const l = activeLayer();
+  if (!l || l.kind === 'group' || l.kind === 'adjust') return toast('Selecciona la capa de la foto', 'warn');
+  await withBusy('Buscando el sujeto…', async () => {
+    const baked = await bakedLayerCanvas(l);
+    if (!baked) return;
+    const { w, h } = layerSize(l);
+    const k = Math.min(1, 420 / Math.max(w, h));
+    const small = cloneCanvas(baked, Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+    const r = await runOp('quickSubject', getImageData(small), {});
+    if (!r.result) { toast('No se distingue un sujeto del fondo: prueba Seleccionar sujeto (IA) o selecciona a mano', 'warn', 6000); return; }
+    const m = r.image!;
+    for (let i = 0; i < m.data.length; i += 4) m.data[i] = m.data[i + 1] = m.data[i + 2] = 255;
+    const local = cloneCanvas(canvasFromImageData(m), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+    setSelection(localMaskToWorld(local, l), 'Sujeto rápido', 'new');
+    toast('Selección aproximada (sin IA): revísala con la Máscara rápida (Q) o Refinar borde', 'info', 7000);
+  });
+}
+
 export async function wandSelect(wx: number, wy: number) {
   const s = docState();
   const ab = activeArtboard();
@@ -638,25 +681,30 @@ export async function layerViaCopy(cut = false) {
   insertLayers([rasterLayer(data.canvas, l.name + (cut ? ' cortada' : ' copia'), data.x, data.y)], cut ? 'Capa vía cortar' : 'Capa vía copiar');
 }
 
+/** Máscara (en el espacio de la capa) a partir de una selección: blanco = visible. */
+export function maskFromSelection(l: Layer, sel: Selection | null, hideSelected = false) {
+  const { w, h } = layerSize(l);
+  const mask = createCanvas(Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+  const g = ctx2d(mask);
+  if (sel) {
+    const m = selectionInLayer(sel, l);
+    g.fillStyle = hideSelected ? '#fff' : '#000';
+    g.fillRect(0, 0, mask.width, mask.height);
+    const tint = createCanvas(mask.width, mask.height);
+    const tg = ctx2d(tint);
+    tg.fillStyle = hideSelected ? '#000' : '#fff';
+    tg.fillRect(0, 0, mask.width, mask.height);
+    tg.globalCompositeOperation = 'destination-in';
+    tg.drawImage(m, 0, 0);
+    g.drawImage(tint, 0, 0);
+  } else { g.fillStyle = '#fff'; g.fillRect(0, 0, mask.width, mask.height); }
+  return mask;
+}
 export async function selectionToMask(hideSelected = false) {
   const s = docState();
   const l = activeLayer();
   if (!s || !l || l.kind === 'group') return toast('Selecciona una capa', 'warn');
-  const { w, h } = layerSize(l);
-  const mask = createCanvas(w, h);
-  const g = ctx2d(mask);
-  if (s.selection) {
-    const m = selectionInLayer(s.selection, l);
-    g.fillStyle = hideSelected ? '#fff' : '#000';
-    g.fillRect(0, 0, w, h);
-    const tint = createCanvas(w, h);
-    const tg = ctx2d(tint);
-    tg.fillStyle = hideSelected ? '#000' : '#fff';
-    tg.fillRect(0, 0, w, h);
-    tg.globalCompositeOperation = 'destination-in';
-    tg.drawImage(m, 0, 0);
-    g.drawImage(tint, 0, 0);
-  } else { g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); }
+  const mask = maskFromSelection(l, s.selection, hideSelected);
   commit('Añadir máscara de capa', st => ({ ...mapLayers(st, x => (x.id === l.id ? { ...x, mask, maskEnabled: true } : x)), selection: null }));
 }
 export async function applyMask() {
@@ -911,7 +959,7 @@ export function trimArtboardToContent() {
   const s = docState();
   const ab = activeArtboard();
   if (!s || !ab) return;
-  const vis = s.layers.filter(l => l.kind !== 'group' && isEffectivelyVisible(s.layers, l));
+  const vis = s.layers.filter(l => l.kind !== 'group' && l.kind !== 'adjust' && isEffectivelyVisible(s.layers, l));
   const b = unionRect(vis.map(layerBounds));
   if (b) cropArtboard(b);
 }

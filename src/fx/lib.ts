@@ -3,7 +3,9 @@
 
 import { useSyncExternalStore } from 'react';
 import type { Adjustment, DocState, Layer } from '../core/types';
-import { commit, live, cancelLive, finishLive, docState, activeDoc, toast, set, get } from '../core/store';
+import { commit, live, cancelLive, finishLive, docState, activeDoc, activeArtboard, toast, set, get } from '../core/store';
+import { adjustLayer } from '../core/doc';
+import { newAdjustmentLayer } from '../core/adjustLayers';
 import { adjustmentDefaults } from '../core/actions';
 import { layerContent } from '../core/render';
 import { layerSize, uid, getImageData, createCanvas, ctx2d } from '../core/util';
@@ -145,6 +147,21 @@ export function applyPreset(p: FxPreset, mode: 'append' | 'replace' = 'append', 
   const first = l?.adjustments[mode === 'replace' ? 0 : l.adjustments.length - p.items.length];
   if (l && first) openStack(l.id, first.id);
   toast(`«${p.name}»: ${p.items.length} efecto${p.items.length === 1 ? '' : 's'} editable${p.items.length === 1 ? '' : 's'} en Ajustes`, 'ok');
+}
+
+/** Crea una capa de ajuste (encima de la capa activa; con la selección como máscara) con un
+ *  preajuste o un efecto: así actúan sobre todo lo de debajo sin tocar ninguna capa. */
+export function applyAsAdjustmentLayer(src: { preset: FxPreset } | { item: Pick<FxItem, 'type' | 'label' | 'params'> }) {
+  const ab = activeArtboard();
+  if (!ab) return;
+  const probe = adjustLayer(ab.w, ab.h, ab.x, ab.y);
+  const adjustments = 'preset' in src
+    ? itemsFor(probe, src.preset.items, src.preset.ref ?? REF_SIDE)
+    : itemsFor(probe, [{ type: src.item.type, params: src.item.params ?? {} }], REF_SIDE);
+  const name = 'preset' in src ? src.preset.name : src.item.label;
+  const l = newAdjustmentLayer({ quiet: true, name, adjustments });
+  if (l && adjustments[0]) openStack(l.id, adjustments[0].id);
+  if (l) toast(`Capa de ajuste «${name}»: actúa sobre lo de debajo${l.mask ? ' (solo en la selección)' : ''}`, 'ok');
 }
 
 // vista previa al pasar el ratón: un cambio en vivo que se descarta al salir

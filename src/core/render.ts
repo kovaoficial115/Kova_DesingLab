@@ -307,7 +307,7 @@ export async function bakedLayerCanvas(l: Layer): Promise<HTMLCanvasElement | nu
 
 /** Las fuentes disponibles cambiaron: re-rasterizar textos (y formas, que son baratas). */
 export function invalidateTextContent() { clearTextMetrics(); contentCache.clear(); }
-export function invalidateLayer(id: string) { procCache.delete(id); contentCache.delete(id); vectorCache.delete(id); }
+export function invalidateLayer(id: string) { procCache.delete(id); contentCache.delete(id); vectorCache.delete(id); adjCache.delete(id); }
 
 // ---------- reducciones (mipmaps) ----------
 // drawImage reduce con muestreo bilineal: al alejar el zoom no promedia los píxeles que se salta
@@ -500,12 +500,16 @@ export interface RenderOpts {
   tiles?: boolean;
   /** visor: durante un arrastre se aceptan vistas previas reducidas de los efectos pesados */
   allowDraft?: boolean;
+  /** fondos de las mesas ya pintados debajo (las capas de ajuste del nivel superior los incluyen) */
+  backgrounds?: BgRect[];
 }
 
 function drawLayer(g: CanvasRenderingContext2D, l: Layer, o: RenderOpts, all: Layer[], forceNormal = false) {
   if (l.kind === 'group') {
     const kids = childrenOf(all, l.id);
-    if (l.blend === 'source-over' && l.opacity >= 1 && !forceNormal) { drawList(g, kids, o, all); return; }
+    // un grupo con capas de ajuste se compone aparte: sus ajustes solo afectan a lo que hay dentro
+    const isolate = kids.some(k => k.kind === 'adjust');
+    if (l.blend === 'source-over' && l.opacity >= 1 && !forceNormal && !isolate) { drawList(g, kids, o, all); return; }
     const off = borrow(o.width, o.height);
     drawList(ctx2d(off), kids, o, all);
     g.save();
@@ -517,6 +521,7 @@ function drawLayer(g: CanvasRenderingContext2D, l: Layer, o: RenderOpts, all: La
     giveBack(off);
     return;
   }
+  if (l.kind === 'adjust') return; // se dibujan en drawList (necesitan lo que hay debajo)
   if (o.only && !o.only.has(l.id)) return;
   const src = processedContent(l, !!o.bypassIds?.has(l.id), !!o.allowDraft);
   if (!src) return;
@@ -539,8 +544,9 @@ function drawLayer(g: CanvasRenderingContext2D, l: Layer, o: RenderOpts, all: La
 function visibleNow(l: Layer, o: RenderOpts) {
   return l.visible && !o.hidden?.has(l.id);
 }
+const adjustActive = (l: Layer, o: RenderOpts) => l.kind === 'adjust' && visibleNow(l, o) && !o.bypassIds?.has(l.id) && !(o.only && !o.only.has(l.id)) && l.adjustments.some(a => a.enabled);
 
-function drawList(g: CanvasRenderingContext2D, list: Layer[], o: RenderOpts, all: Layer[]) {
+function drawList(g: CanvasRenderingContext2D, list: Layer[], o: RenderOpts, all: Layer[], bgs?: BgRect[]) {
   let i = 0;
   while (i < list.length) {
     const base = list[i];
@@ -548,14 +554,25 @@ function drawList(g: CanvasRenderingContext2D, list: Layer[], o: RenderOpts, all
     const clipped: Layer[] = [];
     while (j < list.length && list[j].clip) { if (visibleNow(list[j], o)) clipped.push(list[j]); j++; }
     if (!visibleNow(base, o)) { i = j; continue; }
-    if (!clipped.length) drawLayer(g, base, o, all);
+    if (base.kind === 'adjust') {
+      // capa de ajuste: actúa sobre todo lo que hay debajo en su nivel (o en su grupo)
+      if (adjustActive(base, o)) drawAdjust(g, base, list.slice(0, i), list.slice(0, i), o, all, bgs ?? null, null);
+      for (const c of clipped) drawLayer(g, c, o, all);
+    } else if (!clipped.length) drawLayer(g, base, o, all);
     else {
       const group = borrow(o.width, o.height);
       const gg = ctx2d(group);
       drawLayer(gg, base, o, all, true);
       const alphaRef = borrow(o.width, o.height);
       ctx2d(alphaRef).drawImage(group, 0, 0);
-      for (const c of clipped) {
+      const plainBase = { ...base, clip: false, opacity: 1, blend: 'source-over' as const };
+      for (let ci = 0; ci < clipped.length; ci++) {
+        const c = clipped[ci];
+        if (c.kind === 'adjust') {
+          // capa de ajuste recortada: solo afecta a la capa base (y a lo recortado por debajo)
+          if (adjustActive(c, o)) drawAdjust(gg, c, [plainBase, ...clipped.slice(0, ci)], [base, ...clipped.slice(0, ci)], o, all, null, alphaRef);
+          continue;
+        }
         const tmp = borrow(o.width, o.height);
         const tg = ctx2d(tmp);
         drawLayer(tg, c, o, all, true);
@@ -581,20 +598,185 @@ function drawList(g: CanvasRenderingContext2D, list: Layer[], o: RenderOpts, all
   }
 }
 
+// ---------- capas de ajuste ----------
+// Una capa de ajuste no tiene píxeles: su pila de ajustes y efectos se aplica a lo que hay debajo.
+// Lo de debajo se compone en el espacio de la capa (resolución del documento), se procesa en el
+// worker y el resultado se mezcla con la máscara y la opacidad:
+//   resultado = debajo · (1 − m) + ajustado · m      (m = máscara × opacidad)
+// Para que «debajo» sea exactamente lo ya dibujado, el nivel donde está la capa se compone aparte.
+export interface BgRect { x: number; y: number; w: number; h: number; color: string }
+interface AdjEntry { sig: string; result: HTMLCanvasElement | null; running: string | null; want: (() => void) | null; waiters: (() => void)[] }
+const adjCache = new Map<string, AdjEntry>();
+const ADJ_MAX_PIXELS = 16_000_000, ADJ_DRAFT_PIXELS = 700_000;
+/** promesas de capas de ajuste pendientes durante un render para exportar (ver renderArtboard) */
+let adjPending: Promise<void>[] | null = null;
+
+function scopeSig(list: Layer[], o: RenderOpts, all: Layer[]): string {
+  let s = '';
+  for (const l of list) {
+    if (!visibleNow(l, o)) { s += '-,'; continue; }
+    if (l.kind === 'group') s += `g${oid(l)}(${scopeSig(childrenOf(all, l.id), o, all)}),`;
+    else if (l.kind === 'adjust') s += `a${oid(l)}:${adjustActive(l, o) ? oid(adjCache.get(l.id)?.result) : 0},`;
+    else if (o.only && !o.only.has(l.id)) s += 'o,';
+    else s += `${oid(l)}:${oid(processedContent(l, !!o.bypassIds?.has(l.id)))},`;
+  }
+  return s;
+}
+
+/** Capa de ajuste lista para dibujar (en su espacio local) o null si aún no hay resultado. */
+function adjustResult(adj: Layer, scope: Layer[], sigScope: Layer[], o: RenderOpts, all: Layer[], bgs: BgRect[] | null): HTMLCanvasElement | null {
+  const { w, h } = layerSize(adj);
+  if (w < 1 || h < 1) return null;
+  const mtx = layerMatrix(adj);
+  let k = Math.min(1, Math.sqrt(ADJ_MAX_PIXELS / (w * h)));
+  const id = get().activeDocId;
+  const liveNow = !!id && isLive(id);
+  if (liveNow) k = Math.min(k, Math.sqrt(ADJ_DRAFT_PIXELS / (w * h)));
+  const sig = [adjSig(adj), mtx.toString(), w, h, k.toFixed(4), bgs ? JSON.stringify(bgs) : '', scopeSig(sigScope, o, all)].join('|');
+  let e = adjCache.get(adj.id);
+  if (!e) { e = { sig: '', result: null, running: null, want: null, waiters: [] }; adjCache.set(adj.id, e); }
+  if (e.sig === sig && e.result) return e.result;
+  const entry = e;
+  const start = () => {
+    entry.running = sig;
+    // lo de debajo, compuesto en el espacio local de la capa de ajuste
+    const W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
+    const under = createCanvas(W, H);
+    const ug = ctx2d(under);
+    const base = new DOMMatrix().scaleSelf(W / w, H / h).multiplySelf(mtx.inverse());
+    if (bgs) for (const b of bgs) { ug.save(); ug.setTransform(base.a, base.b, base.c, base.d, base.e, base.f); ug.fillStyle = b.color; ug.fillRect(b.x, b.y, b.w, b.h); ug.restore(); }
+    drawList(ug, scope, { ...o, base, width: W, height: H, tiles: false, allowDraft: false, smoothing: true }, all);
+    runOp('adjust', getImageData(under), { adjustments: stackOf(adj), scale: W / w }).then(r => {
+      const c = createCanvas(W, H);
+      ctx2d(c).putImageData(r.image!, 0, 0);
+      entry.result = c; entry.sig = sig;
+    }, err => { console.error('Capa de ajuste', err); entry.sig = sig; }).finally(() => {
+      entry.running = null;
+      const next = entry.want;
+      entry.want = null;
+      if (next) next();
+      else { const ws = entry.waiters; entry.waiters = []; ws.forEach(f => f()); }
+      bumpRender();
+    });
+  };
+  if (!e.running) start();
+  else if (e.running !== sig) e.want = start;
+  if (adjPending) adjPending.push(new Promise<void>(res => entry.waiters.push(res)));
+  return e.result;
+}
+
+const maskedCache = new WeakMap<HTMLCanvasElement, { mask: HTMLCanvasElement | null; out: HTMLCanvasElement }>();
+function maskedResult(res: HTMLCanvasElement, maskA: HTMLCanvasElement | null) {
+  if (!maskA) return res;
+  const c = maskedCache.get(res);
+  if (c && c.mask === maskA) return c.out;
+  const out = cloneCanvas(res);
+  const g = ctx2d(out);
+  g.globalCompositeOperation = 'destination-in';
+  g.drawImage(maskA, 0, 0, out.width, out.height);
+  maskedCache.set(res, { mask: maskA, out });
+  return out;
+}
+
+function drawAdjust(g: CanvasRenderingContext2D, adj: Layer, scope: Layer[], sigScope: Layer[], o: RenderOpts, all: Layer[], bgs: BgRect[] | null, clipRef: HTMLCanvasElement | null) {
+  const res = adjustResult(adj, scope, sigScope, o, all, bgs);
+  if (!res) return;
+  const { w, h } = layerSize(adj);
+  const maskA = adj.mask && adj.maskEnabled ? maskToAlpha(adj.mask) : null;
+  const Am = maskedResult(res, maskA);
+  const m = o.base.multiply(layerMatrix(adj));
+  const normal = adj.blend === 'source-over';
+  // dibuja `fn` en la transformación de la capa, recortado (si hace falta) a la capa base
+  const paint = (mode: GlobalCompositeOperation, fn: (t: CanvasRenderingContext2D) => void) => {
+    if (!clipRef) {
+      g.save();
+      g.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+      g.globalAlpha = adj.opacity;
+      g.globalCompositeOperation = mode;
+      g.imageSmoothingEnabled = true;
+      fn(g);
+      g.restore();
+      return;
+    }
+    const tmp = borrow(o.width, o.height);
+    const tg = ctx2d(tmp);
+    tg.save(); tg.setTransform(m.a, m.b, m.c, m.d, m.e, m.f); fn(tg); tg.restore();
+    tg.globalCompositeOperation = 'destination-in';
+    tg.drawImage(clipRef, 0, 0);
+    tg.globalCompositeOperation = 'source-over';
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = adj.opacity;
+    g.globalCompositeOperation = mode;
+    g.drawImage(tmp, 0, 0);
+    g.restore();
+    giveBack(tmp);
+  };
+  if (normal) {
+    paint('destination-out', t => { if (maskA) t.drawImage(maskA, 0, 0, w, h); else { t.fillStyle = '#fff'; t.fillRect(0, 0, w, h); } });
+    paint('lighter', t => t.drawImage(Am, 0, 0, w, h));
+  } else paint(adj.blend, t => t.drawImage(Am, 0, 0, w, h));
+}
+
 export function renderLayers(g: CanvasRenderingContext2D, state: Pick<DocState, 'layers'>, o: RenderOpts) {
-  drawList(g, childrenOf(state.layers, null), o, state.layers);
+  const top = childrenOf(state.layers, null);
+  if (!top.some(l => adjustActive(l, o))) { drawList(g, top, o, state.layers); return; }
+  // hay capas de ajuste en el nivel superior: se compone aparte, con los fondos de las mesas
+  const iso = borrow(o.width, o.height);
+  const ig = ctx2d(iso);
+  const bgs = o.backgrounds ?? [];
+  for (const b of bgs) { ig.save(); ig.setTransform(o.base.a, o.base.b, o.base.c, o.base.d, o.base.e, o.base.f); ig.fillStyle = b.color; ig.fillRect(b.x, b.y, b.w, b.h); ig.restore(); }
+  drawList(ig, top, o, state.layers, bgs);
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(iso, 0, 0);
+  g.restore();
+  giveBack(iso);
+}
+
+/** Compone las capas con la matriz `base` (mundo → píxeles) en un canvas nuevo de w×h. Las capas de
+ *  ajuste se calculan en el worker: se repite el render hasta que todas están al día (varias pasadas
+ *  si hay capas de ajuste encima de otras). */
+async function renderWith(state: DocState, base: DOMMatrix, w: number, h: number, extra: Partial<RenderOpts>, fill: (g: CanvasRenderingContext2D) => void) {
+  await ensureProcessed(state.layers);
+  const c = createCanvas(w, h);
+  const g = ctx2d(c);
+  const ro: RenderOpts = { base, width: w, height: h, smoothing: true, ...extra };
+  for (let pass = 0; pass < 8; pass++) {
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.globalAlpha = 1;
+    g.clearRect(0, 0, w, h);
+    fill(g);
+    adjPending = [];
+    renderLayers(g, state, ro);
+    const wait = adjPending;
+    adjPending = null;
+    if (!wait.length) break;
+    await Promise.all(wait);
+  }
+  return c;
 }
 
 /** Renderiza una mesa de trabajo a un canvas nuevo con la escala indicada. */
 export async function renderArtboard(state: DocState, ab: Artboard, scale = 1, opts: { background?: boolean; only?: Set<string> | null; hidden?: Set<string> | null } = {}) {
-  await ensureProcessed(state.layers);
   const w = Math.max(1, Math.round(ab.w * scale)), h = Math.max(1, Math.round(ab.h * scale));
-  const c = createCanvas(w, h);
-  const g = ctx2d(c);
-  if (opts.background !== false && ab.background) { g.fillStyle = ab.background; g.fillRect(0, 0, w, h); }
+  const bg = opts.background !== false && ab.background ? ab.background : null;
   const base = new DOMMatrix().scaleSelf(scale, scale).translateSelf(-ab.x, -ab.y);
-  renderLayers(g, state, { base, width: w, height: h, smoothing: true, only: opts.only ?? null, hidden: opts.hidden ?? null });
-  return c;
+  return renderWith(state, base, w, h, { only: opts.only ?? null, hidden: opts.hidden ?? null, backgrounds: bg ? [{ x: ab.x, y: ab.y, w: ab.w, h: ab.h, color: bg }] : [] },
+    g => { if (bg) { g.fillStyle = bg; g.fillRect(0, 0, w, h); } });
+}
+
+/** Lo que se ve en la zona de una capa, en su espacio local (w×h de la capa), sin las capas de
+ *  `hidden`. Incluye los fondos de las mesas. */
+export async function renderInLayerSpace(state: DocState, l: Layer, hidden: Set<string>) {
+  const { w, h } = layerSize(l);
+  const W = Math.max(1, Math.round(w)), H = Math.max(1, Math.round(h));
+  const base = new DOMMatrix().scaleSelf(W / w, H / h).multiplySelf(layerMatrix(l).inverse());
+  const bgs = state.artboards.filter(a => a.background).map(a => ({ x: a.x, y: a.y, w: a.w, h: a.h, color: a.background! }));
+  return renderWith(state, base, W, H, { hidden, backgrounds: bgs }, g => {
+    for (const b of bgs) { g.save(); g.setTransform(base.a, base.b, base.c, base.d, base.e, base.f); g.fillStyle = b.color; g.fillRect(b.x, b.y, b.w, b.h); g.restore(); }
+  });
 }
 
 /** Renderiza una capa individual (con su transformación) recortada a su caja. */

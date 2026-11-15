@@ -62,6 +62,9 @@ function OptNum(p: { label: string; value: number; onChange: (v: number) => void
 export function OptionsBar() {
   const tool = useStore(s => s.tool);
   const o = useStore(s => s.opts);
+  const quickMask = useStore(s => s.quickMask);
+  const selView = useStore(s => s.selView);
+  const hasSel = useStore(s => !!s.docs.find(d => d.id === s.activeDocId)?.state.selection);
   useStore(s => s.renderTick);
   const setO = (p: Partial<typeof o>) => set(s => ({ opts: { ...s.opts, ...p } }));
   const Ic = toolIcons[tool];
@@ -85,18 +88,30 @@ export function OptionsBar() {
     <div className="vsep" />
     <span className="muted small">Mayús: proporción libre · Alt: desde el centro / duplicar</span>
   </>;
-  if (tool === 'marquee' || tool === 'ellipseMarquee' || tool === 'lasso') content = <>{selModes}<OptNum label="Calar" value={o.feather} onChange={v => setO({ feather: v })} min={0} max={250} suffix="px" /></>;
+  // vista de la selección, máscara rápida y refinado: comunes a las herramientas de selección
+  const selExtras = <>
+    <div className="vsep" />
+    <span className="muted small">Ver</span>
+    <Seg value={selView} onChange={v => set({ selView: v })} options={[{ value: 'ants', label: 'Hormigas' }, { value: 'overlay', label: 'Rojo', title: 'Lo no seleccionado en rojo' }, { value: 'mask', label: 'B/N', title: 'Selección en blanco y negro' }]} />
+    <button className="btn sm" title="Pintar la selección con el Pincel y el Borrador (Q)" onClick={() => runCommand('sel.quickMask')}>Máscara rápida</button>
+    <button className="btn sm" disabled={!hasSel} title="Ajusta el borde a la imagen (pelo, contornos finos)" onClick={() => runCommand('sel.refineHair')}>Refinar borde…</button>
+  </>;
+  if (tool === 'marquee' || tool === 'ellipseMarquee' || tool === 'lasso') content = <>{selModes}<OptNum label="Calar" value={o.feather} onChange={v => setO({ feather: v })} min={0} max={250} suffix="px" />{selExtras}</>;
   if (tool === 'wand') content = <>{selModes}
     <OptNum label="Tolerancia" value={o.wandTolerance} onChange={v => setO({ wandTolerance: v })} min={0} max={255} />
     <CheckBox checked={o.wandContiguous} onChange={v => setO({ wandContiguous: v })} label="Contiguo" />
     <CheckBox checked={o.wandSampleAll} onChange={v => setO({ wandSampleAll: v })} label="Muestrear todas las capas" />
     <OptNum label="Calar" value={o.feather} onChange={v => setO({ feather: v })} min={0} max={250} suffix="px" />
+    {selExtras}
   </>;
   if (tool === 'brush' || tool === 'eraser' || tool === 'restore') content = <>
     <BrushOptions tool={tool} />
     <div className="vsep" />
-    <span className="muted small">Pintar en</span>
-    <Seg value={o.brushTarget} onChange={v => setO({ brushTarget: v })} options={[{ value: 'pixels', label: 'Píxeles' }, { value: 'mask', label: 'Máscara' }]} />
+    {quickMask
+      ? <><span className="muted small">Pintando la selección (máscara rápida): {tool === 'eraser' ? 'quita' : 'añade'} · Alt invierte</span>
+          <button className="btn sm" onClick={() => runCommand('sel.quickMask')}>Salir (Q)</button></>
+      : <><span className="muted small">Pintar en</span>
+          <Seg value={o.brushTarget} onChange={v => setO({ brushTarget: v })} options={[{ value: 'pixels', label: 'Píxeles' }, { value: 'mask', label: 'Máscara' }]} /></>}
     {tool === 'restore' && <span className="muted small">Recupera los píxeles originales de la capa</span>}
   </>;
   if (tool === 'fill') content = <>

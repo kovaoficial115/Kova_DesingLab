@@ -631,3 +631,6 @@ button.chip.on { background: var(--accent-soft); color: var(--accent); border-co
 .fx-card .grip { cursor: grab; color: var(--muted); display: flex; }
 .fx-card.drag-over { border-color: var(--accent); box-shadow: 0 -2px 0 var(--accent); }
 @media (hover: none) { .fx-tile-tools { display: flex; } .fx-row .fx-add { opacity: 1; } }
+
+/* capas de ajuste en el panel de capas */
+.thumb.adjust-thumb { display: flex; align-items: center; justify-content: center; color: var(--text-2); background: var(--panel-2, rgba(255,255,255,.04)); }

@@ -24,11 +24,20 @@ let aiModule: any = null;
 async function removeBgAI(c: HTMLCanvasElement, onProgress: (t: string) => void): Promise<HTMLCanvasElement> {
   if (!aiModule) { onProgress('Cargando motor de IA…'); aiModule = await import('@imgly/background-removal'); }
   const blob = await canvasToBlob(c, 'image/png');
-  const out: Blob = await aiModule.removeBackground(blob, {
-    model: 'isnet_fp16',
+  // WebGPU si el navegador lo ofrece (más rápido); si no, WebAssembly en la CPU. Con poca memoria se
+  // usa el modelo cuantizado (más ligero, algo menos preciso).
+  const gpu = typeof navigator !== 'undefined' && 'gpu' in navigator && !!(await (navigator as any).gpu?.requestAdapter?.().catch(() => null));
+  const lowMem = typeof navigator !== 'undefined' && (navigator as any).deviceMemory !== undefined && (navigator as any).deviceMemory <= 4;
+  onProgress(gpu ? 'Usando la GPU (WebGPU)…' : 'Usando la CPU (WebAssembly)…');
+  const run = (device: 'gpu' | 'cpu') => aiModule.removeBackground(blob, {
+    device,
+    model: lowMem && device === 'cpu' ? 'isnet_quint8' : 'isnet_fp16',
     output: { format: 'image/png', type: 'mask' },
     progress: (key: string, cur: number, total: number) => { if (total) onProgress(`Descargando modelo ${Math.round((cur / total) * 100)}% (${key.split('/').pop()})`); },
   });
+  let out: Blob;
+  try { out = await run(gpu ? 'gpu' : 'cpu'); }
+  catch (e) { if (!gpu) throw e; onProgress('La GPU falló; reintentando en la CPU…'); out = await run('cpu'); }
   return blobToCanvas(out);
 }
 
@@ -191,7 +200,7 @@ export function BgRemoveDialog({ onClose, tab: initialTab, asSelection }: { onCl
         <div className="col" style={{ overflowY: 'auto', gap: 10 }}>
           <Seg value={tab} onChange={setTab} full options={[{ value: 'ai', label: <><Sparkles size={12} />IA</> }, { value: 'color', label: <><Wand size={12} />Color</> }, { value: 'refine', label: <><Brush size={12} />Refinar</> }]} />
           {tab === 'ai' && <>
-            <div className="tiny muted">Segmentación por red neuronal (ISNet) ejecutada en tu navegador. La primera vez descarga el modelo (~80 MB) desde el CDN de IMG.LY; después queda en caché. Tus imágenes no salen del equipo.</div>
+            <div className="tiny muted">Segmentación por red neuronal (ISNet) ejecutada en tu navegador, con WebGPU si está disponible y si no en la CPU. La primera vez descarga el modelo (~40–80 MB) desde el CDN de IMG.LY; después queda en caché. Tus imágenes no salen del equipo. Sin conexión o en equipos lentos: Selección → Sujeto rápido (sin IA, aproximado).</div>
             <button className="btn primary" onClick={runAI} disabled={!src}><Sparkles size={13} />{aiMask ? 'Volver a calcular' : 'Detectar sujeto'}</button>
             {aiStatus && <div className="tiny" style={{ color: 'var(--text-2)' }}>{aiStatus}</div>}
           </>}

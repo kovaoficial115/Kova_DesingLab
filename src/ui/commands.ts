@@ -17,6 +17,7 @@ import type { TextPath } from '../core/types';
 import type { SocialGuides, PanelId } from '../core/store';
 import { FX } from '../engine/fx/registry';
 import { addEffect, importLut } from '../fx/lib';
+import * as AL from '../core/adjustLayers';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -28,6 +29,14 @@ const hasSel = () => !!docState()?.selection;
 const hasSocial = () => !!docState()?.artboards.some(a => a.social?.preset);
 const A_activeArtboard = () => { const s = docState(); return s ? s.artboards.find(a => a.id === s.activeArtboardId) ?? null : null; };
 export const openDialog = (type: string, props?: any) => set({ dialog: { type, props } });
+function toggleQuickMask() {
+  const on = !get().quickMask;
+  set({ quickMask: on });
+  if (on) {
+    if (get().tool !== 'brush' && get().tool !== 'eraser') setTool('brush');
+    toast('Máscara rápida: el Pincel añade a la selección; el Borrador (o Alt) quita. Pulsa Q para volver a la selección', 'info', 6000);
+  }
+}
 
 const showPanel = (id: PanelId) => set(s => ({ panels: s.panels.map(p => (p.id === id ? { ...p, visible: true, collapsed: false } : p)) }));
 const adj = (t: AdjustmentType): Command => ({ label: A.adjustmentDefaults[t].label, run: () => A.addAdjustment(t), enabled: hasLayer });
@@ -190,6 +199,15 @@ export const commands: Record<string, Command> = {
   'layer.maskHide': { label: 'Máscara que oculta la selección', run: () => A.selectionToMask(true), enabled: hasLayer },
   'layer.maskApply': { label: 'Aplicar máscara', run: () => A.applyMask(), enabled: () => !!activeLayer()?.mask },
   'layer.maskDelete': { label: 'Eliminar máscara', run: () => { const l = activeLayer(); if (l) A.updateLayer(l.id, { mask: null }, 'Eliminar máscara'); }, enabled: () => !!activeLayer()?.mask },
+  'layer.maskReveal': { label: 'Máscara que revela todo', run: () => AL.addMaskFill(false), enabled: hasLayer },
+  'layer.maskHideAll': { label: 'Máscara que oculta todo', run: () => AL.addMaskFill(true), enabled: hasLayer },
+  'layer.maskLumLights': { label: 'Máscara de luminancia (luces)', run: () => AL.luminanceMask(false), enabled: hasLayer },
+  'layer.maskLumShadows': { label: 'Máscara de luminancia (sombras)', run: () => AL.luminanceMask(true), enabled: hasLayer },
+  'layer.maskGradient': { label: 'Máscara de degradado', run: () => AL.gradientMask(), enabled: hasLayer },
+  'layer.maskInvert': { label: 'Invertir máscara', run: () => AL.invertMask(), enabled: () => !!activeLayer()?.mask },
+  'layer.maskView': { label: 'Ver la máscara en blanco y negro', run: () => { const l = activeLayer(); set(st => ({ maskView: st.maskView || !l ? null : l.id })); }, enabled: () => !!activeLayer()?.mask || !!get().maskView, checked: () => !!get().maskView },
+  'layer.newAdjust': { label: 'Nueva capa de ajuste', keys: 'mod+alt+n', run: () => AL.newAdjustmentLayer(), enabled: hasDoc },
+  'layer.newAdjustClip': { label: 'Capa de ajuste solo para esta capa', run: () => AL.newAdjustmentLayer({ clip: true }), enabled: () => { const l = activeLayer(); return !!l && l.kind !== 'group' && l.kind !== 'adjust'; } },
   'layer.rasterize': { label: 'Rasterizar capa', run: () => { const l = activeLayer(); if (l) A.rasterizeLayer(l.id); }, enabled: hasLayer },
   'layer.resample': { label: 'Remuestrear al tamaño actual', run: () => { const l = activeLayer(); if (l) withBusy('Remuestreando…', () => A.rasterizeLayer(l.id, { bakeScale: true })); }, enabled: hasLayer },
   'layer.mergeDown': { label: 'Combinar hacia abajo / selección', keys: 'mod+e', run: () => A.mergeSelected(), enabled: hasLayer },
@@ -207,6 +225,18 @@ export const commands: Record<string, Command> = {
   'sel.layer': { label: 'Cargar transparencia de la capa', run: () => { const l = activeLayer(); if (l) A.selectLayerAlpha(l.id); }, enabled: hasLayer },
   'sel.colorRange': { label: 'Gama de colores…', run: () => openDialog('color-range'), enabled: hasLayer },
   'sel.subject': { label: 'Seleccionar sujeto (IA)', run: () => openDialog('bg-remove', { tab: 'ai', asSelection: true }), enabled: hasLayer },
+  'sel.subjectQuick': { label: 'Sujeto rápido (sin IA, aproximado)', run: () => A.quickSubjectSelection(), enabled: hasLayer },
+  'sel.refineHair': { label: 'Refinar borde (cabello)…', run: () => openDialog('modify-sel', { kind: 'hair' }), enabled: hasSel },
+  'sel.quickMask': { label: 'Máscara rápida (pintar la selección)', keys: 'q', run: () => toggleQuickMask(), enabled: hasDoc, checked: () => get().quickMask },
+  'sel.viewAnts': { label: 'Hormigas', run: () => set({ selView: 'ants' }), checked: () => get().selView === 'ants' },
+  'sel.viewOverlay': { label: 'Superposición roja', run: () => set({ selView: 'overlay' }), checked: () => get().selView === 'overlay' },
+  'sel.viewMask': { label: 'Blanco y negro', run: () => set({ selView: 'mask' }), checked: () => get().selView === 'mask' },
+  'subj.hideBg': { label: 'Ocultar el fondo (máscara)', run: () => AL.hideBackground(), enabled: hasSel },
+  'subj.extract': { label: 'Extraer el sujeto a una capa nueva', run: () => AL.extractSubject(), enabled: hasSel },
+  'subj.replaceBg': { label: 'Reemplazar el fondo por el color frontal', run: () => AL.replaceBackground(get().fg), enabled: () => hasSel() || !!activeLayer()?.mask },
+  'subj.fxSubject': { label: 'Efectos solo en el sujeto', run: () => AL.effectsOnSelection(false), enabled: hasSel },
+  'subj.fxBackground': { label: 'Efectos solo en el fondo', run: () => AL.effectsOnSelection(true), enabled: hasSel },
+  'subj.export': { label: 'Exportar el sujeto como PNG…', run: () => AL.exportSubjectPng(), enabled: hasSel },
   'sel.feather': { label: 'Calar (feather)…', keys: 'shift+f6', run: () => openDialog('modify-sel', { kind: 'feather' }), enabled: hasSel },
   'sel.expand': { label: 'Expandir…', run: () => openDialog('modify-sel', { kind: 'expand' }), enabled: hasSel },
   'sel.contract': { label: 'Contraer…', run: () => openDialog('modify-sel', { kind: 'contract' }), enabled: hasSel },
@@ -219,7 +249,7 @@ export const commands: Record<string, Command> = {
   'fx.library': { label: 'Biblioteca de efectos y preajustes', keys: 'mod+alt+f', run: () => showPanel('effects'), enabled: hasDoc },
   'fx.colorlab': { label: 'Color Lab', keys: 'mod+shift+l', run: () => showPanel('colorlab'), enabled: hasDoc },
   'fx.importLut': { label: 'Importar LUT (.cube)…', run: () => importLut(), enabled: hasLayer },
-  'fx.peek': { label: 'Ver original (sin efectos) mientras se pulsa', keys: 'y', run: () => {}, enabled: hasLayer },
+  'fx.peek': { label: 'Ver original (sin efectos) mientras se pulsa', keys: 'o', run: () => {}, enabled: hasLayer },
   ...Object.fromEntries(['lensBlur', 'motionBlur', 'radialBlur', 'zoomBlur', 'tiltShift', 'noise', 'rgbSplit', 'hGlitch', 'pixelSort', 'datamosh', 'vhsTracking', 'colorBleed', 'crtScanlines', 'screenCurvature', 'bloom', 'neonGlow', 'contourEcho', 'lightLines']
     .map(t => ['fx.add.' + t, { label: FX[t].label, run: () => addEffect({ type: t, label: FX[t].label }), enabled: hasLayer } as Command])),
   // DTF

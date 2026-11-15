@@ -4,6 +4,7 @@ import { runStack } from './fx/pipeline';
 import { halftone } from './halftone';
 import { colorKey, refineEdges, outline, underbase, cleanupAlpha, morphAlpha, featherAlpha, dominantColors, alphaStats, garmentKnockout } from './alpha';
 import ImageTracer from 'imagetracerjs';
+import { guidedMatte, quickSubject } from './matte';
 
 type Msg = { id: number; op: string; data?: Uint8ClampedArray; width: number; height: number; params: any };
 
@@ -26,6 +27,8 @@ self.onmessage = (e: MessageEvent<Msg>) => {
       case 'cleanup': cleanupAlpha(img, params); break;
       case 'morph': morphAlpha(img, params.r); break;
       case 'feather': featherAlpha(img, params.r); break;
+      case 'guided': result = guidedMatte(img, params.r, params.eps, params.contrast); break;
+      case 'quickSubject': result = quickSubject(img); break;
       case 'dominant': result = dominantColors(img, params.k); out = null; break;
       case 'stats': result = alphaStats(img); out = null; break;
       case 'histogram': result = histogram(img); out = null; break;

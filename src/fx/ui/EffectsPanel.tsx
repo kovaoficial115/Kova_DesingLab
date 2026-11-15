@@ -11,12 +11,18 @@ import { FX_CATS, type FxCat } from '../../engine/fx/registry';
 import { PRESET_CATS, type FxPreset, type PresetCat } from '../../engine/fx/presets';
 import {
   FX_ITEMS, useFxLibrary, toggleFav, addEffect, previewPreset, endPreview, commitPreviewAs, applyPreset, presetThumb,
-  importPresets, exportPresets, deletePreset, duplicatePreset, renamePreset, importLut,
+  importPresets, exportPresets, deletePreset, duplicatePreset, renamePreset, importLut, applyAsAdjustmentLayer,
 } from '../lib';
 
 export const catIcon: Record<FxCat, any> = { blur: Waves, noise: Sparkle, distortion: Spline, glitch: Zap, vhs: Tv, crt: Monitor, glow: Sun, color: Palette, texture: Grid3x3 };
 const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const PREVIEW_KEY = 'kova.fx.hoverPreview';
+const DEST_KEY = 'kova.fx.dest';
+type Dest = 'layer' | 'adjust';
+function useDest(): [Dest, (v: Dest) => void] {
+  const [v, setV] = useState<Dest>(() => { try { return localStorage.getItem(DEST_KEY) === 'adjust' ? 'adjust' : 'layer'; } catch { return 'layer'; } });
+  return [v, (x: Dest) => { setV(x); try { localStorage.setItem(DEST_KEY, x); } catch { /* sin almacenamiento */ } }];
+}
 
 function useHoverPreview(): [boolean, (v: boolean) => void] {
   const [v, setV] = useState(() => { try { return localStorage.getItem(PREVIEW_KEY) !== '0'; } catch { return true; } });
@@ -35,9 +41,11 @@ function Thumb({ p, src, srcKey }: { p: FxPreset; src: HTMLCanvasElement | null;
   return url ? <img src={url} alt="" draggable={false} /> : <div className="fx-thumb-wait" />;
 }
 
-export function PresetGrid({ presets, layer, mode }: { presets: FxPreset[]; layer: Layer | null; mode: 'append' | 'replace' }) {
+export function PresetGrid({ presets, layer, mode, asAdjust }: { presets: FxPreset[]; layer: Layer | null; mode: 'append' | 'replace'; asAdjust?: boolean }) {
   const { favs } = useFxLibrary();
-  const [hover] = useHoverPreview();
+  const [hoverPref] = useHoverPreview();
+  // en una capa de ajuste nueva no hay vista previa al pasar (la capa aún no existe)
+  const hover = hoverPref && !asAdjust;
   const [renaming, setRenaming] = useState<string | null>(null);
   const src = layer ? layerContent(layer) : null;
   const srcKey = src ? 'c' + oid(src) : 'sample';
@@ -50,7 +58,7 @@ export function PresetGrid({ presets, layer, mode }: { presets: FxPreset[]; laye
         return (
           <div key={p.id} className="fx-tile" title={`${p.desc ?? ''}\n${p.items.length} efecto${p.items.length === 1 ? '' : 's'} editable${p.items.length === 1 ? '' : 's'}`.trim()}
             onMouseEnter={() => { if (hover && layer) previewPreset(p, mode); }}
-            onClick={() => (layer ? (hover ? commitPreviewAs(p, mode) : applyPreset(p, mode)) : applyPreset(p, mode))}>
+            onClick={() => (asAdjust ? applyAsAdjustmentLayer({ preset: p }) : layer ? (hover ? commitPreviewAs(p, mode) : applyPreset(p, mode)) : applyPreset(p, mode))}>
             <div className="fx-thumb"><Thumb p={p} src={src} srcKey={srcKey} /></div>
             <div className="fx-tile-foot">
               {renaming === p.id
@@ -84,6 +92,10 @@ export function EffectsPanel({ doc }: { doc: Doc }) {
   const [pcat, setPcat] = useState<string>('all');
   const [mode, setMode] = useState<'append' | 'replace'>('append');
   const [hover, setHover] = useHoverPreview();
+  const [destPref, setDest] = useDest();
+  // si la capa elegida ya es de ajuste, los efectos van a ella
+  const asAdjust = destPref === 'adjust' && layer?.kind !== 'adjust';
+  const hasSel = !!s.selection;
   const peek = useStore(st => st.peekOriginal);
   void peek;
 
@@ -106,8 +118,16 @@ export function EffectsPanel({ doc }: { doc: Doc }) {
           onChange={e => setQ(e.target.value)} onKeyDown={e => e.stopPropagation()} />
       </div>
       <Seg full value={tab} onChange={setTab} options={[{ value: 'presets', label: 'Preajustes' }, { value: 'fx', label: 'Efectos' }]} />
-      {!layer && <div className="tiny muted">Selecciona una capa para aplicar. Las miniaturas muestran una imagen de prueba hasta entonces.</div>}
-      {layer && nSel > 1 && <div className="tiny muted">Se aplicará a las {nSel} capas seleccionadas.</div>}
+      <div className="row" style={{ gap: 6 }}>
+        <span className="tiny muted">Aplicar en</span>
+        <Seg value={destPref} onChange={setDest} options={[
+          { value: 'layer', label: 'La capa', title: 'Los efectos se añaden a la pila de la capa seleccionada' },
+          { value: 'adjust', label: 'Capa de ajuste', title: 'Se crea una capa de ajuste encima: actúa sobre todo lo de debajo (con la selección como máscara, si la hay)' },
+        ]} />
+      </div>
+      {asAdjust && <div className="tiny muted">Cada clic crea una capa de ajuste encima de la capa activa{hasSel ? ', con la selección como máscara (solo ahí actúa)' : ''}. Dentro de un grupo solo afecta al grupo.</div>}
+      {!asAdjust && !layer && <div className="tiny muted">Selecciona una capa para aplicar. Las miniaturas muestran una imagen de prueba hasta entonces.</div>}
+      {!asAdjust && layer && nSel > 1 && <div className="tiny muted">Se aplicará a las {nSel} capas seleccionadas.</div>}
 
       {tab === 'fx' ? (
         <>
@@ -124,7 +144,7 @@ export function EffectsPanel({ doc }: { doc: Doc }) {
               const Ic = catIcon[it.cat];
               const fav = favs.includes('fx:' + it.key);
               return (
-                <div key={it.key} className={'fx-row' + (layer ? '' : ' disabled')} title={it.desc} onClick={() => layer && addEffect(it)}>
+                <div key={it.key} className={'fx-row' + (layer || asAdjust ? '' : ' disabled')} title={it.desc} onClick={() => (asAdjust ? applyAsAdjustmentLayer({ item: it }) : layer && addEffect(it))}>
                   <Ic size={13} className="muted" />
                   <div className="grow col" style={{ gap: 0, minWidth: 0 }}>
                     <span className="small">{it.label}</span>
@@ -150,7 +170,7 @@ export function EffectsPanel({ doc }: { doc: Doc }) {
             <span className="grow" />
             <Check checked={hover} onChange={setHover} label="Vista previa" title="Ver el preajuste en el lienzo al pasar el ratón" />
           </div>
-          <PresetGrid presets={plist} layer={layer} mode={mode} />
+          <PresetGrid presets={plist} layer={layer} mode={mode} asAdjust={asAdjust} />
           <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
             <button className="btn sm" onClick={importPresets}><FileUp size={12} />Importar…</button>
             <button className="btn sm" disabled={!user.length} onClick={() => exportPresets(user)} title="Exporta todos tus preajustes en un archivo"><FileDown size={12} />Exportar los míos</button>

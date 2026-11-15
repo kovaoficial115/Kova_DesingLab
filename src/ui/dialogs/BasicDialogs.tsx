@@ -114,13 +114,20 @@ export function CanvasSizeDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function ModifySelectionDialog({ kind, onClose }: { kind: 'feather' | 'expand' | 'contract' | 'smooth'; onClose: () => void }) {
-  const [v, setV] = useState(kind === 'feather' ? 5 : 3);
-  const title = { feather: 'Calar selección', expand: 'Expandir selección', contract: 'Contraer selección', smooth: 'Suavizar selección' }[kind];
+export function ModifySelectionDialog({ kind, onClose }: { kind: 'feather' | 'expand' | 'contract' | 'smooth' | 'hair'; onClose: () => void }) {
+  const [v, setV] = useState(kind === 'feather' ? 5 : kind === 'hair' ? 8 : 3);
+  const [contrast, setContrast] = useState(1.4);
+  const title = { feather: 'Calar selección', expand: 'Expandir selección', contract: 'Contraer selección', smooth: 'Suavizar selección', hair: 'Refinar borde (cabello)' }[kind];
+  const ok = () => { if (kind === 'hair') A.refineSelectionEdges(v, contrast); else A.modifySelection(kind, v); onClose(); };
   return (
-    <Modal title={title} onClose={onClose} width={340}
-      footer={<><div className="spacer" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" onClick={() => { A.modifySelection(kind, v); onClose(); }}>Aceptar</button></>}>
-      <Slider label="Radio" value={v} min={0.5} max={200} step={0.5} digits={1} suffix="px" onChange={setV} />
+    <Modal title={title} onClose={onClose} width={360}
+      footer={<><div className="spacer" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" onClick={ok}>Aceptar</button></>}>
+      <Slider label="Radio" value={v} min={kind === 'hair' ? 1 : 0.5} max={kind === 'hair' ? 40 : 200} step={kind === 'hair' ? 1 : 0.5} digits={kind === 'hair' ? 0 : 1} suffix="px" onChange={setV}
+        hint={kind === 'hair' ? 'Anchura de la franja del borde que se recalcula (más ancha para melenas y pelo suelto)' : undefined} />
+      {kind === 'hair' && <>
+        <Slider label="Contraste del borde" value={contrast} min={0.8} max={3} step={0.1} digits={1} onChange={setContrast} hint="Más alto: borde más definido; más bajo: más semitransparencia" />
+        <div className="tiny muted">Ajusta el borde de la selección a los bordes de la imagen (pelo, pelusa, contornos finos) con un filtro guiado por lo que se ve. Funciona mejor con fondos que contrastan con el sujeto; revisa el resultado con la vista en blanco y negro.</div>
+      </>}
     </Modal>
   );
 }

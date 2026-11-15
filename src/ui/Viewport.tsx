@@ -64,7 +64,8 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
   };
   paintArtboards();
   const smoothing = v.zoom < 2;
-  renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, tiles: true, allowDraft: true, bypassIds: st.peekOriginal ? new Set(s.selectedLayerIds) : null });
+  const backgrounds = s.artboards.filter(a => a.background).map(a => ({ x: a.x, y: a.y, w: a.w, h: a.h, color: a.background! }));
+  renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, tiles: true, allowDraft: true, backgrounds, bypassIds: st.peekOriginal ? new Set(s.selectedLayerIds) : null });
 
   if (compareX != null) {
     const cx = compareX * dpr;
@@ -72,7 +73,7 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
     g.beginPath(); g.rect(0, 0, cx, canvas.height); g.clip();
     g.fillStyle = KOVA.pasteboard; g.fillRect(0, 0, cx, canvas.height);
     paintArtboards();
-    renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, tiles: true, bypassIds: new Set(s.layers.map(l => l.id)) });
+    renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, tiles: true, backgrounds, bypassIds: new Set(s.layers.map(l => l.id)) });
     g.restore();
   }
 
@@ -86,6 +87,22 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
       if (st.channelView !== 'all') channelView(img, st.channelView);
       else softProof(img, false);
       g.putImageData(img, x, y);
+    }
+  }
+
+  // vista de la selección (máscara rápida, superposición o blanco y negro) y de una máscara de capa
+  const selView = st.quickMask ? (st.selView === 'mask' ? 'mask' : 'overlay') : st.selView;
+  if (selView !== 'ants') drawSelectionView(g, s.selection, base, abRects, selView, canvas.width, canvas.height);
+  if (st.maskView) {
+    const ml = s.layers.find(l => l.id === st.maskView);
+    if (ml?.mask) {
+      const m = base.multiply(layerMatrix(ml));
+      const { w, h } = layerSize(ml);
+      g.save();
+      g.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+      g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+      g.drawImage(ml.mask, 0, 0, w, h);
+      g.restore();
     }
   }
 
@@ -120,6 +137,38 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
       if (label) g.fillText(label, r.x, r.y - 7 * dpr);
     }
   }
+  g.restore();
+}
+
+// ---------- selección en rojo o en blanco y negro ----------
+let selViewCanvas: HTMLCanvasElement | null = null;
+function drawSelectionView(g: CanvasRenderingContext2D, sel: Selection | null, base: DOMMatrix, abRects: { x: number; y: number; w: number; h: number }[], mode: 'overlay' | 'mask', W: number, H: number) {
+  if (!selViewCanvas) selViewCanvas = createCanvas(W, H);
+  const off = selViewCanvas;
+  if (off.width !== W || off.height !== H) { off.width = W; off.height = H; }
+  const og = ctx2d(off);
+  og.setTransform(1, 0, 0, 1, 0, 0);
+  og.globalCompositeOperation = 'source-over';
+  og.clearRect(0, 0, W, H);
+  // superposición: rojo sobre lo NO seleccionado; máscara: negro fuera, blanco dentro
+  og.fillStyle = mode === 'overlay' ? 'rgba(255,40,64,0.5)' : '#000';
+  for (const r of abRects) og.fillRect(r.x, r.y, r.w, r.h);
+  if (sel) {
+    og.save();
+    og.setTransform(base.a, base.b, base.c, base.d, base.e, base.f);
+    og.globalCompositeOperation = 'destination-out';
+    og.drawImage(sel.canvas, sel.x, sel.y);
+    og.restore();
+  }
+  if (mode === 'mask') {
+    og.globalCompositeOperation = 'destination-over';
+    og.fillStyle = '#fff';
+    for (const r of abRects) og.fillRect(r.x, r.y, r.w, r.h);
+    og.globalCompositeOperation = 'source-over';
+  }
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(off, 0, 0);
   g.restore();
 }
 
@@ -298,7 +347,7 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
   drawSocialGuides(g, doc, sx, sy, v.zoom);
 
   // selección
-  const sel = s.selection;
+  const sel = st.quickMask || st.selView !== 'ants' ? null : s.selection;
   if (sel) {
     if (sel.shape) {
       const r = sel.shape;
@@ -438,6 +487,17 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
     g.font = `600 11px ${KOVA.font}`; g.textAlign = 'center';
     g.fillStyle = 'rgba(20,20,24,.85)'; g.fillRect(W / 2 - 80, 10, 160, 22);
     g.fillStyle = '#fff'; g.fillText('Original (sin efectos)', W / 2, 25);
+    g.textAlign = 'left';
+  }
+  const banner = st.quickMask ? 'Máscara rápida · Pincel añade, Borrador o Alt quita · Q para salir'
+    : st.maskView ? 'Máscara de capa en blanco y negro · Alt+clic en la miniatura para salir'
+    : st.selView === 'mask' ? 'Selección en blanco y negro' : st.selView === 'overlay' ? 'Selección en superposición' : '';
+  if (banner) {
+    g.font = `600 11px ${KOVA.font}`; g.textAlign = 'center';
+    const tw = g.measureText(banner).width + 20;
+    g.fillStyle = 'rgba(20,20,24,.85)'; g.fillRect(W / 2 - tw / 2, st.peekOriginal ? 36 : 10, tw, 22);
+    g.fillStyle = '#fff'; g.fillText(banner, W / 2, st.peekOriginal ? 51 : 25);
+    g.textAlign = 'left';
   }
   if (compareX != null) {
     g.fillStyle = KOVA.red;
@@ -528,7 +588,7 @@ export function Viewport({ doc }: { doc: Doc }) {
   const [compareX, setCompareX] = useState<number | null>(null);
   const view = useStore(s => s.views[doc.id]);
   const tick = useStore(s => s.renderTick);
-  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}|${s.peekOriginal}|${s.fxFocus?.adjId ?? ''}`);
+  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}|${s.peekOriginal}|${s.fxFocus?.adjId ?? ''}|${s.quickMask}|${s.selView}|${s.maskView}`);
   const socialFormats = useStore(s => s.socialFormats);
   const compare = useStore(s => s.compare);
   const showRulers = useStore(s => s.showRulers);

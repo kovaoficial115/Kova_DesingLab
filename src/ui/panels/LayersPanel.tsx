@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Eye, EyeOff, Lock, Unlock, Plus, Trash2, FolderPlus, Copy, ChevronRight, ChevronDown, Folder, Type, Shapes, PenTool, CornerLeftDown, Component, Pilcrow, Spline,
-  SquareDashedBottom, SlidersHorizontal, Link2,
+  SquareDashedBottom, SlidersHorizontal, Link2, Contrast,
 } from 'lucide-react';
+import { newAdjustmentLayer } from '../../core/adjustLayers';
 import { useStore, docState, live, finishLive } from '../../core/store';
 import type { Doc, DocState, Layer, BlendMode } from '../../core/types';
 import { processedContent, layerContent, mipFor } from '../../core/render';
@@ -55,6 +56,7 @@ function LayerRow({ l, depth, doc, drop, setDrop }: { l: Layer; depth: number; d
   const [editing, setEditing] = useState(false);
   const sel = doc.state.selectedLayerIds.includes(l.id);
   const target = useStore(s => s.opts.brushTarget);
+  const maskView = useStore(s => s.maskView);
   const cls = ['layer-row', sel ? 'sel' : '', !l.visible ? 'hidden-layer' : '', drop?.id === l.id ? `drop-${drop.pos}` : ''].join(' ');
   return (
     <div className={cls} style={{ paddingLeft: 6 + depth * 16 }} draggable={!editing}
@@ -88,6 +90,11 @@ function LayerRow({ l, depth, doc, drop, setDrop }: { l: Layer; depth: number; d
           </button>
           <Folder size={15} className="muted" />
         </>
+      ) : l.kind === 'adjust' ? (
+        <div className="thumb adjust-thumb" title={`Capa de ajuste · ${l.adjustments.length} efecto${l.adjustments.length === 1 ? '' : 's'}`}
+          onClick={e => { e.stopPropagation(); A.selectLayers([l.id]); useStore.setState(st => ({ panels: st.panels.map(p => (p.id === 'adjustments' ? { ...p, visible: true, collapsed: false } : p)) })); }}>
+          <Contrast size={15} />
+        </div>
       ) : (
         <div className="thumb" title="Ctrl/⌘+clic: cargar selección" onClick={e => { if (e.metaKey || e.ctrlKey) { e.stopPropagation(); A.selectLayerAlpha(l.id); } else if (l.mask) useStore.setState(s => ({ opts: { ...s.opts, brushTarget: 'pixels' } })); }}
           style={sel && l.mask && target === 'pixels' ? { boxShadow: '0 0 0 2px ' + KOVA.red } : undefined}>
@@ -97,8 +104,13 @@ function LayerRow({ l, depth, doc, drop, setDrop }: { l: Layer; depth: number; d
       {l.mask && (
         <>
           <Link2 size={10} className="muted" />
-          <div className="thumb mask" title="Máscara (Mayús+clic: activar/desactivar)" style={{ opacity: l.maskEnabled ? 1 : 0.35, boxShadow: sel && target === 'mask' ? '0 0 0 2px ' + KOVA.red : undefined }}
-            onClick={e => { e.stopPropagation(); if (e.shiftKey) A.updateLayer(l.id, { maskEnabled: !l.maskEnabled }, 'Activar máscara'); else { A.selectLayers([l.id]); useStore.setState(s => ({ opts: { ...s.opts, brushTarget: 'mask' } })); } }}>
+          <div className="thumb mask" title="Máscara (Mayús+clic: activar/desactivar · Alt+clic: verla en blanco y negro)" style={{ opacity: l.maskEnabled ? 1 : 0.35, boxShadow: (sel && target === 'mask') || maskView === l.id ? '0 0 0 2px ' + KOVA.red : undefined }}
+            onClick={e => {
+              e.stopPropagation();
+              if (e.shiftKey) A.updateLayer(l.id, { maskEnabled: !l.maskEnabled }, 'Activar máscara');
+              else if (e.altKey) useStore.setState(s => ({ maskView: s.maskView === l.id ? null : l.id }));
+              else { A.selectLayers([l.id]); useStore.setState(s => ({ opts: { ...s.opts, brushTarget: 'mask' } })); }
+            }}>
             <Thumb l={l} mask />
           </div>
         </>
@@ -116,7 +128,7 @@ function LayerRow({ l, depth, doc, drop, setDrop }: { l: Layer; depth: number; d
             {l.link && l.link.src === l.link.master && <span className="layer-badge" title="Variante vinculada"><Link2 size={11} /></span>}
             {l.text?.styleId && <span className="layer-badge muted" title="Con estilo de texto vinculado" style={{ color: 'var(--muted)' }}><Pilcrow size={10} /></span>}
             {l.text?.path && <span className="layer-badge" title="Texto en trayectoria" style={{ color: 'var(--muted)' }}><Spline size={10} /></span>}
-            {l.adjustments.length > 0 && <span title={`${l.adjustments.length} ajustes`}><SlidersHorizontal size={11} className="muted" /></span>}
+            {l.adjustments.length > 0 && l.kind !== 'adjust' && <span title={`${l.adjustments.length} ajustes`}><SlidersHorizontal size={11} className="muted" /></span>}
           </div>
         )}
         {(l.opacity < 1 || l.blend !== 'source-over') && <div className="meta">{Math.round(l.opacity * 100)}% · {blendModes.find(b => b.value === l.blend)?.label}</div>}
@@ -160,6 +172,7 @@ export function LayersPanel({ doc }: { doc: Doc }) {
         <div className="row" style={{ gap: 2 }}>
           <button className="icon-btn sm" title="Máscara de capa (desde selección)" disabled={!act} onClick={() => A.selectionToMask()}><SquareDashedBottom size={13} /></button>
           <button className="icon-btn sm" title="Máscara de recorte" disabled={!act} onClick={() => A.toggleClip()}><CornerLeftDown size={13} /></button>
+          <button className="icon-btn sm" title="Nueva capa de ajuste (afecta a lo de debajo; Alt+clic: solo a esta capa)" onClick={e => newAdjustmentLayer({ clip: e.altKey })}><Contrast size={13} /></button>
           <button className="icon-btn sm" title="Ajustes" disabled={!act} onClick={() => useStore.setState(st => ({ panels: st.panels.map(p => (p.id === 'adjustments' ? { ...p, visible: true, collapsed: false } : p)) }))}><SlidersHorizontal size={13} /></button>
           <button className="icon-btn sm" title="Contorno / silueta" disabled={!act} onClick={() => openDialog('outline')}><Shapes size={13} /></button>
         </div>

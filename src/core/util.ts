@@ -112,6 +112,7 @@ export function layerSize(l: Layer): { w: number; h: number } {
   if (l.kind === 'shape' && l.shape) return { w: l.shape.w, h: l.shape.h };
   if (l.kind === 'vector' && l.vector) return { w: l.vector.w, h: l.vector.h };
   if (l.kind === 'text' && l.text) return measureText(l.text);
+  if (l.kind === 'adjust' && l.adjust) return { w: l.adjust.w, h: l.adjust.h };
   return { w: 0, h: 0 };
 }
 

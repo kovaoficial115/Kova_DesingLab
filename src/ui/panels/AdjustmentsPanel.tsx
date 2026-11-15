@@ -7,6 +7,7 @@ import { FxParams, MixControls } from '../../fx/ui/FxEditor';
 import { labelOf, duplicateAdj, resetAdj, moveAdj, setAdjProps, presetFromLayer, savePreset, exportColorAsCube, clearStack } from '../../fx/lib';
 import type { Adjustment, AdjustmentType, Doc, Layer } from '../../core/types';
 import * as A from '../../core/actions';
+import { newAdjustmentLayer, adjustScopeText } from '../../core/adjustLayers';
 import { Slider, Check, Seg, Select } from '../components/controls';
 import { PRESET_CATS, type PresetCat } from '../../engine/fx/presets';
 import { curveLut } from '../../engine/pixels';
@@ -229,8 +230,10 @@ export function AdjustmentsPanel({ doc }: { doc: Doc }) {
           <button key={t} className="icon-btn" title={A.adjustmentDefaults[t].label} disabled={!l || l.kind === 'group'}
             onClick={async () => { const a = await A.addAdjustment(t); if (a) setOpen(a.id); }}><Ic size={15} /></button>
         ); })}
-        <button className="btn sm" style={{ marginLeft: 'auto' }} onClick={showLibrary} title="Biblioteca de efectos y preajustes"><Plus size={12} />Efectos</button>
+        <button className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => newAdjustmentLayer()} title="Capa de ajuste: los efectos actúan sobre todo lo de debajo, con su propia máscara (si hay selección, se usa como máscara)"><Layers2 size={12} />Capa de ajuste</button>
+        <button className="btn sm" onClick={showLibrary} title="Biblioteca de efectos y preajustes"><Plus size={12} />Efectos</button>
       </div>
+      {l?.kind === 'adjust' && <div className="tiny muted"><Layers2 size={10} /> Capa de ajuste. {adjustScopeText(l, s.layers)} Pinta en su máscara (negro oculta) para limitar dónde actúa.</div>}
       {!l && <div className="tiny muted">Selecciona una capa para añadir ajustes y efectos no destructivos.</div>}
       {l && !l.adjustments.length && <div className="tiny muted">Los ajustes y efectos se aplican sin modificar los píxeles originales. Puedes editarlos, ocultarlos, reordenarlos (arrastrando) o guardarlos como preajuste.</div>}
       {l && l.adjustments.map((a, i) => {
@@ -271,14 +274,14 @@ export function AdjustmentsPanel({ doc }: { doc: Doc }) {
       {l && l.adjustments.length > 0 && (
         <div className="col" style={{ gap: 6 }}>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            <button className={'btn sm' + (peek ? ' on' : '')} title="Mantén pulsado para ver la capa sin efectos"
+            <button className={'btn sm' + (peek ? ' on' : '')} title="Mantén pulsado (o la tecla O) para ver la capa sin efectos"
               onPointerDown={startPeek} onPointerUp={endPeek} onPointerLeave={endPeek}><EyeOff size={12} />Ver original</button>
             <button className={'btn sm' + (saving ? ' on' : '')} onClick={() => setSaving(!saving)}><Save size={12} />Guardar como preajuste</button>
             <button className="btn sm" title="Hornea los ajustes de color en una LUT .cube para otros programas" onClick={() => exportColorAsCube(l, l.name + ' color')}><Download size={12} />Exportar .cube</button>
           </div>
           {saving && <SavePresetRow l={l} onDone={() => setSaving(false)} />}
           <div className="row" style={{ gap: 6 }}>
-            <button className="btn sm" onClick={() => A.applyAdjustments()}><CheckIcon size={12} />Aplicar a los píxeles</button>
+            {l.kind !== 'adjust' && <button className="btn sm" onClick={() => A.applyAdjustments()}><CheckIcon size={12} />Aplicar a los píxeles</button>}
             <button className="btn sm" onClick={() => clearStack(l.id)}><Trash2 size={12} />Quitar todos</button>
           </div>
         </div>

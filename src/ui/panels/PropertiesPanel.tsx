@@ -51,7 +51,7 @@ function LayerProps({ l, ab, doc }: { l: Layer; ab: Artboard; doc: Doc }) {
   return (
     <>
       <div className="row">
-        <span className="chip">{{ raster: 'Píxeles', text: 'Texto', shape: 'Forma', vector: 'Vector', group: 'Grupo' }[l.kind]}</span>
+        <span className="chip">{{ raster: 'Píxeles', text: 'Texto', shape: 'Forma', vector: 'Vector', group: 'Grupo', adjust: 'Capa de ajuste' }[l.kind]}</span>
         <span className="small grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{multi ? `${doc.state.selectedLayerIds.length} capas` : l.name}</span>
       </div>
       {l.kind !== 'group' && <>

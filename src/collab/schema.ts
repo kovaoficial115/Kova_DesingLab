@@ -28,6 +28,8 @@ export interface LayerJSON {
   mask: FileRef | null; mw: number; mh: number;
   /** componente principal, variante vinculada y recurso de marca (opcionales) */
   component?: { name: string } | null; link?: { master: string; src: string } | null; brand?: { kit: string; asset: string; color?: string } | null;
+  /** capa de ajuste: zona donde actúa */
+  adjust?: { w: number; h: number } | null;
   z: string;
 }
 export const FILE_KEYS = ['svgFile', 'canvas', 'origin', 'mask'] as const;

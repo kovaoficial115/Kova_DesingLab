@@ -398,7 +398,8 @@ const eyedropperTool = {
 // 80 megapíxeles: cada toque es un sello ya teñido, solo se recompone el rectángulo que cambió,
 // una vez por fotograma, y el visor dibuja reducciones que se actualizan solo en esa zona.
 interface Stroke {
-  layer: Layer; target: 'pixels' | 'mask'; base: HTMLCanvasElement; working: HTMLCanvasElement; buffer: SparseCanvas;
+  /** null: se pinta la selección (máscara rápida) */
+  layer: Layer | null; target: 'pixels' | 'mask' | 'selection'; base: HTMLCanvasElement; working: HTMLCanvasElement; buffer: SparseCanvas;
   last: { x: number; y: number } | null; carry: number; kind: BrushToolId; inv: DOMMatrix; scale: number; restoreSrc?: HTMLCanvasElement;
   sel: HTMLCanvasElement | null; brush: BrushSettings; stamp: HTMLCanvasElement; texture: CanvasPattern | null; textureScale: number;
   dirty: Rect[]; raf: number; procAt: number; rand: () => number;
@@ -488,7 +489,7 @@ function recomposite(st: Stroke, r: Rect) {
     src = scratchB;
   }
   W.globalAlpha = st.brush.opacity;
-  W.globalCompositeOperation = st.target === 'pixels' && st.kind === 'eraser' ? 'destination-out' : 'source-over';
+  W.globalCompositeOperation = st.target !== 'mask' && st.kind === 'eraser' ? 'destination-out' : 'source-over';
   W.drawImage(src, 0, 0, w, h, 0, 0, w, h);
   const out = W.getImageData(0, 0, w, h);
   ctx2d(st.working).putImageData(out, x, y);
@@ -509,7 +510,7 @@ function flushStroke(st: Stroke) {
   // capas con máscara o ajustes: su resultado se calcula sobre el lienzo entero, así que se
   // refresca como mucho cuatro veces por segundo (y al soltar)
   const l = st.layer;
-  if ((l.mask && l.maskEnabled) || l.adjustments.some(a => a.enabled)) {
+  if (l && ((l.mask && l.maskEnabled) || l.adjustments.some(a => a.enabled))) {
     const now = performance.now();
     if (now - st.procAt > 250) { st.procAt = now; invalidateLayer(l.id); }
   }
@@ -550,16 +551,55 @@ function stampDab(st: Stroke, x: number, y: number, d: number) {
   addDirty(st, r);
 }
 
+/** Máscara rápida: el trazo pinta la selección (Pincel añade; Borrador, o Alt, quita). */
+function selectionStroke(kind: BrushToolId, e: ToolEvent) {
+  const s = docState()!;
+  const ab = activeArtboard();
+  const cur = s.selection;
+  const r = unionRect([ab, cur ? { x: cur.x, y: cur.y, w: cur.canvas.width, h: cur.canvas.height } : null].filter((x): x is Rect => !!x));
+  if (!r) return;
+  const x0 = Math.floor(r.x), y0 = Math.floor(r.y);
+  const W = Math.max(1, Math.ceil(r.x + r.w) - x0), H = Math.max(1, Math.ceil(r.y + r.h) - y0);
+  let base: HTMLCanvasElement;
+  if (cur && cur.x === x0 && cur.y === y0 && cur.canvas.width === W && cur.canvas.height === H) base = cur.canvas;
+  else {
+    base = createCanvas(W, H);
+    if (cur) ctx2d(base).drawImage(cur.canvas, cur.x - x0, cur.y - y0);
+  }
+  const working = cloneCanvas(base);
+  beginLiveCanvas(working, base);
+  const brush = { ...brushFor(kind) };
+  const remove = kind === 'eraser' || e.alt;
+  const texMask = makeTextureMask(brush);
+  stroke = {
+    layer: null, target: 'selection', base, working, buffer: new SparseCanvas(W, H), last: null, carry: 0, kind: remove ? 'eraser' : 'brush',
+    inv: new DOMMatrix().translateSelf(-x0, -y0), scale: 1, sel: null, brush, stamp: makeStamp(brush, '#ffffff', brush.size),
+    texture: texMask ? ctx2d(scratchA).createPattern(texMask, 'repeat') : null, textureScale: Math.max(0.05, brush.textureScale),
+    dirty: [], raf: 0, procAt: performance.now(), rand: Math.random,
+  };
+  live(st => ({ ...st, selection: { x: x0, y: y0, canvas: working, shape: null } }));
+}
+
 function brushTool(kind: BrushToolId) {
   return {
     cursor: 'none',
     async down(e: ToolEvent) {
       const s = docState()!;
+      if (get().quickMask) { selectionStroke(kind, e); this.move(e); return; }
       let l = activeLayer();
       if (!l) return toast('Selecciona una capa', 'warn');
       const { opts, fg } = get();
       const brush = { ...brushFor(kind) };
-      const target = opts.brushTarget === 'mask' && l.mask ? 'mask' : 'pixels';
+      // en una capa de ajuste se pinta su máscara (se crea en blanco si no tiene)
+      if (l.kind === 'adjust' && !l.mask) {
+        const { w, h } = layerSize(l);
+        const m = createCanvas(Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+        const mg = ctx2d(m); mg.fillStyle = '#fff'; mg.fillRect(0, 0, m.width, m.height);
+        const id0 = l.id;
+        silent(st => ({ ...st, layers: st.layers.map(x => (x.id === id0 ? { ...x, mask: m, maskEnabled: true } : x)) }));
+        l = { ...l, mask: m, maskEnabled: true };
+      }
+      const target = (opts.brushTarget === 'mask' || l.kind === 'adjust') && l.mask ? 'mask' : 'pixels';
       if (target === 'pixels') { l = await ensureRaster(l); if (!l) return; }
       const base = target === 'mask' ? l.mask! : l.canvas!;
       const working = cloneCanvas(base);
@@ -620,8 +660,8 @@ function brushTool(kind: BrushToolId) {
       if (st.last) { const q = st.inv.inverse().transformPoint(new DOMPoint(st.last.x, st.last.y)); lastStrokeEnd = { x: q.x, y: q.y }; }
       // el lienzo de trabajo ya no cambia: pasa a ser el bitmap (inmutable) de la capa tal cual,
       // sin copiarlo, y conserva sus reducciones al día
-      if (st.layer.mask || st.layer.adjustments.length) invalidateLayer(st.layer.id);
-      finishLive(kind === 'brush' ? 'Pincel' : kind === 'eraser' ? 'Borrador' : 'Restaurar');
+      if (st.layer && (st.layer.mask || st.layer.adjustments.length)) invalidateLayer(st.layer.id);
+      finishLive(!st.layer ? 'Pincel de selección' : kind === 'brush' ? 'Pincel' : kind === 'eraser' ? 'Borrador' : 'Restaurar');
     },
     leave() { overlay.brush = null; redrawOverlay(); },
   };
@@ -655,6 +695,35 @@ const fillTool = {
 };
 
 // ---------- degradado ----------
+const grayOf = (hex: string) => { const [r, g, b] = hexToRgb(hex); const v = Math.round(0.299 * r + 0.587 * g + 0.114 * b); return `rgb(${v},${v},${v})`; };
+/** Máscara de degradado: el degradado (en grises, del color frontal al de fondo) sustituye a la
+ *  máscara de la capa (dentro de la selección, si la hay). */
+function gradientIntoMask(l: Layer, ln: { x1: number; y1: number; x2: number; y2: number }) {
+  const { opts, fg, bg } = get();
+  const { w, h } = layerSize(l);
+  const old = l.mask;
+  const out = createCanvas(old?.width ?? Math.max(1, Math.round(w)), old?.height ?? Math.max(1, Math.round(h)));
+  const g = ctx2d(out);
+  const inv = new DOMMatrix().scaleSelf(out.width / w, out.height / h).multiplySelf(layerMatrix(l).inverse());
+  const a = inv.transformPoint(new DOMPoint(ln.x1, ln.y1)), b = inv.transformPoint(new DOMPoint(ln.x2, ln.y2));
+  const gr = opts.gradientType === 'radial' ? g.createRadialGradient(a.x, a.y, 0, a.x, a.y, Math.hypot(b.x - a.x, b.y - a.y)) : g.createLinearGradient(a.x, a.y, b.x, b.y);
+  gr.addColorStop(0, grayOf(fg));
+  gr.addColorStop(1, grayOf(bg));
+  const s = docState()!;
+  if (s.selection && old) {
+    // fuera de la selección se conserva la máscara anterior
+    const grad = createCanvas(out.width, out.height);
+    const gg = ctx2d(grad);
+    gg.fillStyle = gr; gg.fillRect(0, 0, out.width, out.height);
+    gg.globalCompositeOperation = 'destination-in';
+    gg.drawImage(selectionInLayer(s.selection, l), 0, 0, out.width, out.height);
+    g.drawImage(old, 0, 0);
+    g.drawImage(grad, 0, 0);
+  } else { g.fillStyle = gr; g.fillRect(0, 0, out.width, out.height); }
+  invalidateLayer(l.id);
+  commit('Máscara de degradado', st => ({ ...st, layers: st.layers.map(x => (x.id === l.id ? { ...x, mask: out, maskEnabled: true } : x)) }));
+}
+
 const gradientTool = {
   cursor: 'crosshair',
   down(e: ToolEvent) { drag = { x: e.wx, y: e.wy }; overlay.line = { x1: e.wx, y1: e.wy, x2: e.wx, y2: e.wy }; },
@@ -671,6 +740,7 @@ const gradientTool = {
     if (!ln || Math.hypot(ln.x2 - ln.x1, ln.y2 - ln.y1) < 3) return;
     let l = activeLayer();
     if (!l) return toast('Selecciona una capa', 'warn');
+    if (l.kind !== 'group' && (l.kind === 'adjust' || (get().opts.brushTarget === 'mask' && l.mask))) return gradientIntoMask(l, ln);
     l = await ensureRaster(l);
     if (!l) return;
     const { opts, fg, bg } = get();

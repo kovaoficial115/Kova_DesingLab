@@ -38,6 +38,11 @@ export function vectorLayer(svg: string, w: number, h: number, name = 'Vector', 
   return { ...baseLayer('vector', name), vector: { svg, w, h }, x, y };
 }
 
+/** Capa de ajuste: su pila de ajustes y efectos actúa sobre lo que hay debajo, en la zona w×h. */
+export function adjustLayer(w: number, h: number, x: number, y: number, name = 'Capa de ajuste'): Layer {
+  return { ...baseLayer('adjust', name), adjust: { w, h }, x, y };
+}
+
 export function groupLayer(name = 'Grupo'): Layer {
   return { ...baseLayer('group', name) };
 }

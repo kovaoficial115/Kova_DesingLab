@@ -215,6 +215,8 @@ async function buildPsd(state: DocState, ab: Artboard, dpi: number): Promise<Arr
         out.push({ name: l.name, hidden: !l.visible, opacity: l.opacity, blendMode: psdBlendOut[l.blend], opened: !l.collapsed, children: await walk(childrenOf(state.layers, l.id)) });
         continue;
       }
+      // las capas de ajuste de KOVA no tienen equivalente en PSD: su efecto va en la imagen compuesta
+      if (l.kind === 'adjust') continue;
       const { canvas, bounds } = await renderLayerAlone({ ...state, layers: state.layers.map(x => (x.id === l.id ? { ...x, opacity: 1, blend: 'source-over', visible: true, parentId: null, clip: false } : x)) }, { ...l, opacity: 1, visible: true, parentId: null, clip: false }, scale);
       out.push({
         name: l.name, hidden: !l.visible, opacity: l.opacity, blendMode: psdBlendOut[l.blend], clipping: l.clip,
