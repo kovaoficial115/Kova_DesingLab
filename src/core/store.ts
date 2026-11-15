@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Doc, DocState, ToolId, Unit, View, Layer } from './types';
 import { defaultBrushes, sanitizeBrushes, type BrushSettings, type BrushToolId } from '../engine/brush';
 import { sanitizeUserFormats, emptyUserFormats, type UserFormats } from '../social/presets';
+import { sanitizeSimAppearance, type SimAppearance } from '../social/appearance';
 import { syncLinks } from './links';
 
 export type PanelId = 'color' | 'properties' | 'adjustments' | 'effects' | 'colorlab' | 'layers' | 'history' | 'artboards' | 'channels' | 'social' | 'behance' | 'brand';
@@ -97,6 +98,8 @@ export interface AppState {
   autosaveSec: number;
   workspace: Workspace;
   socialGuides: SocialGuides;
+  /** apariencia de la interfaz simulada en las vistas previas (no cambia el diseño) */
+  simAppearance: SimAppearance;
   /** formatos de redes modificados o creados por el usuario */
   socialFormats: UserFormats;
 }
@@ -138,7 +141,7 @@ function loadPrefs(): Partial<AppState> {
     const workspace: Workspace = p.workspace === 'graphic' || p.workspace === 'social' ? p.workspace : 'dtf';
     const sg = { ...defaultSocialGuides(), ...(p.socialGuides && typeof p.socialGuides === 'object' ? p.socialGuides : {}) };
     for (const k of Object.keys(sg) as (keyof SocialGuides)[]) sg[k] = !!sg[k];
-    return { ...p, panels: mergePanels(p.panels), brushes: sanitizeBrushes(p.brushes), workspace, socialGuides: sg, socialFormats: sanitizeUserFormats(p.socialFormats) };
+    return { ...p, panels: mergePanels(p.panels), brushes: sanitizeBrushes(p.brushes), workspace, socialGuides: sg, socialFormats: sanitizeUserFormats(p.socialFormats), simAppearance: sanitizeSimAppearance(p.simAppearance) };
   } catch { return {}; }
 }
 
@@ -182,6 +185,7 @@ export const useStore = create<AppState>(() => ({
   autosaveSec: 4,
   workspace: 'dtf',
   socialGuides: defaultSocialGuides(),
+  simAppearance: 'light',
   socialFormats: emptyUserFormats(),
   swatches: ['#000000', '#ffffff', '#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00c7be', '#007aff', '#5856d6', '#af52de', '#ff2d55', '#8e8e93', '#d21625', '#00001f', '#f0e7de'],
   ...loadPrefs(),
@@ -191,10 +195,10 @@ export const useStore = create<AppState>(() => ({
 useStore.subscribe((s, prev) => {
   if (s.panels !== prev.panels || s.unit !== prev.unit || s.rightWidth !== prev.rightWidth || s.showRulers !== prev.showRulers ||
     s.gridSize !== prev.gridSize || s.swatches !== prev.swatches || s.snap !== prev.snap || s.autosaveSec !== prev.autosaveSec || s.brushes !== prev.brushes ||
-    s.workspace !== prev.workspace || s.socialGuides !== prev.socialGuides || s.socialFormats !== prev.socialFormats) {
+    s.workspace !== prev.workspace || s.socialGuides !== prev.socialGuides || s.socialFormats !== prev.socialFormats || s.simAppearance !== prev.simAppearance) {
     try {
       localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap, autosaveSec: s.autosaveSec, brushes: s.brushes,
-        workspace: s.workspace, socialGuides: s.socialGuides, socialFormats: s.socialFormats }));
+        workspace: s.workspace, socialGuides: s.socialGuides, socialFormats: s.socialFormats, simAppearance: s.simAppearance }));
     } catch { /* almacenamiento no disponible */ }
   }
 });

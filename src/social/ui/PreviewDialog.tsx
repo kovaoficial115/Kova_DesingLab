@@ -10,6 +10,13 @@ import { moveItem } from '../carousel';
 import { updateDocSocial } from '../actions';
 import { thumbFor, averageColor } from './thumbs';
 import { CommitInput } from './SocialPanel';
+import { SimAppearanceSeg, useSimTheme } from './SimAppearance';
+
+/** Marco del teléfono simulado. El modo claro/oscuro solo cambia la interfaz de la app. */
+function Phone({ tall, children }: { tall?: boolean; children: React.ReactNode }) {
+  const { dark } = useSimTheme();
+  return <div className={'sim-phone' + (tall ? ' tall' : '') + (dark ? ' sim-dark' : '')} data-sim-theme={dark ? 'dark' : 'light'}>{children}</div>;
+}
 
 type Tab = 'profile' | 'post' | 'story' | 'reel' | 'planner';
 
@@ -86,13 +93,15 @@ export function PreviewDialog({ onClose, tab: tab0 }: { onClose: () => void; tab
   const name = so.profile.username || doc.name.toLowerCase().replace(/\s+/g, '_');
 
   return (
-    <Modal title="Vista previa local" icon={<Smartphone size={16} />} onClose={onClose} width={860} height="90vh"
-      footer={<><span className="tiny muted">Simulación en este equipo: no se conecta con ninguna red social ni publica nada.</span><div className="spacer" /><button className="btn" onClick={onClose}>Cerrar</button></>}>
+    <Modal title="Vista previa local" icon={<Smartphone size={16} />} onClose={onClose} width={900} height="90vh"
+      footer={<><span className="tiny muted">Simulación en este equipo: no se conecta con ninguna red social ni publica nada. Claro/oscuro solo cambia la interfaz simulada, nunca tu diseño.</span><div className="spacer" /><button className="btn" onClick={onClose}>Cerrar</button></>}>
       <div className="row" style={{ gap: 10 }}>
         <Seg value={tab} onChange={setTab} options={[{ value: 'profile', label: 'Perfil' }, { value: 'post', label: 'Publicación' }, { value: 'story', label: 'Historia' }, { value: 'reel', label: 'Reel' }, { value: 'planner', label: 'Planificador' }]} />
         <div className="spacer" />
         {(tab === 'story' || tab === 'reel') && <Check checked={ui} onChange={setUi} label="Mostrar interfaz" />}
+        <SimAppearanceSeg />
       </div>
+      {(tab === 'story' || tab === 'reel') && <div className="tiny muted">Historias y Reels van a pantalla completa: su interfaz se dibuja sobre la imagen y casi no cambia entre claro y oscuro.</div>}
       {tab === 'profile' && <ProfileView doc={doc} feed={feed} highlights={highlights} name={name} />}
       {tab === 'post' && <PostView doc={doc} feed={feed} name={name} />}
       {tab === 'story' && <VerticalView doc={doc} list={stories.length ? stories : vertical} name={name} ui={ui} kind="story" />}
@@ -107,12 +116,12 @@ function ProfileView({ doc, feed, highlights, name }: { doc: Doc; feed: Artboard
   const setProfile = (k: keyof DocSocial['profile']) => (v: string) => updateDocSocial(s => ({ ...s, profile: { ...s.profile, [k]: v } }));
   return (
     <div className="sim-split">
-      <div className="sim-phone">
+      <Phone>
         <div className="sim-profile-head">
           <Avatar doc={doc} size={72} />
           <div className="col" style={{ gap: 2 }}>
             <b className="small">{name}</b>
-            <span className="tiny">{feed.length} publicaciones</span>
+            <span className="tiny sim-sub">{feed.length} publicaciones</span>
           </div>
         </div>
         {(so.profile.displayName || so.profile.bio) && (
@@ -141,7 +150,7 @@ function ProfileView({ doc, feed, highlights, name }: { doc: Doc; feed: Artboard
           ))}
           {!feed.length && <div className="tiny muted" style={{ gridColumn: '1 / -1', padding: 16 }}>Aún no hay publicaciones, carruseles ni portadas de Reel en el documento.</div>}
         </div>
-      </div>
+      </Phone>
       <div className="col" style={{ gap: 8 }}>
         <div className="section-title">Datos de la vista previa</div>
         <div className="tiny muted">Solo para ver cómo queda: se guardan en el proyecto (.kova) y no se envían a ninguna parte.</div>
@@ -170,11 +179,11 @@ function PostView({ doc, feed, name }: { doc: Doc; feed: Artboard[]; name: strin
   const r = Math.max(3 / 4, Math.min(1.91, a.w / a.h));
   return (
     <div className="sim-split">
-      <div className="sim-phone">
+      <Phone>
         <div className="sim-post-head"><Avatar doc={doc} size={30} /><b className="tiny">{name}</b></div>
         <Swipe key={a.id} doc={doc} slides={slides} aspect={`${r}`} />
         <div className="sim-actions"><Glyph icon={Heart} /><Glyph icon={MessageCircle} /><Glyph icon={Send} /><span className="grow" /><Glyph icon={Bookmark} /></div>
-      </div>
+      </Phone>
       <div className="col" style={{ gap: 6 }}>
         <div className="section-title">Publicación</div>
         <div className="row"><button className="btn sm" disabled={i <= 0} onClick={() => setI(i - 1)}><ChevronLeft size={12} />Anterior</button><span className="tiny grow" style={{ textAlign: 'center' }}>{Math.min(i, feed.length - 1) + 1} de {feed.length}</span><button className="btn sm" disabled={i >= feed.length - 1} onClick={() => setI(i + 1)}>Siguiente<ChevronRight size={12} /></button></div>
@@ -190,7 +199,7 @@ function VerticalView({ doc, list, name, ui, kind }: { doc: Doc; list: Artboard[
   if (!a) return <div className="tiny muted">No hay mesas verticales (historias, Reels, TikTok, Shorts) en el documento.</div>;
   return (
     <div className="sim-split">
-      <div className="sim-phone tall">
+      <Phone tall>
         <div className="sim-vertical">
           <Cover doc={doc} ab={a} max={720} />
           {ui && kind === 'story' && <>
@@ -205,7 +214,7 @@ function VerticalView({ doc, list, name, ui, kind }: { doc: Doc; list: Artboard[
           {list.length > 1 && i > 0 && <button className="sim-tap left" aria-label="Anterior" onClick={() => setI(i - 1)} />}
           {list.length > 1 && i < list.length - 1 && <button className="sim-tap right" aria-label="Siguiente" onClick={() => setI(i + 1)} />}
         </div>
-      </div>
+      </Phone>
       <div className="col" style={{ gap: 6 }}>
         <div className="section-title">{kind === 'story' ? 'Historias' : 'Reels y vídeo vertical'}</div>
         <div className="tiny">{a.name} · {a.w}×{a.h}</div>
@@ -269,7 +278,7 @@ function Planner({ doc, feed, plan }: { doc: Doc; feed: Artboard[]; plan: FeedPl
 
   return (
     <div className="sim-split">
-      <div className="sim-phone">
+      <Phone>
         <div className="sim-grid">
           {items.map((a, i) => (
             <div key={a.id} className={'sim-cell draggable' + (drag !== null && drag !== i ? ' drop' : '')} draggable
@@ -282,7 +291,7 @@ function Planner({ doc, feed, plan }: { doc: Doc; feed: Artboard[]; plan: FeedPl
             </div>
           ))}
         </div>
-      </div>
+      </Phone>
       <div className="col" style={{ gap: 8 }}>
         <div className="section-title">Plan del feed</div>
         <div className="tiny muted">Arrastra las publicaciones para probar el orden. La primera es la más reciente (arriba a la izquierda). Se guarda en el proyecto.</div>

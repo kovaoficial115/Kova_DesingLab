@@ -7,6 +7,7 @@ import { renderArtboard } from '../../core/render';
 import { canvasToBlob, createCanvas, ctx2d, layerBounds } from '../../core/util';
 import { platform } from '../../platform';
 import { fileKeyFrom } from '../../social/presets';
+import { SimAppearanceSeg, useSimTheme } from '../../social/ui/SimAppearance';
 import { listProjects, coverCrop, checkCover, seamDifference, crossingItems, BEHANCE_GUIDE, type Check as Chk } from '../model';
 
 // ---------- renders de la vista previa (en caché por estado de capas) ----------
@@ -61,7 +62,7 @@ export function BehancePreviewDialog({ onClose, project }: { onClose: () => void
   const proj = projects.find(p => p.id === project) ?? projects[0];
   const [tab, setTab] = useState<Tab>('project');
   const [view, setView] = useState<View>('desktop');
-  const [dark, setDark] = useState(false);
+  const { dark } = useSimTheme();
   const [screen, setScreen] = useState(1440);
   const [gap, setGap] = useState(0);
   const [pageBg, setPageBg] = useState('#ffffff');
@@ -151,7 +152,7 @@ export function BehancePreviewDialog({ onClose, project }: { onClose: () => void
           <Seg value={view} onChange={setView} options={[{ value: 'desktop', label: <><Monitor size={12} /> Escritorio</> }, { value: 'mobile', label: <><Smartphone size={12} /> Móvil</> }]} />
           {view === 'desktop' && <Seg value={String(screen)} onChange={v => setScreen(+v)} options={['1280', '1440', '1920'].map(v => ({ value: v, label: `${v} px`, title: 'Ancho de la pantalla simulada' }))} />}
         </>}
-        <Seg value={dark ? 'd' : 'l'} onChange={v => setDark(v === 'd')} options={[{ value: 'l', label: 'Claro', title: 'Aspecto de la página simulada (no cambia tu diseño)' }, { value: 'd', label: 'Oscuro', title: 'Aspecto de la página simulada (no cambia tu diseño)' }]} />
+        <SimAppearanceSeg />
       </div>
 
       {tab === 'project' ? (
