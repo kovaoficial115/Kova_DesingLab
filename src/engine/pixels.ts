@@ -81,8 +81,19 @@ export function curveLut(points: [number, number][]): Uint8Array {
     return h00 * ys[i] + h10 * h * t[i] + h01 * ys[i + 1] + h11 * h * t[i + 1];
   });
 }
-export function curves(img: Px, p: { rgb: [number, number][]; r?: [number, number][]; g?: [number, number][]; b?: [number, number][] }) {
-  const master = curveLut(p.rgb);
+export function curves(img: Px, p: { rgb: [number, number][]; r?: [number, number][]; g?: [number, number][]; b?: [number, number][]; l?: [number, number][] }) {
+  // curva de luminancia: cambia el brillo conservando el color (se aplica antes que las de canal)
+  if (p.l && !(p.l.length === 2 && p.l[0][0] === 0 && p.l[0][1] === 0 && p.l[1][0] === 255 && p.l[1][1] === 255)) {
+    const ll = curveLut(p.l), d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      const t = ll[Math.round(y)];
+      if (y < 0.5) { d[i] = d[i + 1] = d[i + 2] = t; continue; }
+      const k = t / y;
+      d[i] = c255(d[i] * k); d[i + 1] = c255(d[i + 1] * k); d[i + 2] = c255(d[i + 2] * k);
+    }
+  }
+  const master = curveLut(p.rgb ?? [[0, 0], [255, 255]]);
   const lr = p.r ? curveLut(p.r) : null, lg = p.g ? curveLut(p.g) : null, lb = p.b ? curveLut(p.b) : null;
   const R = new Uint8Array(256), G = new Uint8Array(256), B = new Uint8Array(256);
   for (let i = 0; i < 256; i++) {
@@ -236,7 +247,7 @@ export function gradientMap(img: Px, p: { dark: string; light: string; amount?: 
 
 // ---------- Filtros espaciales ----------
 /** Desenfoque de caja separable sobre un canal Float32 (in-place). */
-function boxBlurChannel(src: Float32Array, w: number, h: number, r: number) {
+export function boxBlurChannel(src: Float32Array, w: number, h: number, r: number) {
   if (r < 1) return;
   const tmp = new Float32Array(src.length);
   const iarr = 1 / (r + r + 1);

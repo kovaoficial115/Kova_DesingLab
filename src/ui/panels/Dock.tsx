@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, GripVertical, X, Palette, SlidersHorizontal, Layers, History, Frame, Settings2, Plus, Trash2, Copy, FileUp, Smartphone, Stamp } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical, X, Palette, SlidersHorizontal, Layers, History, Frame, Settings2, Plus, Trash2, Copy, FileUp, Smartphone, Stamp, Sparkles, Aperture } from 'lucide-react';
 import { SocialPanel } from '../../social/ui/SocialPanel';
 import { BrandPanel } from '../../brand/ui/BrandPanel';
+import { EffectsPanel } from '../../fx/ui/EffectsPanel';
+import { ColorLabPanel } from '../../fx/ui/ColorLabPanel';
 import { useStore, set, jumpHistory, commit } from '../../core/store';
 import type { PanelId } from '../../core/store';
 import type { Doc } from '../../core/types';
@@ -26,6 +28,8 @@ const meta: Record<PanelId, { title: string; icon: any }> = {
   channels: { title: 'Canales y color', icon: Palette },
   social: { title: 'Redes sociales', icon: Smartphone },
   brand: { title: 'Marca', icon: Stamp },
+  effects: { title: 'Efectos', icon: Sparkles },
+  colorlab: { title: 'Color Lab', icon: Aperture },
 };
 
 function HistoryPanel({ doc }: { doc: Doc }) {
@@ -151,6 +155,8 @@ export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?:
       case 'channels': return <ChannelsPanel doc={doc} />;
       case 'social': return <SocialPanel doc={doc} />;
       case 'brand': return <BrandPanel doc={doc} />;
+      case 'effects': return <EffectsPanel doc={doc} />;
+      case 'colorlab': return <ColorLabPanel doc={doc} />;
     }
   };
   return (

@@ -4,6 +4,8 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore, get, set, getView, setView, activeLayer, live, finishLive, cancelLive, onRepaint } from '../core/store';
 import type { Doc, Layer, Selection } from '../core/types';
 import { renderLayers } from '../core/render';
+import { fxDef } from '../engine/fx/registry';
+import { setAdjParams, finishAdjLive } from '../fx/lib';
 import { layerMatrix, layerSize, createCanvas, ctx2d, fromPx, toPx, layerBounds } from '../core/util';
 import { tools, overlay, textEdit, setTextEdit, transformTarget, cropState, type ToolEvent } from '../tools/tools';
 import { zoomTo, fitToScreen, addGuide, hitTestLayers, selectLayers, textToBox } from '../core/actions';
@@ -62,7 +64,7 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
   };
   paintArtboards();
   const smoothing = v.zoom < 2;
-  renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, tiles: true });
+  renderLayers(g, s, { base, width: canvas.width, height: canvas.height, smoothing, tiles: true, allowDraft: true, bypassIds: st.peekOriginal ? new Set(s.selectedLayerIds) : null });
 
   if (compareX != null) {
     const cx = compareX * dpr;
@@ -419,6 +421,24 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
     // centro visible con pinceles grandes
     if (r > 24) { g.fillStyle = 'rgba(255,255,255,.9)'; g.fillRect(sx(b.x) - 0.5, sy(b.y) - 3, 1, 6); g.fillRect(sx(b.x) - 3, sy(b.y) - 0.5, 6, 1); }
   }
+  const fh = fxHandle(doc);
+  if (fh) {
+    const x = sx(fh.wx), y = sy(fh.wy);
+    g.lineWidth = 1.5;
+    g.strokeStyle = 'rgba(0,0,0,.7)'; g.beginPath(); g.arc(x, y, 9, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = KOVA.red; g.beginPath(); g.arc(x, y, 8, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = KOVA.red; g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2); g.fill();
+    g.fillRect(x - 14, y - 0.75, 6, 1.5); g.fillRect(x + 8, y - 0.75, 6, 1.5); g.fillRect(x - 0.75, y - 14, 1.5, 6); g.fillRect(x - 0.75, y + 8, 1.5, 6);
+    g.font = `500 11px ${KOVA.font}`; g.textAlign = 'left';
+    const t = `Centro · ${fh.label}`, tw = g.measureText(t).width;
+    g.fillStyle = 'rgba(20,20,24,.85)'; g.fillRect(x + 14, y + 10, tw + 12, 20);
+    g.fillStyle = '#fff'; g.fillText(t, x + 20, y + 24);
+  }
+  if (st.peekOriginal && s.selectedLayerIds.length) {
+    g.font = `600 11px ${KOVA.font}`; g.textAlign = 'center';
+    g.fillStyle = 'rgba(20,20,24,.85)'; g.fillRect(W / 2 - 80, 10, 160, 22);
+    g.fillStyle = '#fff'; g.fillText('Original (sin efectos)', W / 2, 25);
+  }
   if (compareX != null) {
     g.fillStyle = KOVA.red;
     g.fillRect(compareX - 1, 0, 2, H);
@@ -428,6 +448,21 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
     g.fillStyle = '#fff'; g.font = `500 11px ${KOVA.font}`; g.fillText('Antes', compareX - 40, 24); g.fillText('Después', compareX + 40, 24);
   }
   g.restore();
+}
+
+/** Centro arrastrable del efecto abierto en la pila (radial, zoom, giro, aberración…), en coordenadas de mundo. */
+function fxHandle(doc: Doc) {
+  const f = get().fxFocus;
+  if (!f) return null;
+  const l = doc.state.layers.find(x => x.id === f.layerId);
+  const a = l?.adjustments.find(x => x.id === f.adjId);
+  if (!l || !a || !a.enabled || !l.visible) return null;
+  const def = fxDef(a.type);
+  const pt = def?.params.find(p => p.type === 'point') as { kx: string; ky: string } | undefined;
+  if (!def || !pt) return null;
+  const { w, h } = layerSize(l);
+  const p = layerMatrix(l).transformPoint(new DOMPoint((a.params[pt.kx] ?? 0.5) * w, (a.params[pt.ky] ?? 0.5) * h));
+  return { wx: p.x, wy: p.y, l, a, kx: pt.kx, ky: pt.ky, w, h, label: a.name || def.label };
 }
 
 function drawRuler(c: HTMLCanvasElement, axis: 'x' | 'y', len: number, dpr: number, doc: Doc) {
@@ -493,7 +528,7 @@ export function Viewport({ doc }: { doc: Doc }) {
   const [compareX, setCompareX] = useState<number | null>(null);
   const view = useStore(s => s.views[doc.id]);
   const tick = useStore(s => s.renderTick);
-  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}`);
+  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}|${s.peekOriginal}|${s.fxFocus?.adjId ?? ''}`);
   const socialFormats = useStore(s => s.socialFormats);
   const compare = useStore(s => s.compare);
   const showRulers = useStore(s => s.showRulers);
@@ -582,6 +617,7 @@ export function Viewport({ doc }: { doc: Doc }) {
 
   const panDrag = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
   const compareDrag = useRef(false);
+  const fxDrag = useRef(false);
   // El ratón (y más un trackpad o una pantalla de 120 Hz) avisa más veces que fotogramas hay. Cada
   // aviso de la herramienta Mover rehace el documento y vuelve a pintar paneles y reglas: se junta
   // en uno por fotograma con la última posición. Pinceles, lazo, etc. reciben todos los puntos.
@@ -601,6 +637,11 @@ export function Viewport({ doc }: { doc: Doc }) {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     const ev = toEvent(e);
     if (compareX != null && Math.abs(ev.sx - compareX) < 14) { compareDrag.current = true; return; }
+    const fh = e.button === 0 ? fxHandle(doc) : null;
+    if (fh) {
+      const v = getView();
+      if (Math.hypot(fh.wx * v.zoom + v.panX - ev.sx, fh.wy * v.zoom + v.panY - ev.sy) < 14) { fxDrag.current = true; return; }
+    }
     if (e.button === 1 || keys.space || (e.button === 0 && tool === 'hand')) {
       const v = getView();
       panDrag.current = { sx: e.clientX, sy: e.clientY, px: v.panX, py: v.panY };
@@ -614,6 +655,15 @@ export function Viewport({ doc }: { doc: Doc }) {
     pending.current.cursor = { x: ev.wx, y: ev.wy };
     schedulePending();
     if (compareDrag.current) { setCompareX(Math.max(20, Math.min(size.w - 20, ev.sx))); return; }
+    if (fxDrag.current) {
+      const fh = fxHandle(doc);
+      if (fh) {
+        const p = layerMatrix(fh.l).inverse().transformPoint(new DOMPoint(ev.wx, ev.wy));
+        const r = (v: number) => Math.round(Math.max(-0.5, Math.min(1.5, v)) * 1000) / 1000;
+        setAdjParams(fh.l.id, fh.a.id, { [fh.kx]: r(p.x / (fh.w || 1)), [fh.ky]: r(p.y / (fh.h || 1)) }, true);
+      }
+      return;
+    }
     if (panDrag.current) {
       const p = panDrag.current;
       setView({ panX: p.px + e.clientX - p.sx, panY: p.py + e.clientY - p.sy });
@@ -626,6 +676,7 @@ export function Viewport({ doc }: { doc: Doc }) {
     // la última posición del arrastre se aplica antes de soltar
     flushPending();
     if (compareDrag.current) { compareDrag.current = false; return; }
+    if (fxDrag.current) { fxDrag.current = false; finishAdjLive(); return; }
     if (panDrag.current) { panDrag.current = null; return; }
     tools[tool]?.up(toEvent(e));
   };

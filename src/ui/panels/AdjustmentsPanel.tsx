@@ -1,9 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, Trash2, ChevronUp, ChevronDown, Check as CheckIcon, Sun, Contrast, Droplet, Palette, SunMedium, Spline, BarChart3, Blend, Layers2, SquareSplitHorizontal, Waves, Focus, Sparkle, PaintBucket, Rainbow, ArrowLeftRight } from 'lucide-react';
-import { live, finishLive, commit } from '../../core/store';
+import { Eye, EyeOff, Trash2, Copy, RotateCcw, GripVertical, Plus, Save, Download, Zap, Tv, Monitor, Grid3x3, Check as CheckIcon, Sun, Contrast, Droplet, Palette, SunMedium, Spline, BarChart3, Blend, Layers2, SquareSplitHorizontal, Waves, Focus, Sparkle, PaintBucket, Rainbow, ArrowLeftRight } from 'lucide-react';
+import { live, finishLive, set, useStore, toast } from '../../core/store';
+import { fxDef } from '../../engine/fx/registry';
+import { FX_BLENDS } from '../../engine/fx/core';
+import { FxParams, MixControls } from '../../fx/ui/FxEditor';
+import { labelOf, duplicateAdj, resetAdj, moveAdj, setAdjProps, presetFromLayer, savePreset, exportColorAsCube, clearStack } from '../../fx/lib';
 import type { Adjustment, AdjustmentType, Doc, Layer } from '../../core/types';
 import * as A from '../../core/actions';
-import { Slider, Check, Seg } from '../components/controls';
+import { Slider, Check, Seg, Select } from '../components/controls';
+import { PRESET_CATS, type PresetCat } from '../../engine/fx/presets';
 import { curveLut } from '../../engine/pixels';
 import { runOp } from '../../engine/workerClient';
 import { layerContent } from '../../core/render';
@@ -40,7 +45,7 @@ function S(p: { l: Layer; a: Adjustment; k: string; label: string; min: number; 
 
 function CurvesEditor({ l, a }: { l: Layer; a: Adjustment }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const [ch, setCh] = useState<'rgb' | 'r' | 'g' | 'b'>('rgb');
+  const [ch, setCh] = useState<'rgb' | 'r' | 'g' | 'b' | 'l'>('rgb');
   const pts: [number, number][] = a.params[ch] ?? [[0, 0], [255, 255]];
   const drag = useRef<number | null>(null);
   const S = 220;
@@ -54,7 +59,7 @@ function CurvesEditor({ l, a }: { l: Layer; a: Adjustment }) {
     for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo((i * S) / 4, 0); g.lineTo((i * S) / 4, S); g.moveTo(0, (i * S) / 4); g.lineTo(S, (i * S) / 4); g.stroke(); }
     g.strokeStyle = '#3a3a42'; g.beginPath(); g.moveTo(0, S); g.lineTo(S, 0); g.stroke();
     const lut = curveLut(pts);
-    g.strokeStyle = ch === 'rgb' ? '#ededf0' : ch === 'r' ? '#ff5f57' : ch === 'g' ? '#5fd68a' : '#5a95ff';
+    g.strokeStyle = ch === 'rgb' ? '#ededf0' : ch === 'l' ? '#c8b6ff' : ch === 'r' ? '#ff5f57' : ch === 'g' ? '#5fd68a' : '#5a95ff';
     g.lineWidth = 1.5;
     g.beginPath();
     for (let i = 0; i < 256; i++) { const x = (i / 255) * S, y = S - (lut[i] / 255) * S; i ? g.lineTo(x, y) : g.moveTo(x, y); }
@@ -68,7 +73,7 @@ function CurvesEditor({ l, a }: { l: Layer; a: Adjustment }) {
   };
   return (
     <div className="col">
-      <Seg value={ch} onChange={setCh} options={[{ value: 'rgb', label: 'RGB' }, { value: 'r', label: 'R' }, { value: 'g', label: 'G' }, { value: 'b', label: 'B' }]} full />
+      <Seg value={ch} onChange={setCh} options={[{ value: 'rgb', label: 'RGB' }, { value: 'r', label: 'R' }, { value: 'g', label: 'G' }, { value: 'b', label: 'B' }, { value: 'l', label: 'Lum', title: 'Curva de luminancia: cambia el brillo sin cambiar el color' }]} full />
       <canvas ref={ref} style={{ width: '100%', aspectRatio: '1', borderRadius: 8, cursor: 'crosshair', touchAction: 'none' }}
         onPointerDown={e => {
           (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -130,7 +135,7 @@ function LevelsEditor({ l, a }: { l: Layer; a: Adjustment }) {
   );
 }
 
-function Editor({ l, a }: { l: Layer; a: Adjustment }) {
+export function Editor({ l, a }: { l: Layer; a: Adjustment }) {
   switch (a.type) {
     case 'brightnessContrast': return <><S l={l} a={a} k="brightness" label="Brillo" min={-150} max={150} /><S l={l} a={a} k="contrast" label="Contraste" min={-100} max={100} /></>;
     case 'hueSaturation': return <>
@@ -169,19 +174,54 @@ function Editor({ l, a }: { l: Layer; a: Adjustment }) {
   }
 }
 
+function SavePresetRow({ l, onDone }: { l: Layer; onDone: () => void }) {
+  const [name, setName] = useState(l.name ? `${l.name} · efectos` : 'Mi preajuste');
+  const [cat, setCat] = useState<PresetCat>('custom');
+  const save = () => {
+    const p = presetFromLayer(l, name, cat);
+    if (!p) return;
+    savePreset(p);
+    toast(`Preajuste «${p.name}» guardado en la biblioteca de efectos`, 'ok');
+    onDone();
+  };
+  return (
+    <div className="card col" style={{ padding: 8, gap: 6 }}>
+      <input className="input" autoFocus value={name} maxLength={60} onChange={e => setName(e.target.value)}
+        onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') save(); if (e.key === 'Escape') onDone(); }} />
+      <div className="row" style={{ gap: 6 }}>
+        <Select value={cat} onChange={setCat} options={PRESET_CATS.map(c => ({ value: c.id, label: c.label }))} width={140} />
+        <span className="grow" />
+        <button className="btn sm" onClick={onDone}>Cancelar</button>
+        <button className="btn sm primary" onClick={save}>Guardar</button>
+      </div>
+      <span className="tiny muted">Se guarda en este equipo; desde Efectos → Preajustes puedes exportarlo a un archivo.</span>
+    </div>
+  );
+}
+
+const catIcon: Record<string, any> = { blur: Waves, noise: Sparkle, distortion: Spline, glitch: Zap, vhs: Tv, crt: Monitor, glow: Sun, color: Palette, texture: Grid3x3 };
+
 export function AdjustmentsPanel({ doc }: { doc: Doc }) {
   const s = doc.state;
   const l = s.layers.find(x => x.id === s.selectedLayerIds[s.selectedLayerIds.length - 1]);
   const [open, setOpen] = useState<string | null>(null);
+  const [drag, setDrag] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  const [naming, setNaming] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const focus = useStore(st => st.fxFocus);
+  const peek = useStore(st => st.peekOriginal);
+  // un efecto recién añadido (o elegido en el lienzo) se abre solo
+  useEffect(() => { if (focus && l && focus.layerId === l.id) setOpen(focus.adjId); }, [focus?.adjId, l?.id]);
   const types = Object.keys(A.adjustmentDefaults) as AdjustmentType[];
-  const move = (i: number, d: number) => {
-    if (!l) return;
-    const arr = [...l.adjustments];
-    const j = i + d;
-    if (j < 0 || j >= arr.length) return;
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-    commit('Reordenar ajustes', st => ({ ...st, layers: st.layers.map(x => (x.id === l.id ? { ...x, adjustments: arr } : x)) }));
+  const toggleOpen = (id: string) => {
+    const next = open === id ? null : id;
+    setOpen(next);
+    set({ fxFocus: next && l ? { layerId: l.id, adjId: next } : null });
   };
+  const showLibrary = () => set(st => ({ panels: st.panels.map(p => (p.id === 'effects' ? { ...p, visible: true, collapsed: false } : p)) }));
+  const startPeek = () => set({ peekOriginal: true });
+  const endPeek = () => set({ peekOriginal: false });
   return (
     <>
       <div className="row" style={{ flexWrap: 'wrap', gap: 2 }}>
@@ -189,29 +229,59 @@ export function AdjustmentsPanel({ doc }: { doc: Doc }) {
           <button key={t} className="icon-btn" title={A.adjustmentDefaults[t].label} disabled={!l || l.kind === 'group'}
             onClick={async () => { const a = await A.addAdjustment(t); if (a) setOpen(a.id); }}><Ic size={15} /></button>
         ); })}
+        <button className="btn sm" style={{ marginLeft: 'auto' }} onClick={showLibrary} title="Biblioteca de efectos y preajustes"><Plus size={12} />Efectos</button>
       </div>
-      {!l && <div className="tiny muted">Selecciona una capa para añadir ajustes no destructivos.</div>}
-      {l && !l.adjustments.length && <div className="tiny muted">Los ajustes se aplican sin modificar los píxeles originales. Puedes editarlos, ocultarlos o reordenarlos en cualquier momento.</div>}
+      {!l && <div className="tiny muted">Selecciona una capa para añadir ajustes y efectos no destructivos.</div>}
+      {l && !l.adjustments.length && <div className="tiny muted">Los ajustes y efectos se aplican sin modificar los píxeles originales. Puedes editarlos, ocultarlos, reordenarlos (arrastrando) o guardarlos como preajuste.</div>}
       {l && l.adjustments.map((a, i) => {
-        // un ajuste de una versión más nueva de la app: se muestra con nombre genérico y sin controles
-        const Ic = icons[a.type] ?? Palette;
+        // un efecto de una versión más nueva de la app: se muestra con nombre genérico y sin controles
+        const def = fxDef(a.type);
+        const Ic = def ? catIcon[def.cat] ?? Palette : (icons as any)[a.type] ?? Palette;
         const isOpen = open === a.id;
+        const known = !!def || a.type in A.adjustmentDefaults;
         return (
-          <div key={a.id} className="card" style={{ padding: 8 }}>
-            <div className="row" style={{ cursor: 'pointer' }} onClick={() => setOpen(isOpen ? null : a.id)}>
+          <div key={a.id} className={'card fx-card' + (over === i && drag !== null && drag !== i ? ' drag-over' : '')} style={{ padding: 8 }}
+            onDragOver={e => { if (drag !== null) { e.preventDefault(); setOver(i); } }}
+            onDrop={e => { e.preventDefault(); if (drag !== null && drag !== i) moveAdj(l.id, drag, i); setDrag(null); setOver(null); }}>
+            <div className="row" style={{ cursor: 'pointer' }} onClick={() => toggleOpen(a.id)}>
+              <span className="grip" draggable title="Arrastra para reordenar" onClick={e => e.stopPropagation()}
+                onDragStart={e => { setDrag(i); e.dataTransfer.setData('text/fx', a.id); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { setDrag(null); setOver(null); }}><GripVertical size={12} /></span>
               <Ic size={14} />
-              <span className="grow small" style={{ fontWeight: 500, opacity: a.enabled ? 1 : 0.5 }}>{A.adjustmentDefaults[a.type]?.label ?? 'Ajuste de otra versión'}</span>
-              <button className="icon-btn sm" onClick={e => { e.stopPropagation(); move(i, 1); }} title="Subir"><ChevronUp size={12} /></button>
-              <button className="icon-btn sm" onClick={e => { e.stopPropagation(); move(i, -1); }} title="Bajar"><ChevronDown size={12} /></button>
+              {naming === a.id
+                ? <input className="input grow" autoFocus defaultValue={labelOf(a)} onClick={e => e.stopPropagation()} maxLength={60}
+                    onBlur={e => { const v = e.target.value.trim(); setAdjProps(l.id, a.id, { name: v && v !== (def?.label ?? '') ? v : undefined }); setNaming(null); }}
+                    onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setNaming(null); }} />
+                : <span className="grow small" style={{ fontWeight: 500, opacity: a.enabled ? 1 : 0.5 }} onDoubleClick={e => { e.stopPropagation(); setNaming(a.id); }} title="Doble clic para renombrar">
+                    {labelOf(a)}{(a.opacity ?? 100) < 100 ? <span className="tiny muted"> · {a.opacity}%</span> : null}{a.blend ? <span className="tiny muted"> · {FX_BLENDS.find(b => b.value === a.blend)?.label}</span> : null}
+                  </span>}
               <button className="icon-btn sm" onClick={e => { e.stopPropagation(); A.toggleAdjustment(l.id, a.id); }} title="Activar/desactivar">{a.enabled ? <Eye size={12} /> : <EyeOff size={12} />}</button>
+              <button className="icon-btn sm" onClick={e => { e.stopPropagation(); duplicateAdj(l.id, a.id); }} title="Duplicar"><Copy size={12} /></button>
+              <button className="icon-btn sm" disabled={!known} onClick={e => { e.stopPropagation(); resetAdj(l, a.id); }} title="Restablecer valores"><RotateCcw size={12} /></button>
               <button className="icon-btn sm" onClick={e => { e.stopPropagation(); A.removeAdjustment(l.id, a.id); }} title="Eliminar"><Trash2 size={12} /></button>
             </div>
-            {isOpen && <div className="col" style={{ marginTop: 8 }}><Editor l={l} a={a} /></div>}
+            {isOpen && (
+              <div className="col" style={{ marginTop: 8 }}>
+                {def ? <FxParams l={l} a={a} def={def} /> : known ? <Editor l={l} a={a as Adjustment & { type: AdjustmentType }} /> : <span className="tiny muted">Este efecto viene de una versión más nueva de KOVA: se conserva al guardar, pero aquí no se puede editar.</span>}
+                {known && <MixControls l={l} a={a} />}
+              </div>
+            )}
           </div>
         );
       })}
       {l && l.adjustments.length > 0 && (
-        <button className="btn sm" onClick={() => A.applyAdjustments()}><CheckIcon size={12} />Aplicar ajustes a los píxeles</button>
+        <div className="col" style={{ gap: 6 }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button className={'btn sm' + (peek ? ' on' : '')} title="Mantén pulsado para ver la capa sin efectos"
+              onPointerDown={startPeek} onPointerUp={endPeek} onPointerLeave={endPeek}><EyeOff size={12} />Ver original</button>
+            <button className={'btn sm' + (saving ? ' on' : '')} onClick={() => setSaving(!saving)}><Save size={12} />Guardar como preajuste</button>
+            <button className="btn sm" title="Hornea los ajustes de color en una LUT .cube para otros programas" onClick={() => exportColorAsCube(l, l.name + ' color')}><Download size={12} />Exportar .cube</button>
+          </div>
+          {saving && <SavePresetRow l={l} onDone={() => setSaving(false)} />}
+          <div className="row" style={{ gap: 6 }}>
+            <button className="btn sm" onClick={() => A.applyAdjustments()}><CheckIcon size={12} />Aplicar a los píxeles</button>
+            <button className="btn sm" onClick={() => clearStack(l.id)}><Trash2 size={12} />Quitar todos</button>
+          </div>
+        </div>
       )}
     </>
   );

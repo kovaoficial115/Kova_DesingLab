@@ -594,3 +594,40 @@ button.avatar:hover { transform: translateY(-1px); z-index: 1; }
 .brand-issue { display: flex; align-items: flex-start; gap: 6px; padding: 5px 6px; border-radius: 7px; background: var(--panel-2); cursor: pointer; }
 .brand-issue svg { flex-shrink: 0; margin-top: 1px; }
 .layer-badge { display: inline-flex; color: var(--accent); flex-shrink: 0; }
+
+/* ---------- Efectos: biblioteca, pila y Color Lab ---------- */
+.icon-btn.xs { width: 18px; height: 18px; border-radius: 4px; }
+.icon-btn.on, .btn.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); }
+.icon-btn.fav { color: #ffc93c; }
+.icon-btn.fav svg { fill: currentColor; }
+button.chip { cursor: pointer; }
+button.chip:hover { color: var(--text); border-color: var(--border-2); }
+button.chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); }
+.fx-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.fx-search { position: relative; display: flex; align-items: center; }
+.fx-search svg { position: absolute; left: 8px; color: var(--muted); pointer-events: none; }
+.fx-search .input { width: 100%; padding-left: 26px; }
+.fx-list { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; max-height: 360px; overflow-y: auto; margin: 0 -4px; }
+.fx-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 7px; cursor: pointer; }
+.fx-row:hover { background: var(--panel-3); }
+.fx-row.disabled { opacity: .55; cursor: default; }
+.fx-row .fx-add { opacity: 0; }
+.fx-row:hover .fx-add { opacity: 1; }
+.fx-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); grid-auto-rows: max-content; align-content: start; gap: 6px; max-height: 420px; overflow-y: auto; padding: 1px; }
+.fx-tile { position: relative; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--panel-2); cursor: pointer; }
+.fx-tile:hover { border-color: var(--accent-line); }
+.fx-thumb { aspect-ratio: 4 / 5; background: var(--panel-3); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.fx-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fx-thumb-wait { width: 100%; height: 100%; background: linear-gradient(90deg, var(--panel-3), var(--panel-2), var(--panel-3)); background-size: 200% 100%; animation: fx-wait 1.2s linear infinite; }
+@keyframes fx-wait { to { background-position: -200% 0; } }
+.fx-tile-foot { display: flex; align-items: center; gap: 2px; padding: 4px 4px 4px 7px; }
+.fx-tile-foot .input { height: 20px; font-size: 10px; padding: 0 4px; width: 100%; }
+.fx-tile-name { flex: 1; font-size: 10.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-tile-tools { position: absolute; top: 4px; right: 4px; display: none; gap: 2px; background: rgba(10, 10, 24, .8); border-radius: 6px; padding: 2px; }
+.fx-tile:hover .fx-tile-tools { display: flex; }
+.fx-group { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.fx-mix { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 2px; }
+.fx-card .grip { cursor: grab; color: var(--muted); display: flex; }
+.fx-card.drag-over { border-color: var(--accent); box-shadow: 0 -2px 0 var(--accent); }
+@media (hover: none) { .fx-tile-tools { display: flex; } .fx-row .fx-add { opacity: 1; } }

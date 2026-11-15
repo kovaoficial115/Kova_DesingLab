@@ -4,7 +4,7 @@ import { defaultBrushes, sanitizeBrushes, type BrushSettings, type BrushToolId }
 import { sanitizeUserFormats, emptyUserFormats, type UserFormats } from '../social/presets';
 import { syncLinks } from './links';
 
-export type PanelId = 'color' | 'properties' | 'adjustments' | 'layers' | 'history' | 'artboards' | 'channels' | 'social' | 'brand';
+export type PanelId = 'color' | 'properties' | 'adjustments' | 'effects' | 'colorlab' | 'layers' | 'history' | 'artboards' | 'channels' | 'social' | 'brand';
 
 /** Espacio de trabajo: qué formatos y herramientas se ofrecen primero. */
 export type Workspace = 'dtf' | 'graphic' | 'social';
@@ -73,6 +73,10 @@ export interface AppState {
   /** Cajón de paneles abierto (solo en pantallas estrechas; no se guarda). */
   dockOpen: boolean;
   compare: boolean;
+  /** efecto abierto en la pila: su centro se puede arrastrar en el lienzo */
+  fxFocus: { layerId: string; adjId: string } | null;
+  /** mientras se mantiene pulsado: se ve el original de las capas seleccionadas (sin efectos) */
+  peekOriginal: boolean;
   proof: boolean;
   channelView: 'all' | 'c' | 'm' | 'y' | 'k' | 'r' | 'g' | 'b' | 'alpha';
   dialog: DialogState;
@@ -97,6 +101,9 @@ const defaultPanels: PanelConf[] = [
   { id: 'brand', visible: true, collapsed: false },
   { id: 'properties', visible: true, collapsed: false },
   { id: 'adjustments', visible: true, collapsed: true },
+  // biblioteca de efectos y preajustes (un clic) y Color Lab
+  { id: 'effects', visible: true, collapsed: true },
+  { id: 'colorlab', visible: true, collapsed: true },
   { id: 'layers', visible: true, collapsed: false },
   { id: 'channels', visible: false, collapsed: false },
   { id: 'artboards', visible: true, collapsed: true },
@@ -153,6 +160,8 @@ export const useStore = create<AppState>(() => ({
   hideUI: false,
   dockOpen: false,
   compare: false,
+  fxFocus: null,
+  peekOriginal: false,
   proof: false,
   channelView: 'all',
   dialog: null,

@@ -20,9 +20,16 @@ export type AdjustmentType =
 
 export interface Adjustment {
   id: string;
-  type: AdjustmentType;
+  /** ajuste clásico o efecto del registro (src/engine/fx/registry.ts) */
+  type: AdjustmentType | (string & {});
   enabled: boolean;
   params: Record<string, any>;
+  /** opacidad del efecto sobre lo que había antes en la pila (0..100; sin valor = 100) */
+  opacity?: number;
+  /** modo de fusión del efecto con lo que había antes (sin valor = normal) */
+  blend?: string;
+  /** nombre propio (p. ej. el preajuste del que viene) */
+  name?: string;
 }
 
 export type LayerKind = 'raster' | 'text' | 'shape' | 'group' | 'vector';

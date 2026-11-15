@@ -14,7 +14,9 @@ import { defaultPath } from '../core/textpath';
 import { live, finishLive } from '../core/store';
 import { layerPivot, placeAtPivot } from '../core/util';
 import type { TextPath } from '../core/types';
-import type { SocialGuides } from '../core/store';
+import type { SocialGuides, PanelId } from '../core/store';
+import { FX } from '../engine/fx/registry';
+import { addEffect, importLut } from '../fx/lib';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -27,6 +29,7 @@ const hasSocial = () => !!docState()?.artboards.some(a => a.social?.preset);
 const A_activeArtboard = () => { const s = docState(); return s ? s.artboards.find(a => a.id === s.activeArtboardId) ?? null : null; };
 export const openDialog = (type: string, props?: any) => set({ dialog: { type, props } });
 
+const showPanel = (id: PanelId) => set(s => ({ panels: s.panels.map(p => (p.id === id ? { ...p, visible: true, collapsed: false } : p)) }));
 const adj = (t: AdjustmentType): Command => ({ label: A.adjustmentDefaults[t].label, run: () => A.addAdjustment(t), enabled: hasLayer });
 const toolCmd = (t: ToolId, label: string, keys: string): Command => ({ label, keys, run: () => setTool(t), checked: () => get().tool === t });
 
@@ -212,6 +215,13 @@ export const commands: Record<string, Command> = {
   'filter.blur': adj('blur'),
   'filter.sharpen': adj('sharpen'),
   'filter.denoise': adj('denoise'),
+  // Efectos (biblioteca)
+  'fx.library': { label: 'Biblioteca de efectos y preajustes', keys: 'mod+alt+f', run: () => showPanel('effects'), enabled: hasDoc },
+  'fx.colorlab': { label: 'Color Lab', keys: 'mod+shift+l', run: () => showPanel('colorlab'), enabled: hasDoc },
+  'fx.importLut': { label: 'Importar LUT (.cube)…', run: () => importLut(), enabled: hasLayer },
+  'fx.peek': { label: 'Ver original (sin efectos) mientras se pulsa', keys: 'y', run: () => {}, enabled: hasLayer },
+  ...Object.fromEntries(['lensBlur', 'motionBlur', 'radialBlur', 'zoomBlur', 'tiltShift', 'noise', 'rgbSplit', 'hGlitch', 'pixelSort', 'datamosh', 'vhsTracking', 'colorBleed', 'crtScanlines', 'screenCurvature', 'bloom', 'neonGlow', 'contourEcho', 'lightLines']
+    .map(t => ['fx.add.' + t, { label: FX[t].label, run: () => addEffect({ type: t, label: FX[t].label }), enabled: hasLayer } as Command])),
   // DTF
   'dtf.halftone': { label: 'Semitonos (halftone)…', keys: 'mod+shift+h', run: () => openDialog('halftone'), enabled: hasLayer },
   'dtf.bg': { label: 'Eliminar fondo…', keys: 'mod+shift+b', run: () => openDialog('bg-remove'), enabled: hasLayer },

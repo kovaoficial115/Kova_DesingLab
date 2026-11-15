@@ -8,7 +8,7 @@ import type { PanelId } from '../core/store';
 
 export type Item = string | '-' | { head: string } | { label: string; sub: Item[] } | { label: string; run: () => void; checked?: () => boolean };
 
-const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propiedades', adjustments: 'Ajustes', layers: 'Capas', history: 'Historial', artboards: 'Mesas de trabajo', channels: 'Canales y color', social: 'Redes sociales', brand: 'Marca' };
+const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propiedades', adjustments: 'Ajustes', layers: 'Capas', history: 'Historial', artboards: 'Mesas de trabajo', channels: 'Canales y color', social: 'Redes sociales', brand: 'Marca', effects: 'Efectos', colorlab: 'Color Lab' };
 
 function panelToggle(id: PanelId): Item {
   return {
@@ -45,7 +45,13 @@ const menus: { label: string; items: Item[] }[] = [
       'layer.rasterize', 'layer.resample', 'layer.outline', '-', 'layer.mergeDown', 'layer.flatten'],
   },
   { label: 'Selección', items: ['sel.all', 'sel.none', 'sel.invert', '-', 'sel.layer', 'sel.colorRange', 'sel.subject', '-', { label: 'Modificar', sub: ['sel.feather', 'sel.expand', 'sel.contract', 'sel.smooth'] }] },
-  { label: 'Filtro', items: [{ head: 'Filtros no destructivos' }, 'filter.blur', 'filter.sharpen', 'filter.denoise'] },
+  { label: 'Filtro', items: [{ head: 'Filtros no destructivos' }, 'filter.blur', 'filter.sharpen', 'filter.denoise', '-', 'fx.library', 'fx.colorlab', 'fx.importLut', '-',
+    { label: 'Desenfoque', sub: ['fx.add.lensBlur', 'fx.add.motionBlur', 'fx.add.radialBlur', 'fx.add.zoomBlur', 'fx.add.tiltShift'] },
+    { label: 'Ruido y grano', sub: ['fx.add.noise'] },
+    { label: 'Glitch', sub: ['fx.add.rgbSplit', 'fx.add.hGlitch', 'fx.add.pixelSort', 'fx.add.datamosh'] },
+    { label: 'VHS y CRT', sub: ['fx.add.vhsTracking', 'fx.add.colorBleed', 'fx.add.crtScanlines', 'fx.add.screenCurvature'] },
+    { label: 'Neón y brillo', sub: ['fx.add.bloom', 'fx.add.neonGlow', 'fx.add.contourEcho', 'fx.add.lightLines'] },
+    '-', 'fx.peek'] },
   {
     label: 'DTF', items: [{ head: 'Producción' }, 'dtf.preflight', 'dtf.gang', 'dtf.mockup', 'view.studio3d', '-', { head: 'Preparación' }, 'dtf.halftone', 'dtf.bg', 'dtf.refine', 'dtf.underbase', 'dtf.vectorize', '-', { head: 'Color' }, 'dtf.separations', 'dtf.palette', 'edit.color'],
   },
@@ -58,7 +64,7 @@ const menus: { label: string; items: Item[] }[] = [
       'view.rulers', 'view.grid', 'view.guides', 'view.snap', 'view.clearGuides', 'view.gridSettings'],
   },
   {
-    label: 'Ventana', items: [panelToggle('color'), panelToggle('properties'), panelToggle('adjustments'), panelToggle('layers'), panelToggle('channels'), panelToggle('artboards'), panelToggle('history'), panelToggle('social'), panelToggle('brand'), '-', 'view.hideUI',
+    label: 'Ventana', items: [panelToggle('color'), panelToggle('properties'), panelToggle('adjustments'), panelToggle('effects'), panelToggle('colorlab'), panelToggle('layers'), panelToggle('channels'), panelToggle('artboards'), panelToggle('history'), panelToggle('social'), panelToggle('brand'), '-', 'view.hideUI',
       { label: 'Restablecer espacio de trabajo', run: () => { localStorage.removeItem('kova.prefs'); location.reload(); } }],
   },
   { label: 'Ayuda', items: ['edit.shortcuts', 'help.about'] },

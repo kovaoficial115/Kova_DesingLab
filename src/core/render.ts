@@ -5,7 +5,8 @@ import type { Artboard, DocState, Layer } from './types';
 import { createCanvas, ctx2d, cloneCanvas, layerMatrix, layerSize, textFont, textLayout, clearTextMetrics, decorationLines, getImageData } from './util';
 import { childrenOf, descendants } from './doc';
 import { runOp } from '../engine/workerClient';
-import { bumpRender } from './store';
+import { bumpRender, get, isLive } from './store';
+import { fxDef } from '../engine/fx/registry';
 
 // ---------- identidad de objetos para firmas de caché ----------
 const objIds = new WeakMap<object, number>();
@@ -174,68 +175,133 @@ function applyMask(src: HTMLCanvasElement, mask: HTMLCanvasElement) {
   return out;
 }
 
-// ---------- ajustes no destructivos (asíncronos, en worker) ----------
-interface ProcEntry { sig: string; result: HTMLCanvasElement | null; pendingSig: string | null; promise: Promise<HTMLCanvasElement> | null }
-const procCache = new Map<string, ProcEntry>();
-
-function adjSig(l: Layer) {
-  return JSON.stringify(l.adjustments.filter(a => a.enabled).map(a => [a.type, a.params]));
+// ---------- ajustes y efectos no destructivos (asíncronos, en worker) ----------
+// Cada capa tiene como mucho un cálculo en curso: si mientras tanto cambian los parámetros, al
+// terminar se calcula solo la última versión (no se encolan trabajos al arrastrar un deslizador).
+// Mientras se arrastra, los efectos pesados sobre imágenes grandes se calculan reducidos (vista
+// previa) y al soltar se calcula a resolución completa, que es la que se exporta.
+interface Want { sig: string; scale: number; content: HTMLCanvasElement; l: Layer; useMask: boolean }
+interface ProcEntry {
+  sig: string; result: HTMLCanvasElement | null;
+  draftSig: string; draft: HTMLCanvasElement | null;
+  running: Want | null; want: Want | null;
+  waiters: (() => void)[];
 }
+const procCache = new Map<string, ProcEntry>();
+const DRAFT_PIXELS = 1_600_000;
 
-function computeAdjusted(src: HTMLCanvasElement, l: Layer): Promise<HTMLCanvasElement> {
-  const adjustments = l.adjustments.filter(a => a.enabled).map(a => ({ type: a.type, params: a.params }));
-  const img = getImageData(src);
-  return runOp('adjust', img, { adjustments }).then(r => {
-    const c = createCanvas(src.width, src.height);
+const sigMemo = new WeakMap<object, string>();
+function adjSig(l: Layer) {
+  let s = sigMemo.get(l.adjustments);
+  if (s === undefined) {
+    s = JSON.stringify(l.adjustments.filter(a => a.enabled).map(a => [a.type, a.params, a.opacity ?? 100, a.blend ?? 'normal']));
+    sigMemo.set(l.adjustments, s);
+  }
+  return s;
+}
+const stackOf = (l: Layer) => l.adjustments.filter(a => a.enabled).map(a => ({ type: a.type, params: a.params, opacity: a.opacity, blend: a.blend }));
+
+function computeAdjusted(src: HTMLCanvasElement, l: Layer, scale: number): Promise<HTMLCanvasElement> {
+  let input = src;
+  if (scale < 1) {
+    input = createCanvas(Math.max(1, Math.round(src.width * scale)), Math.max(1, Math.round(src.height * scale)));
+    const g = ctx2d(input);
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, input.width, input.height);
+  }
+  const img = getImageData(input);
+  return runOp('adjust', img, { adjustments: stackOf(l), scale }).then(r => {
+    const c = createCanvas(input.width, input.height);
     ctx2d(c).putImageData(r.image!, 0, 0);
     return c;
   });
 }
 
+function startJob(e: ProcEntry, want: Want) {
+  e.running = want;
+  computeAdjusted(want.content, want.l, want.scale).then(c => {
+    const out = want.useMask ? applyMask(c, want.l.mask!) : c;
+    if (want.scale < 1) { e.draft = out; e.draftSig = want.sig; }
+    else { e.result = out; e.sig = want.sig; }
+  }, err => { console.error('Efectos', err); if (want.scale >= 1) e.sig = want.sig; }).finally(() => {
+    e.running = null;
+    const next = e.want;
+    e.want = null;
+    if (next && !(next.scale >= 1 ? e.sig === next.sig && e.result : e.draftSig === next.sig && e.draft)) startJob(e, next);
+    else { const w = e.waiters; e.waiters = []; w.forEach(f => f()); }
+    bumpRender();
+  });
+}
+function request(e: ProcEntry, want: Want) {
+  if (e.running) { if (e.running.sig !== want.sig || e.running.scale !== want.scale) e.want = want; else e.want = null; return; }
+  startJob(e, want);
+}
+function isDraftTime(l: Layer, content: HTMLCanvasElement) {
+  if (content.width * content.height <= DRAFT_PIXELS) return false;
+  const id = get().activeDocId;
+  if (!id || !isLive(id)) return false;
+  return l.adjustments.some(a => a.enabled && fxDef(a.type)?.heavy);
+}
+
 /** Devuelve el contenido final de la capa (ajustes + máscara). Si el cálculo está en curso,
- *  devuelve el último resultado disponible y vuelve a pintar al terminar. */
-export function processedContent(l: Layer, bypass = false): HTMLCanvasElement | null {
+ *  devuelve el último resultado disponible y vuelve a pintar al terminar. Con `allowDraft`, durante
+ *  un arrastre puede devolver una vista previa reducida (solo para dibujar en pantalla). */
+export function processedContent(l: Layer, bypass = false, allowDraft = false): HTMLCanvasElement | null {
   const content = layerContent(l);
   if (!content) return null;
   const hasAdj = !bypass && l.adjustments.some(a => a.enabled);
-  const useMask = l.mask && l.maskEnabled;
+  const useMask = !!(l.mask && l.maskEnabled);
   if (!hasAdj && !useMask) return content;
+  const key = l.id + (bypass ? ':b' : '');
   const sig = `${oid(content)}|${hasAdj ? adjSig(l) : ''}|${useMask ? oid(l.mask) : 0}`;
-  let e = procCache.get(l.id + (bypass ? ':b' : ''));
-  if (!e) { e = { sig: '', result: null, pendingSig: null, promise: null }; procCache.set(l.id + (bypass ? ':b' : ''), e); }
+  let e = procCache.get(key);
+  if (!e) { e = { sig: '', result: null, draftSig: '', draft: null, running: null, want: null, waiters: [] }; procCache.set(key, e); }
   if (e.sig === sig && e.result) return e.result;
   if (!hasAdj) {
     e.result = applyMask(content, l.mask!);
     e.sig = sig;
     return e.result;
   }
-  if (e.pendingSig !== sig) {
-    e.pendingSig = sig;
-    const entry = e;
-    entry.promise = computeAdjusted(content, l).then(c => {
-      const out = useMask ? applyMask(c, l.mask!) : c;
-      if (entry.pendingSig === sig) { entry.result = out; entry.sig = sig; entry.pendingSig = null; bumpRender(); }
-      return out;
-    });
-  }
+  const draftNow = isDraftTime(l, content);
+  if (draftNow) {
+    if (!(e.draftSig === sig && e.draft)) {
+      const k = Math.sqrt(DRAFT_PIXELS / (content.width * content.height));
+      request(e, { sig, scale: Math.max(0.2, Math.min(1, k)), content, l, useMask });
+    }
+    if (allowDraft && e.draft) return e.draft;
+  } else request(e, { sig, scale: 1, content, l, useMask });
   return e.result ?? content;
 }
 
-/** Garantiza que todos los ajustes estén calculados (para exportar). */
+/** Espera a que el resultado a resolución completa de la capa esté listo. */
+function whenReady(l: Layer): Promise<void> | null {
+  processedContent(l);
+  const e = procCache.get(l.id);
+  if (!e) return null;
+  const content = layerContent(l);
+  if (!content) return null;
+  const hasAdj = l.adjustments.some(a => a.enabled), useMask = !!(l.mask && l.maskEnabled);
+  if (!hasAdj) return null;
+  const sig = `${oid(content)}|${adjSig(l)}|${useMask ? oid(l.mask) : 0}`;
+  if (e.sig === sig && e.result) return null;
+  if (!e.running) request(e, { sig, scale: 1, content, l, useMask });
+  else if (!(e.running.sig === sig && e.running.scale >= 1)) e.want = { sig, scale: 1, content, l, useMask };
+  return new Promise<void>(res => e.waiters.push(res));
+}
+
+/** Garantiza que todos los ajustes estén calculados a resolución completa (para exportar). */
 export async function ensureProcessed(layers: Layer[]) {
   for (const l of layers) {
     if (l.kind === 'vector') await ensureVector(l, Math.max(1, Math.abs(l.scaleX), Math.abs(l.scaleY)) * 1.5);
     if (!l.visible) continue;
-    processedContent(l);
-    const e = procCache.get(l.id);
-    if (e?.pendingSig && e.promise) await e.promise;
+    for (let guard = 0; guard < 4; guard++) { const p = whenReady(l); if (!p) break; await p; }
   }
 }
 
 /** Versión síncrona definitiva de una capa en su resolución nativa (para hornear). */
 export async function bakedLayerCanvas(l: Layer): Promise<HTMLCanvasElement | null> {
   if (l.kind === 'vector') await ensureVector(l, Math.max(1, Math.abs(l.scaleX), Math.abs(l.scaleY)));
-  await ensureProcessed([l]);
+  await ensureProcessed([{ ...l, visible: true }]);
   return processedContent(l);
 }
 
@@ -432,6 +498,8 @@ export interface RenderOpts {
   hidden?: Set<string> | null; // ocultar estas capas temporalmente
   /** visor: dibujar los lienzos grandes por mosaicos (solo lo visible) */
   tiles?: boolean;
+  /** visor: durante un arrastre se aceptan vistas previas reducidas de los efectos pesados */
+  allowDraft?: boolean;
 }
 
 function drawLayer(g: CanvasRenderingContext2D, l: Layer, o: RenderOpts, all: Layer[], forceNormal = false) {
@@ -450,7 +518,7 @@ function drawLayer(g: CanvasRenderingContext2D, l: Layer, o: RenderOpts, all: La
     return;
   }
   if (o.only && !o.only.has(l.id)) return;
-  const src = processedContent(l, !!o.bypassIds?.has(l.id));
+  const src = processedContent(l, !!o.bypassIds?.has(l.id), !!o.allowDraft);
   if (!src) return;
   const { w, h } = layerSize(l);
   const m = o.base.multiply(layerMatrix(l));

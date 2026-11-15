@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
-import { runAdjustment, histogram } from './pixels';
+import { histogram } from './pixels';
+import { runStack } from './fx/pipeline';
 import { halftone } from './halftone';
 import { colorKey, refineEdges, outline, underbase, cleanupAlpha, morphAlpha, featherAlpha, dominantColors, alphaStats, garmentKnockout } from './alpha';
 import ImageTracer from 'imagetracerjs';
@@ -14,7 +15,7 @@ self.onmessage = (e: MessageEvent<Msg>) => {
     let result: any = undefined;
     switch (op) {
       case 'adjust':
-        for (const a of params.adjustments) runAdjustment(img, a.type, a.params);
+        runStack(img, params.adjustments, params.scale ?? 1);
         break;
       case 'halftone': out = halftone(img, params); break;
       case 'colorKey': colorKey(img, params); break;
