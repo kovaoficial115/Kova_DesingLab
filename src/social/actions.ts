@@ -82,7 +82,7 @@ export function updateDocSocial(fn: (s: DocSocial) => DocSocial) {
 }
 
 /** Encuadra cuando el visor ya existe (al crear un documento desde Inicio aún no está montado). */
-function fitWhenReady(r: Rect, tries = 20) {
+export function fitWhenReady(r: Rect, tries = 20) {
   requestAnimationFrame(() => {
     const el = document.getElementById('kova-viewport');
     // un fotograma más: el visor recién montado hace su propio encuadre inicial en el primero

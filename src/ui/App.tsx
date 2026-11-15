@@ -39,6 +39,9 @@ const dialogs: Record<string, React.LazyExoticComponent<any>> = {
   'social-adapt': lazy(() => import('../social/ui/AdaptDialog').then(m => ({ default: m.AdaptDialog }))),
   'social-preview': lazy(() => import('../social/ui/PreviewDialog').then(m => ({ default: m.PreviewDialog }))),
   'social-batch': lazy(() => import('../social/ui/BatchDialog').then(m => ({ default: m.BatchDialog }))),
+  'behance-new': lazy(() => import('../behance/ui/BehanceNewDialog').then(m => ({ default: m.BehanceNewDialog }))),
+  'behance-preview': lazy(() => import('../behance/ui/BehancePreviewDialog').then(m => ({ default: m.BehancePreviewDialog }))),
+  'behance-export': lazy(() => import('../behance/ui/BehanceExportDialog').then(m => ({ default: m.BehanceExportDialog }))),
   'collab-identity': lazy(() => import('../collab/dialogs').then(m => ({ default: m.IdentityDialog }))),
 };
 

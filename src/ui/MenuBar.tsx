@@ -8,7 +8,7 @@ import type { PanelId } from '../core/store';
 
 export type Item = string | '-' | { head: string } | { label: string; sub: Item[] } | { label: string; run: () => void; checked?: () => boolean };
 
-const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propiedades', adjustments: 'Ajustes', layers: 'Capas', history: 'Historial', artboards: 'Mesas de trabajo', channels: 'Canales y color', social: 'Redes sociales', brand: 'Marca', effects: 'Efectos', colorlab: 'Color Lab' };
+const panelNames: Record<PanelId, string> = { color: 'Color', properties: 'Propiedades', adjustments: 'Ajustes', layers: 'Capas', history: 'Historial', artboards: 'Mesas de trabajo', channels: 'Canales y color', social: 'Redes sociales', behance: 'Proyecto Behance', brand: 'Marca', effects: 'Efectos', colorlab: 'Color Lab' };
 
 function panelToggle(id: PanelId): Item {
   return {
@@ -60,14 +60,15 @@ const menus: { label: string; items: Item[] }[] = [
   },
   {
     label: 'Redes', items: [{ head: 'Social Design Studio' }, 'social.new', 'social.add', 'social.carousel', 'social.panorama', '-', 'social.adapt', 'social.preview', 'social.batch', 'social.export', '-',
-      { label: 'Guías de redes', sub: ['social.g.safe', 'social.g.ui', 'social.g.circle', 'social.g.thirds', 'social.g.crops', 'social.g.numbers'] }, 'social.formats'],
+      { label: 'Guías de redes', sub: ['social.g.safe', 'social.g.ui', 'social.g.circle', 'social.g.thirds', 'social.g.crops', 'social.g.numbers'] }, 'social.formats',
+      '-', { head: 'Behance Project Builder' }, 'behance.new', 'behance.add', 'behance.preview', 'behance.export', 'behance.guides'],
   },
   {
     label: 'Vista', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.100', 'view.print', '-', 'view.proof', 'view.compare', '-',
       'view.rulers', 'view.grid', 'view.guides', 'view.snap', 'view.clearGuides', 'view.gridSettings'],
   },
   {
-    label: 'Ventana', items: [panelToggle('color'), panelToggle('properties'), panelToggle('adjustments'), panelToggle('effects'), panelToggle('colorlab'), panelToggle('layers'), panelToggle('channels'), panelToggle('artboards'), panelToggle('history'), panelToggle('social'), panelToggle('brand'), '-', 'view.hideUI',
+    label: 'Ventana', items: [panelToggle('color'), panelToggle('properties'), panelToggle('adjustments'), panelToggle('effects'), panelToggle('colorlab'), panelToggle('layers'), panelToggle('channels'), panelToggle('artboards'), panelToggle('history'), panelToggle('social'), panelToggle('behance'), panelToggle('brand'), '-', 'view.hideUI',
       { label: 'Restablecer espacio de trabajo', run: () => { localStorage.removeItem('kova.prefs'); location.reload(); } }],
   },
   { label: 'Ayuda', items: ['edit.shortcuts', 'help.about'] },

@@ -27,6 +27,7 @@ const hasDoc = () => !!activeDoc();
 const hasLayer = () => !!activeLayer();
 const hasSel = () => !!docState()?.selection;
 const hasSocial = () => !!docState()?.artboards.some(a => a.social?.preset);
+const behanceProject = () => { const s = docState(); return s?.artboards.find(a => a.id === s.activeArtboardId)?.behance?.project ?? s?.artboards.find(a => a.behance)?.behance?.project; };
 const A_activeArtboard = () => { const s = docState(); return s ? s.artboards.find(a => a.id === s.activeArtboardId) ?? null : null; };
 export const openDialog = (type: string, props?: any) => set({ dialog: { type, props } });
 function toggleQuickMask() {
@@ -119,6 +120,11 @@ export const commands: Record<string, Command> = {
   ...Object.fromEntries(([['safe', 'Zona segura'], ['ui', 'Interfaz de la app'], ['circle', 'Recorte circular'], ['thirds', 'Tercios'], ['crops', 'Recortes de cuadrícula'], ['numbers', 'Numeración de diapositivas']] as [keyof SocialGuides, string][]).map(([k, label]) => [
     `social.g.${k}`, { label, run: () => set(s => ({ socialGuides: { ...s.socialGuides, [k]: !s.socialGuides[k] } })), checked: () => get().socialGuides[k] } as Command,
   ])),
+  'behance.new': { label: 'Nuevo proyecto Behance…', run: () => openDialog('behance-new', { mode: 'new' }) },
+  'behance.add': { label: 'Proyecto Behance en este documento…', run: () => openDialog('behance-new', { mode: 'add' }), enabled: hasDoc },
+  'behance.preview': { label: 'Vista previa de Behance…', run: () => openDialog('behance-preview', { project: behanceProject() }), enabled: () => !!behanceProject() },
+  'behance.export': { label: 'Exportar para Behance…', run: () => openDialog('behance-export', { project: behanceProject() }), enabled: () => !!behanceProject() },
+  'behance.guides': { label: 'Guías de sección', run: () => set(s => ({ behanceGuides: !s.behanceGuides })), checked: () => get().behanceGuides },
   'view.studio3d': { label: 'Estudio 3D…', keys: 'mod+alt+3', run: () => set({ screen: 'studio' }) },
   'file.backups': { label: 'Copias de respaldo…', run: () => openDialog('backups') },
   ...Object.fromEntries([0, 4, 30, 120].map(sec => [`file.autosave.${sec}`, {

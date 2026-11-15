@@ -1,6 +1,7 @@
 import type { SaveTarget } from '../platform';
 import type { Garment3DData } from './garment3d';
 import type { ArtboardSocial, DocSocial } from '../social/model';
+import type { ArtboardBehance } from '../behance/model';
 
 // Modelo de datos del documento. Los bitmaps (HTMLCanvasElement) se tratan como
 // inmutables: cualquier edición de píxeles crea un canvas nuevo (copy-on-write),
@@ -180,6 +181,8 @@ export interface Artboard {
   margin: number; // zona de seguridad en px
   /** formato de redes sociales y serie (carrusel, destacadas) — Social Design Studio */
   social?: ArtboardSocial | null;
+  /** sección de un proyecto de Behance Project Builder */
+  behance?: ArtboardBehance | null;
 }
 
 export interface Guide {

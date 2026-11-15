@@ -4,7 +4,7 @@ import { defaultBrushes, sanitizeBrushes, type BrushSettings, type BrushToolId }
 import { sanitizeUserFormats, emptyUserFormats, type UserFormats } from '../social/presets';
 import { syncLinks } from './links';
 
-export type PanelId = 'color' | 'properties' | 'adjustments' | 'effects' | 'colorlab' | 'layers' | 'history' | 'artboards' | 'channels' | 'social' | 'brand';
+export type PanelId = 'color' | 'properties' | 'adjustments' | 'effects' | 'colorlab' | 'layers' | 'history' | 'artboards' | 'channels' | 'social' | 'behance' | 'brand';
 
 /** Espacio de trabajo: qué formatos y herramientas se ofrecen primero. */
 export type Workspace = 'dtf' | 'graphic' | 'social';
@@ -79,6 +79,8 @@ export interface AppState {
   peekOriginal: boolean;
   /** máscara rápida: el Pincel añade a la selección y el Borrador (o Alt) quita; se ve en rojo */
   quickMask: boolean;
+  /** guías de sección de los proyectos de Behance (solo en pantalla) */
+  behanceGuides: boolean;
   /** cómo se ve la selección: hormigas, superposición roja o máscara en blanco y negro */
   selView: 'ants' | 'overlay' | 'mask';
   /** capa cuya máscara se muestra en blanco y negro en el lienzo */
@@ -102,6 +104,8 @@ export interface AppState {
 const defaultPanels: PanelConf[] = [
   // solo aparece con documentos de redes (o en el espacio «Redes»); arriba para tenerlo a mano
   { id: 'social', visible: true, collapsed: false },
+  // solo aparece con proyectos de Behance en el documento
+  { id: 'behance', visible: true, collapsed: false },
   { id: 'color', visible: true, collapsed: false },
   // biblioteca de marca: colores, tipografías, estilos, logotipos e iconos del kit
   { id: 'brand', visible: true, collapsed: false },
@@ -167,7 +171,7 @@ export const useStore = create<AppState>(() => ({
   dockOpen: false,
   compare: false,
   fxFocus: null,
-  peekOriginal: false, quickMask: false, selView: 'ants', maskView: null,
+  peekOriginal: false, quickMask: false, behanceGuides: true, selView: 'ants', maskView: null,
   proof: false,
   channelView: 'all',
   dialog: null,

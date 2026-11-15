@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FolderOpen, Upload, Trash2, RotateCcw, Grid3x3, Eraser, ScanLine, Layers, Shirt, FileImage, ArrowRight, Printer, Archive, ArchiveRestore, Box, Smartphone, Images, Shuffle, Table2, Download, Eye } from 'lucide-react';
+import { FolderOpen, Upload, Trash2, RotateCcw, Grid3x3, Eraser, ScanLine, Layers, Shirt, FileImage, ArrowRight, Printer, Archive, ArchiveRestore, Box, Smartphone, Images, Shuffle, Table2, Download, Eye, LayoutPanelTop } from 'lucide-react';
 import { allFormats, aspectLabel } from '../social/presets';
 import { createSocialDoc } from '../social/actions';
 import type { Workspace } from '../core/store';
@@ -109,6 +109,7 @@ export function Home() {
     { icon: Eye, title: 'Vista previa local', sub: 'Perfil, historias, Reels y planificador del feed', cmd: 'social.preview' },
     { icon: Table2, title: 'Lotes con variables', sub: '{{producto}}, {{precio}}… desde CSV o JSON', cmd: 'social.batch' },
     { icon: Download, title: 'Exportación para redes', sub: 'Nombres por plataforma, validación y ZIP', cmd: 'social.export' },
+    { icon: LayoutPanelTop, title: 'Proyecto Behance', sub: 'Secciones apiladas, modo continuo, vista previa y exportación', cmd: 'behance.new' },
   ];
   const features0 = [
     { icon: Grid3x3, title: 'Semitonos DTF', sub: 'Trama por alfa, mono, color o CMYK multicanal', cmd: 'dtf.halftone' },
@@ -181,7 +182,11 @@ export function Home() {
             {social ? <>
               <button className="btn primary" onClick={() => openDialog('social-new', { mode: 'new' })}><Smartphone size={14} />Más formatos y personalizado</button>
               <button className="btn" onClick={() => openDialog('social-new', { mode: 'new', tab: 'series' })}><Images size={14} />Carrusel o destacadas</button>
-            </> : <button className="btn primary" onClick={() => openDialog('new')}><FileImage size={14} />Documento personalizado</button>}
+              <button className="btn" onClick={() => openDialog('behance-new', { mode: 'new' })}><LayoutPanelTop size={14} />Proyecto Behance</button>
+            </> : <>
+              <button className="btn primary" onClick={() => openDialog('new')}><FileImage size={14} />Documento personalizado</button>
+              {workspace === 'graphic' && <button className="btn" onClick={() => openDialog('behance-new', { mode: 'new' })}><LayoutPanelTop size={14} />Proyecto Behance</button>}
+            </>}
             <button className="btn" onClick={async () => openFiles(await pickFiles())}><FolderOpen size={14} />Abrir archivo</button>
             <button className="btn" onClick={() => set({ screen: 'studio' })}><Box size={14} />Estudio 3D</button>
           </div>

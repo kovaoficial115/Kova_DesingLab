@@ -14,11 +14,13 @@
 //        layers[].text.path          texto en trayectoria
 //        layers[].component / link   componente principal y variantes vinculadas
 //        layers[].brand              recurso de un kit de marca (logotipo, icono)
+//        state.artboards[].behance   sección de un proyecto de Behance Project Builder
 //  Las secciones desconocidas (archivos de versiones futuras) se conservan al volver a guardar.
 
 import { sanitizeGarment3D, type Garment3DData } from '../core/garment3d';
 import { sanitizeArtboardSocial, sanitizeDocSocial, type DocSocial } from '../social/model';
 import { sanitizeStyles } from '../brand/model';
+import { sanitizeArtboardBehance } from '../behance/model';
 
 export const KOVA_FORMAT = 'kova-designlab';
 export const KOVA_SCHEMA = 3;
@@ -125,6 +127,20 @@ export function parseKova(input: string | object): ParsedKova {
     };
     if (dropped) warnings.push(`Se ignoró el formato de redes de ${dropped} mesa(s) porque estaba dañado.`);
   }
+  // secciones de Behance: lo dañado se quita (la mesa se abre como una mesa normal)
+  if (state.artboards.some((a: any) => a?.behance !== undefined && a?.behance !== null)) {
+    let dropped = 0;
+    state = {
+      ...state,
+      artboards: state.artboards.map((a: any) => {
+        if (a?.behance === undefined || a.behance === null) return a;
+        const b = sanitizeArtboardBehance(a.behance);
+        if (!b) { dropped++; const { behance: _b, ...rest } = a; return rest; }
+        return { ...a, behance: b };
+      }),
+    };
+    if (dropped) warnings.push(`Se ignoró la sección de Behance de ${dropped} mesa(s) porque estaba dañada.`);
+  }
   // estilos de texto: los dañados se quitan (sus textos conservan su aspecto, sin vínculo)
   if (state.textStyles !== undefined) {
     const ts = sanitizeStyles(state.textStyles);
@@ -160,6 +176,6 @@ export function downgradeToV1(file: KovaFile & Record<string, unknown>) {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rest)) if (KNOWN_KEYS.has(k)) out[k] = v;
   const st = out.state as any;
-  if (st && Array.isArray(st.artboards)) out.state = { ...st, artboards: st.artboards.map(({ social: _x, ...a }: any) => a) };
+  if (st && Array.isArray(st.artboards)) out.state = { ...st, artboards: st.artboards.map(({ social: _x, behance: _y, ...a }: any) => a) };
   return { ...out, format: KOVA_FORMAT, version: 1 };
 }

@@ -123,7 +123,15 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
     g.strokeStyle = active ? KOVA.redA(.55) : 'rgba(255,255,255,.12)';
     g.lineWidth = dpr;
     g.strokeRect(Math.round(r.x) + 0.5, Math.round(r.y) + 0.5, Math.round(r.w), Math.round(r.h));
-    if (s.artboards.length > 1 || active) {
+    if (r.a.behance) {
+      // secciones de Behance: la etiqueta va a la izquierda (encima taparía la sección anterior)
+      g.fillStyle = active ? KOVA.red : '#8b8b93';
+      g.textAlign = 'right';
+      g.fillText(`${String(r.a.behance.index + 1).padStart(2, '0')} · ${r.a.name}`, r.x - 8 * dpr, r.y + 12 * dpr);
+      g.fillStyle = '#6b6b73';
+      g.fillText(`${r.a.w}×${r.a.h}`, r.x - 8 * dpr, r.y + 27 * dpr);
+      g.textAlign = 'left';
+    } else if (s.artboards.length > 1 || active) {
       g.fillStyle = active ? KOVA.red : '#8b8b93';
       const unit = st.unit;
       let label = `${r.a.name}  ·  ${fromPx(r.a.w, unit, r.a.dpi).toFixed(unit === 'px' ? 0 : 1)}×${fromPx(r.a.h, unit, r.a.dpi).toFixed(unit === 'px' ? 0 : 1)} ${unit} @ ${r.a.dpi} ppp`;
@@ -296,6 +304,31 @@ function drawSocialGuides(g: CanvasRenderingContext2D, doc: Doc, sx: (x: number)
   g.restore();
 }
 
+/** Límites de sección de los proyectos de Behance en modo continuo. Solo en pantalla. */
+function drawBehanceGuides(g: CanvasRenderingContext2D, doc: Doc, sx: (x: number) => number, sy: (y: number) => number) {
+  if (!get().behanceGuides) return;
+  const abs = doc.state.artboards.filter(a => a.behance?.continuous && a.behance.index > 0);
+  if (!abs.length) return;
+  g.save();
+  g.font = `600 10px ${KOVA.font}`;
+  for (const a of abs) {
+    const X = sx(a.x), Y = Math.round(sy(a.y)) + 0.5, Wd = sx(a.x + a.w) - X;
+    g.setLineDash([8, 5]);
+    g.strokeStyle = 'rgba(0,140,255,.95)';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(X, Y); g.lineTo(X + Wd, Y); g.stroke();
+    g.setLineDash([]);
+    const label = `${String(a.behance!.index + 1).padStart(2, '0')} ${a.name}`;
+    const tw = g.measureText(label).width + 10;
+    if (Wd > tw + 12) {
+      g.fillStyle = 'rgba(0,140,255,.92)';
+      g.beginPath(); g.roundRect(X + 6, Y + 4, tw, 16, 4); g.fill();
+      g.fillStyle = '#fff'; g.fillText(label, X + 11, Y + 15.5);
+    }
+  }
+  g.restore();
+}
+
 function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dpr: number, phase: number, compareX: number | null) {
   const st = get();
   const v = getView(doc.id);
@@ -345,6 +378,7 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
     g.stroke();
   }
   drawSocialGuides(g, doc, sx, sy, v.zoom);
+  drawBehanceGuides(g, doc, sx, sy);
 
   // selección
   const sel = st.quickMask || st.selView !== 'ants' ? null : s.selection;
@@ -588,7 +622,7 @@ export function Viewport({ doc }: { doc: Doc }) {
   const [compareX, setCompareX] = useState<number | null>(null);
   const view = useStore(s => s.views[doc.id]);
   const tick = useStore(s => s.renderTick);
-  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}|${s.peekOriginal}|${s.fxFocus?.adjId ?? ''}|${s.quickMask}|${s.selView}|${s.maskView}`);
+  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}|${s.peekOriginal}|${s.fxFocus?.adjId ?? ''}|${s.quickMask}|${s.selView}|${s.maskView}|${s.behanceGuides}`);
   const socialFormats = useStore(s => s.socialFormats);
   const compare = useStore(s => s.compare);
   const showRulers = useStore(s => s.showRulers);

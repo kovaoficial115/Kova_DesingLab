@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, GripVertical, X, Palette, SlidersHorizontal, Layers, History, Frame, Settings2, Plus, Trash2, Copy, FileUp, Smartphone, Stamp, Sparkles, Aperture } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical, X, Palette, SlidersHorizontal, Layers, History, Frame, Settings2, Plus, Trash2, Copy, FileUp, Smartphone, Stamp, Sparkles, Aperture, LayoutPanelTop } from 'lucide-react';
 import { SocialPanel } from '../../social/ui/SocialPanel';
+import { BehancePanel } from '../../behance/ui/BehancePanel';
 import { BrandPanel } from '../../brand/ui/BrandPanel';
 import { EffectsPanel } from '../../fx/ui/EffectsPanel';
 import { ColorLabPanel } from '../../fx/ui/ColorLabPanel';
@@ -27,6 +28,7 @@ const meta: Record<PanelId, { title: string; icon: any }> = {
   artboards: { title: 'Mesas de trabajo', icon: Frame },
   channels: { title: 'Canales y color', icon: Palette },
   social: { title: 'Redes sociales', icon: Smartphone },
+  behance: { title: 'Proyecto Behance', icon: LayoutPanelTop },
   brand: { title: 'Marca', icon: Stamp },
   effects: { title: 'Efectos', icon: Sparkles },
   colorlab: { title: 'Color Lab', icon: Aperture },
@@ -128,6 +130,7 @@ export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?:
   // el panel de redes aparece en el espacio «Redes» o cuando el documento tiene mesas sociales
   const workspace = useStore(s => s.workspace);
   const socialDoc = workspace === 'social' || doc.state.artboards.some(a => a.social?.preset);
+  const behanceDoc = doc.state.artboards.some(a => a.behance);
   const [dragId, setDragId] = useState<PanelId | null>(null);
   const [overId, setOverId] = useState<PanelId | null>(null);
   const toggle = (id: PanelId, patch: Partial<{ visible: boolean; collapsed: boolean }>) => set(s => ({ panels: s.panels.map(p => (p.id === id ? { ...p, ...patch } : p)) }));
@@ -154,6 +157,7 @@ export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?:
       case 'artboards': return <ArtboardsPanel doc={doc} />;
       case 'channels': return <ChannelsPanel doc={doc} />;
       case 'social': return <SocialPanel doc={doc} />;
+      case 'behance': return <BehancePanel doc={doc} />;
       case 'brand': return <BrandPanel doc={doc} />;
       case 'effects': return <EffectsPanel doc={doc} />;
       case 'colorlab': return <ColorLabPanel doc={doc} />;
@@ -168,7 +172,7 @@ export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?:
           <button className="icon-btn sm" title="Cerrar paneles" aria-label="Cerrar paneles" onClick={() => set({ dockOpen: false })}><X size={13} /></button>
         </div>
       ) : <div className="dock-resizer" onPointerDown={startResize} title="Arrastra para cambiar el ancho" />}
-      {panels.filter(p => p.visible && (p.id !== 'social' || socialDoc)).map(p => {
+      {panels.filter(p => p.visible && (p.id !== 'social' || socialDoc) && (p.id !== 'behance' || behanceDoc)).map(p => {
         const M = meta[p.id];
         return (
           <div key={p.id} className={'panel' + (p.id === 'layers' && !p.collapsed ? ' fill' : '') + (overId === p.id && dragId !== p.id ? ' drag-over' : '')}
