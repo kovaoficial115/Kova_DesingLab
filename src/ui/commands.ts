@@ -18,6 +18,7 @@ import type { SocialGuides, PanelId } from '../core/store';
 import { FX } from '../engine/fx/registry';
 import { addEffect, importLut } from '../fx/lib';
 import * as AL from '../core/adjustLayers';
+import { COMPOSITIONS } from '../editorial/layout';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -279,6 +280,12 @@ export const commands: Record<string, Command> = {
   'view.rulers': { label: 'Reglas', keys: 'mod+r', run: () => set(s => ({ showRulers: !s.showRulers })), checked: () => get().showRulers },
   'view.grid': { label: 'Cuadrícula', keys: "mod+'", run: () => set(s => ({ showGrid: !s.showGrid })), checked: () => get().showGrid },
   'view.guides': { label: 'Guías y márgenes', keys: 'mod+;', run: () => set(s => ({ showGuides: !s.showGuides })), checked: () => get().showGuides },
+  'view.layout': { label: 'Retícula de maquetación', keys: "mod+shift+'", run: () => set(s => ({ showLayout: !s.showLayout })), checked: () => get().showLayout },
+  'view.layoutSettings': { label: 'Retícula y composición…', run: () => openDialog('editorial-layout'), enabled: hasDoc },
+  'view.comp.none': { label: 'Ninguna', run: () => set({ composition: null }), checked: () => !get().composition },
+  ...Object.fromEntries(COMPOSITIONS.map(c => [`view.comp.${c.id}`, { label: c.name, run: () => set(s => ({ composition: s.composition === c.id ? null : c.id })), checked: () => get().composition === c.id } as Command])),
+  'view.comp.turn': { label: 'Girar la espiral', run: () => set(s => ({ compositionTurn: (s.compositionTurn + 1) % 4 })), enabled: () => get().composition === 'spiral' },
+  'view.comp.all': { label: 'En todas las mesas', run: () => set(s => ({ compositionAll: !s.compositionAll })), checked: () => get().compositionAll },
   'view.snap': { label: 'Ajuste magnético (snap)', keys: 'mod+shift+;', run: () => set(s => ({ snap: !s.snap })), checked: () => get().snap },
   'view.clearGuides': { label: 'Borrar guías', run: () => A.clearGuides(), enabled: () => !!docState()?.guides.length },
   'view.gridSettings': { label: 'Configurar cuadrícula y unidades…', run: () => openDialog('grid') },

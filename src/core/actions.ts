@@ -14,6 +14,7 @@ import { bakedLayerCanvas, renderArtboard, renderLayerAlone, invalidateLayer, en
 import { runOp } from '../engine/workerClient';
 import { magicWand, colorRange } from '../engine/alpha';
 import { blurFloat } from '../engine/pixels';
+import { alignDeltas, distributeDeltas, hasLayout, contentBox } from '../editorial/layout';
 
 // ---------- documentos ----------
 export function addDoc(doc: Doc, fit = true) {
@@ -732,42 +733,64 @@ export function nudge(dx: number, dy: number) {
 }
 
 export type AlignKind = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom';
-export function alignLayers(kind: AlignKind, to: 'selection' | 'artboard') {
+export type AlignTarget = 'selection' | 'artboard' | 'margins' | 'key';
+
+/**
+ * Unidades que se alinean o distribuyen: cada capa seleccionada, y cada grupo seleccionado como un
+ * bloque (con sus capas dentro). Lo que ya está dentro de un grupo seleccionado no cuenta aparte.
+ */
+function arrangeUnits(s: DocState) {
+  const sel = new Set(s.selectedLayerIds);
+  const byId = new Map(s.layers.map(l => [l.id, l]));
+  const insideSelected = (l: Layer) => { for (let p = l.parentId ? byId.get(l.parentId) : undefined; p; p = p.parentId ? byId.get(p.parentId) : undefined) if (sel.has(p.id)) return true; return false; };
+  const out: { id: string; members: Layer[]; box: Rect }[] = [];
+  for (const id of s.selectedLayerIds) {
+    const l = byId.get(id);
+    if (!l || l.locked || insideSelected(l)) continue;
+    const members = (l.kind === 'group' ? descendants(s.layers, l.id) : [l]).filter(x => x.kind !== 'group' && !x.locked);
+    const box = unionRect(members.map(layerBounds).filter(b => b.w > 0 || b.h > 0));
+    if (members.length && box) out.push({ id, members, box });
+  }
+  return out;
+}
+function moveUnits(units: { members: Layer[] }[], deltas: { dx: number; dy: number }[], label: string) {
+  const mv = new Map<string, { dx: number; dy: number }>();
+  units.forEach((u, i) => { if (deltas[i].dx || deltas[i].dy) for (const m of u.members) mv.set(m.id, deltas[i]); });
+  if (!mv.size) return;
+  updateLayers([...mv.keys()], l => ({ x: l.x + mv.get(l.id)!.dx, y: l.y + mv.get(l.id)!.dy }), label);
+}
+
+/** Alinea la selección: entre sí, a la mesa, a sus márgenes (retícula) o a la primera seleccionada.
+ *  Con `block`, la selección entera se mueve como un bloque. */
+export function alignLayers(kind: AlignKind, to: AlignTarget, block = false) {
   const s = docState();
   const ab = activeArtboard();
   if (!s || !ab) return;
-  const ls = s.layers.filter(l => s.selectedLayerIds.includes(l.id) && l.kind !== 'group' && !l.locked);
-  if (!ls.length) return;
-  const ref = to === 'artboard' || ls.length === 1 ? ab : unionRect(ls.map(layerBounds))!;
-  updateLayers(ls.map(l => l.id), l => {
-    const b = layerBounds(l);
-    let dx = 0, dy = 0;
-    if (kind === 'left') dx = ref.x - b.x;
-    if (kind === 'hcenter') dx = ref.x + ref.w / 2 - (b.x + b.w / 2);
-    if (kind === 'right') dx = ref.x + ref.w - (b.x + b.w);
-    if (kind === 'top') dy = ref.y - b.y;
-    if (kind === 'vcenter') dy = ref.y + ref.h / 2 - (b.y + b.h / 2);
-    if (kind === 'bottom') dy = ref.y + ref.h - (b.y + b.h);
-    return { x: l.x + dx, y: l.y + dy };
-  }, 'Alinear');
+  const units = arrangeUnits(s);
+  if (!units.length) return;
+  let ref: Rect;
+  if (to === 'margins') ref = hasLayout(ab.layout) ? contentBox(ab, ab.layout) : { x: ab.x + ab.margin, y: ab.y + ab.margin, w: ab.w - ab.margin * 2, h: ab.h - ab.margin * 2 };
+  else if (to === 'key' && units.length > 1) ref = units[0].box;
+  else if (to === 'artboard' || units.length === 1) ref = ab;
+  else ref = unionRect(units.map(u => u.box))!;
+  // en bloque: toda la selección se mueve junta (conserva su disposición)
+  const deltas = block ? units.map(() => alignDeltas([unionRect(units.map(u => u.box))!], kind, ref)[0]) : alignDeltas(units.map(u => u.box), kind, ref);
+  if (to === 'key' && units.length > 1) deltas[0] = { dx: 0, dy: 0 };
+  moveUnits(units, deltas, 'Alinear');
 }
-export function distributeLayers(axis: 'h' | 'v') {
+
+/**
+ * Distribuye la selección. 'gap': mismo hueco entre los extremos; 'fixed': hueco de `gap` px desde
+ * la primera; 'centers': centros a la misma distancia.
+ */
+export function distributeLayers(axis: 'h' | 'v', mode: 'gap' | 'fixed' | 'centers' = 'gap', gap = 0) {
   const s = docState();
   if (!s) return;
-  const ls = s.layers.filter(l => s.selectedLayerIds.includes(l.id) && l.kind !== 'group' && !l.locked);
-  if (ls.length < 3) return toast('Selecciona al menos 3 capas para distribuir', 'warn');
-  const items = ls.map(l => ({ l, b: layerBounds(l) })).sort((a, b) => (axis === 'h' ? a.b.x - b.b.x : a.b.y - b.b.y));
-  const first = items[0].b, last = items[items.length - 1].b;
-  const total = items.reduce((acc, it) => acc + (axis === 'h' ? it.b.w : it.b.h), 0);
-  const span = axis === 'h' ? last.x + last.w - first.x : last.y + last.h - first.y;
-  const gap = (span - total) / (items.length - 1);
-  let cur = axis === 'h' ? first.x : first.y;
-  const moves = new Map<string, number>();
-  for (const it of items) {
-    moves.set(it.l.id, cur - (axis === 'h' ? it.b.x : it.b.y));
-    cur += (axis === 'h' ? it.b.w : it.b.h) + gap;
-  }
-  updateLayers([...moves.keys()], l => (axis === 'h' ? { x: l.x + moves.get(l.id)! } : { y: l.y + moves.get(l.id)! }), 'Distribuir');
+  const units = arrangeUnits(s);
+  const min = mode === 'fixed' ? 2 : 3;
+  if (units.length < min) return toast(`Selecciona al menos ${min} capas o grupos para distribuir`, 'warn');
+  const d = distributeDeltas(units.map(u => u.box), axis, mode, gap);
+  moveUnits(units, d.map(v => (axis === 'h' ? { dx: v, dy: 0 } : { dx: 0, dy: v })), 'Distribuir');
 }
 
 // ---------- cuadros de texto ----------

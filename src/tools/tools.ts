@@ -15,6 +15,7 @@ import { shapeLayer, textLayer, defaultText, descendants } from '../core/doc';
 import { renderArtboard, processedContent, beginLiveCanvas, updateLiveRegion, invalidateLayer } from '../core/render';
 import { makeStamp, makeTextureMask, dabPositions, type BrushSettings, type BrushToolId } from '../engine/brush';
 import { magicWand } from '../engine/alpha';
+import { hasLayout, layoutSnapLines } from '../editorial/layout';
 
 export interface ToolEvent {
   wx: number; wy: number; sx: number; sy: number;
@@ -63,6 +64,12 @@ function snapCandidates(excludeIds: Set<string>) {
     xs.push(b.x, b.x + b.w / 2, b.x + b.w); ys.push(b.y, b.y + b.h / 2, b.y + b.h);
   }
   if (get().showGuides) for (const g of s.guides) (g.axis === 'x' ? xs : ys).push(g.pos);
+  // retícula de maquetación: márgenes, columnas, filas y línea base
+  if (get().showLayout) for (const ab of s.artboards) {
+    if (!hasLayout(ab.layout)) continue;
+    const r = layoutSnapLines(ab, ab.layout);
+    xs.push(...r.xs); ys.push(...r.ys);
+  }
   return { xs, ys };
 }
 function gridSnap(v: number) {

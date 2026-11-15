@@ -105,16 +105,7 @@ function LayerProps({ l, ab, doc }: { l: Layer; ab: Artboard; doc: Doc }) {
           </div>
         </>
       )}
-      <div className="section-title">Alinear {multi ? 'selección' : 'a la mesa'}</div>
-      <div className="row" style={{ gap: 2 }}>
-        {(['left', 'hcenter', 'right', 'top', 'vcenter', 'bottom'] as const).map(k => (
-          <button key={k} className="icon-btn" title={k} onClick={() => A.alignLayers(k, multi ? 'selection' : 'artboard')}><AlignIcon kind={k} /></button>
-        ))}
-        <div className="vsep" />
-        <button className="icon-btn" title="Distribuir horizontalmente" disabled={doc.state.selectedLayerIds.length < 3} onClick={() => A.distributeLayers('h')}><AlignHorizontalSpaceAround size={14} /></button>
-        <button className="icon-btn" title="Distribuir verticalmente" disabled={doc.state.selectedLayerIds.length < 3} onClick={() => A.distributeLayers('v')}><AlignVerticalSpaceAround size={14} /></button>
-      </div>
-      {multi && <button className="btn sm" onClick={() => ['hcenter', 'vcenter'].forEach(k => A.alignLayers(k as any, 'artboard'))}>Centrar selección en la mesa</button>}
+      <AlignSection doc={doc} multi={multi} />
     </>
   );
 }
@@ -269,4 +260,44 @@ export function PropertiesPanel({ doc }: { doc: Doc }) {
   const l = s.layers.find(x => x.id === s.selectedLayerIds[s.selectedLayerIds.length - 1]);
   if (!l) return <ArtboardProps ab={ab} />;
   return <LayerProps l={l} ab={ab} doc={doc} />;
+}
+
+const ALIGN_TITLES: Record<A.AlignKind, string> = { left: 'Alinear a la izquierda', hcenter: 'Centrar en horizontal', right: 'Alinear a la derecha', top: 'Alinear arriba', vcenter: 'Centrar en vertical', bottom: 'Alinear abajo' };
+
+/** Alinear y distribuir (capas y grupos como bloque) a la selección, la mesa, sus márgenes o la primera seleccionada. */
+function AlignSection({ doc, multi }: { doc: Doc; multi: boolean }) {
+  const [to, setTo] = useState<A.AlignTarget>('selection');
+  const [mode, setMode] = useState<'gap' | 'fixed' | 'centers'>('gap');
+  const [gap, setGap] = useState(24);
+  const ab = doc.state.artboards.find(a => a.id === doc.state.activeArtboardId);
+  const target: A.AlignTarget = multi ? to : to === 'margins' ? 'margins' : 'artboard';
+  const n = doc.state.selectedLayerIds.length;
+  const need = mode === 'fixed' ? 2 : 3;
+  return (
+    <>
+      <div className="section-title">Alinear</div>
+      <Select<A.AlignTarget> value={multi ? to : to === 'margins' ? 'margins' : 'artboard'} onChange={setTo} title="Respecto a qué se alinea"
+        options={[
+          ...(multi ? [{ value: 'selection' as A.AlignTarget, label: 'A la selección' }, { value: 'key' as A.AlignTarget, label: 'A la primera seleccionada (objeto clave)' }] : []),
+          { value: 'artboard', label: 'A la mesa' },
+          { value: 'margins', label: ab?.layout ? 'A los márgenes de la retícula' : 'A los márgenes de la mesa' },
+        ]} />
+      <div className="row" style={{ gap: 2 }}>
+        {(['left', 'hcenter', 'right', 'top', 'vcenter', 'bottom'] as const).map(k => (
+          <button key={k} className="icon-btn" title={ALIGN_TITLES[k]} aria-label={ALIGN_TITLES[k]} onClick={() => A.alignLayers(k, target)}><AlignIcon kind={k} /></button>
+        ))}
+      </div>
+      {multi && <button className="btn sm" title="Mueve la selección entera, sin cambiar su disposición" onClick={() => { A.alignLayers('hcenter', target === 'margins' ? 'margins' : 'artboard', true); A.alignLayers('vcenter', target === 'margins' ? 'margins' : 'artboard', true); }}>Centrar la selección en bloque</button>}
+      <div className="section-title">Distribuir</div>
+      <div className="row" style={{ gap: 4 }}>
+        <Select<'gap' | 'fixed' | 'centers'> value={mode} onChange={setMode} options={[
+          { value: 'gap', label: 'Mismo espacio' }, { value: 'fixed', label: 'Espacio fijo' }, { value: 'centers', label: 'Centros' },
+        ]} title="Mismo espacio: entre la primera y la última. Espacio fijo: el que indiques. Centros: misma distancia entre centros" />
+        {mode === 'fixed' && <NumberField value={gap} onChange={setGap} min={0} digits={0} suffix="px" width={74} />}
+        <button className="icon-btn" title="Distribuir en horizontal" disabled={n < need} onClick={() => A.distributeLayers('h', mode, gap)}><AlignHorizontalSpaceAround size={14} /></button>
+        <button className="icon-btn" title="Distribuir en vertical" disabled={n < need} onClick={() => A.distributeLayers('v', mode, gap)}><AlignVerticalSpaceAround size={14} /></button>
+      </div>
+      <div className="tiny muted">Los grupos se mueven como un bloque.{n < need ? ` Selecciona al menos ${need} capas o grupos para distribuir.` : ''}</div>
+    </>
+  );
 }

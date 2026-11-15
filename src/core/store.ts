@@ -3,6 +3,7 @@ import type { Doc, DocState, ToolId, Unit, View, Layer } from './types';
 import { defaultBrushes, sanitizeBrushes, type BrushSettings, type BrushToolId } from '../engine/brush';
 import { sanitizeUserFormats, emptyUserFormats, type UserFormats } from '../social/presets';
 import { sanitizeSimAppearance, type SimAppearance } from '../social/appearance';
+import type { CompositionKind } from '../editorial/layout';
 import { syncLinks } from './links';
 
 export type PanelId = 'color' | 'properties' | 'adjustments' | 'effects' | 'colorlab' | 'layers' | 'history' | 'artboards' | 'channels' | 'social' | 'behance' | 'brand';
@@ -82,6 +83,13 @@ export interface AppState {
   quickMask: boolean;
   /** guías de sección de los proyectos de Behance (solo en pantalla) */
   behanceGuides: boolean;
+  /** retícula de maquetación de las mesas visible (y magnética) */
+  showLayout: boolean;
+  /** guía de composición sobre la mesa activa (solo vista) y su orientación (espiral) */
+  composition: CompositionKind | null;
+  compositionTurn: number;
+  /** dibujar la guía de composición en todas las mesas */
+  compositionAll: boolean;
   /** cómo se ve la selección: hormigas, superposición roja o máscara en blanco y negro */
   selView: 'ants' | 'overlay' | 'mask';
   /** capa cuya máscara se muestra en blanco y negro en el lienzo */
@@ -174,7 +182,7 @@ export const useStore = create<AppState>(() => ({
   dockOpen: false,
   compare: false,
   fxFocus: null,
-  peekOriginal: false, quickMask: false, behanceGuides: true, selView: 'ants', maskView: null,
+  peekOriginal: false, quickMask: false, behanceGuides: true, showLayout: true, composition: null, compositionTurn: 0, compositionAll: false, selView: 'ants', maskView: null,
   proof: false,
   channelView: 'all',
   dialog: null,
@@ -195,10 +203,10 @@ export const useStore = create<AppState>(() => ({
 useStore.subscribe((s, prev) => {
   if (s.panels !== prev.panels || s.unit !== prev.unit || s.rightWidth !== prev.rightWidth || s.showRulers !== prev.showRulers ||
     s.gridSize !== prev.gridSize || s.swatches !== prev.swatches || s.snap !== prev.snap || s.autosaveSec !== prev.autosaveSec || s.brushes !== prev.brushes ||
-    s.workspace !== prev.workspace || s.socialGuides !== prev.socialGuides || s.socialFormats !== prev.socialFormats || s.simAppearance !== prev.simAppearance) {
+    s.workspace !== prev.workspace || s.socialGuides !== prev.socialGuides || s.socialFormats !== prev.socialFormats || s.simAppearance !== prev.simAppearance || s.showLayout !== prev.showLayout) {
     try {
       localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap, autosaveSec: s.autosaveSec, brushes: s.brushes,
-        workspace: s.workspace, socialGuides: s.socialGuides, socialFormats: s.socialFormats, simAppearance: s.simAppearance }));
+        workspace: s.workspace, socialGuides: s.socialGuides, socialFormats: s.socialFormats, simAppearance: s.simAppearance, showLayout: s.showLayout }));
     } catch { /* almacenamiento no disponible */ }
   }
 });

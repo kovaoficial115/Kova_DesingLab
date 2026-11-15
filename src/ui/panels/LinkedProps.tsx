@@ -7,9 +7,10 @@ import type { Doc, Layer, TextPath } from '../../core/types';
 import { live, finishLive, commit, toast } from '../../core/store';
 import { NumberField, Select } from '../components/controls';
 import { selectLayers, fitToScreen } from '../../core/actions';
-import { layerBounds, layerPivot, placeAtPivot } from '../../core/util';
+import { layerBounds, layerPivot, placeAtPivot, unionRect } from '../../core/util';
 import { defaultPath, rebuildPath, shapeOutline, samplePath, pathBounds } from '../../core/textpath';
 import { overrides, subtree } from '../../core/links';
+import { placeVariantOnArtboards } from '../../editorial/actions';
 import { makeComponent, createVariant, detachVariant, resetVariantAction, removeComponent, renameComponent, canBeComponent, variantRoots, variantRootOf, masterRootOf } from '../../core/components';
 import { docStyles, applyTextStyle, resetToStyle, redefineStyle, styleFromLayer, unlinkStyle, recolorAsset, moveLogoToCorner, CORNERS } from '../../brand/actions';
 import { styleOverrides } from '../../brand/model';
@@ -232,6 +233,7 @@ export function VariantProps({ l, doc }: { l: Layer; doc: Doc }) {
           {roots.length > 0 && <button className="btn sm" onClick={() => selectLayers(roots.map(r => r.id))}>Seleccionar variantes</button>}
           <button className="btn sm ghost" title="Deja de ser componente; sus variantes quedan como capas normales" onClick={() => removeComponent(master.id)}>Quitar componente</button>
         </div>
+        {doc.state.artboards.length > 1 && <PlaceOnArtboards doc={doc} masterId={master.id} />}
       </>
     );
   }
@@ -291,5 +293,25 @@ export function BrandAssetProps({ l }: { l: Layer }) {
         </div>
       )}
     </>
+  );
+}
+
+/** Coloca variantes vinculadas del componente en otras mesas, en la misma posición relativa. */
+function PlaceOnArtboards({ doc, masterId }: { doc: Doc; masterId: string }) {
+  const [to, setTo] = useState('others');
+  const layers = doc.state.layers;
+  const b = unionRect(subtree(layers, masterId).filter(x => x.kind !== 'group').map(layerBounds));
+  const home = b ? doc.state.artboards.find(a => b.x + b.w / 2 >= a.x && b.x + b.w / 2 <= a.x + a.w && b.y + b.h / 2 >= a.y && b.y + b.h / 2 <= a.y + a.h) : undefined;
+  const others = doc.state.artboards.filter(a => a.id !== home?.id);
+  if (!others.length) return null;
+  const ids = to === 'others' ? others.map(a => a.id) : [to];
+  return (
+    <div className="row" style={{ gap: 4 }}>
+      <select className="select grow" value={to} onChange={e => setTo(e.target.value)} aria-label="Mesa de destino" title="Mesa donde colocar una variante vinculada">
+        <option value="others">En las demás mesas ({others.length})</option>
+        {others.map(a => <option key={a.id} value={a.id}>En «{a.name}»</option>)}
+      </select>
+      <button className="btn sm" title="Variante vinculada en la misma posición relativa de cada mesa" onClick={() => placeVariantOnArtboards(masterId, ids)}><CopyPlus size={12} />Colocar</button>
+    </div>
   );
 }

@@ -16,6 +16,7 @@ import { Slider } from './components/controls';
 import { KOVA } from './theme';
 import { findFormat, safeRect } from '../social/presets';
 import { seriesArtboards } from '../social/model';
+import { hasLayout, contentBox, columnBands, rowBands, compositionGuides } from '../editorial/layout';
 
 export const keys = { space: false };
 
@@ -304,6 +305,65 @@ function drawSocialGuides(g: CanvasRenderingContext2D, doc: Doc, sx: (x: number)
   g.restore();
 }
 
+/** Retícula de maquetación de cada mesa y guía de composición. Solo en pantalla: no se exporta. */
+function drawEditorial(g: CanvasRenderingContext2D, doc: Doc, sx: (x: number) => number, sy: (y: number) => number, zoom: number) {
+  const st = get();
+  const s = doc.state;
+  g.save();
+  g.lineWidth = 1;
+  if (st.showLayout) {
+    for (const a of s.artboards) {
+      const lg = a.layout;
+      if (!hasLayout(lg)) continue;
+      const X = sx(a.x), Y = sy(a.y);
+      g.save();
+      g.beginPath(); g.rect(X, Y, a.w * zoom, a.h * zoom); g.clip();
+      const c = contentBox(a, lg);
+      const cols = columnBands(a, lg), rows = rowBands(a, lg);
+      // columnas y filas: bandas translúcidas
+      g.fillStyle = 'rgba(210,22,37,.07)';
+      for (const b of cols) g.fillRect(sx(b.a), sy(c.y), (b.b - b.a) * zoom, c.h * zoom);
+      g.fillStyle = 'rgba(0,140,255,.06)';
+      for (const b of rows) g.fillRect(sx(c.x), sy(b.a), c.w * zoom, (b.b - b.a) * zoom);
+      g.strokeStyle = 'rgba(210,22,37,.45)';
+      g.beginPath();
+      for (const b of cols) for (const x of [b.a, b.b]) { const px = Math.round(sx(x)) + 0.5; g.moveTo(px, sy(c.y)); g.lineTo(px, sy(c.y + c.h)); }
+      g.stroke();
+      g.strokeStyle = 'rgba(0,140,255,.45)';
+      g.beginPath();
+      for (const b of rows) for (const y of [b.a, b.b]) { const py = Math.round(sy(y)) + 0.5; g.moveTo(sx(c.x), py); g.lineTo(sx(c.x + c.w), py); }
+      g.stroke();
+      // línea base (solo si las líneas no quedan demasiado juntas en pantalla)
+      if (lg.baseline > 0 && lg.baseline * zoom >= 4) {
+        g.strokeStyle = 'rgba(0,190,160,.28)';
+        g.beginPath();
+        for (let y = c.y; y <= c.y + c.h + 0.01; y += lg.baseline) { const py = Math.round(sy(y)) + 0.5; g.moveTo(sx(c.x), py); g.lineTo(sx(c.x + c.w), py); }
+        g.stroke();
+      }
+      // márgenes
+      g.setLineDash([5, 4]);
+      g.strokeStyle = 'rgba(210,22,37,.85)';
+      g.strokeRect(Math.round(sx(c.x)) + 0.5, Math.round(sy(c.y)) + 0.5, Math.round(c.w * zoom), Math.round(c.h * zoom));
+      g.setLineDash([]);
+      g.restore();
+    }
+  }
+  if (st.composition) {
+    const list = st.compositionAll ? s.artboards : s.artboards.filter(a => a.id === s.activeArtboardId);
+    for (const a of list) {
+      g.save();
+      g.beginPath(); g.rect(sx(a.x), sy(a.y), a.w * zoom, a.h * zoom); g.clip();
+      g.strokeStyle = 'rgba(255,196,0,.9)';
+      g.shadowColor = 'rgba(0,0,0,.5)'; g.shadowBlur = 2;
+      g.beginPath();
+      for (const l of compositionGuides(a, st.composition, st.compositionTurn)) { g.moveTo(sx(l.x1), sy(l.y1)); g.lineTo(sx(l.x2), sy(l.y2)); }
+      g.stroke();
+      g.restore();
+    }
+  }
+  g.restore();
+}
+
 /** Límites de sección de los proyectos de Behance en modo continuo. Solo en pantalla. */
 function drawBehanceGuides(g: CanvasRenderingContext2D, doc: Doc, sx: (x: number) => number, sy: (y: number) => number) {
   if (!get().behanceGuides) return;
@@ -378,6 +438,7 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
     g.stroke();
   }
   drawSocialGuides(g, doc, sx, sy, v.zoom);
+  drawEditorial(g, doc, sx, sy, v.zoom);
   drawBehanceGuides(g, doc, sx, sy);
 
   // selección
@@ -622,7 +683,7 @@ export function Viewport({ doc }: { doc: Doc }) {
   const [compareX, setCompareX] = useState<number | null>(null);
   const view = useStore(s => s.views[doc.id]);
   const tick = useStore(s => s.renderTick);
-  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}|${s.peekOriginal}|${s.fxFocus?.adjId ?? ''}|${s.quickMask}|${s.selView}|${s.maskView}|${s.behanceGuides}`);
+  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}|${s.peekOriginal}|${s.fxFocus?.adjId ?? ''}|${s.quickMask}|${s.selView}|${s.maskView}|${s.behanceGuides}|${s.showLayout}|${s.composition}|${s.compositionTurn}|${s.compositionAll}`);
   const socialFormats = useStore(s => s.socialFormats);
   const compare = useStore(s => s.compare);
   const showRulers = useStore(s => s.showRulers);

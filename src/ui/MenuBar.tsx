@@ -65,7 +65,8 @@ const menus: { label: string; items: Item[] }[] = [
   },
   {
     label: 'Vista', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.100', 'view.print', '-', 'view.proof', 'view.compare', '-',
-      'view.rulers', 'view.grid', 'view.guides', 'view.snap', 'view.clearGuides', 'view.gridSettings'],
+      'view.rulers', 'view.grid', 'view.guides', 'view.layout', 'view.snap', 'view.clearGuides', 'view.gridSettings', '-',
+      'view.layoutSettings', { label: 'Guías de composición', sub: ['view.comp.none', 'view.comp.thirds', 'view.comp.phi', 'view.comp.diagonals', 'view.comp.spiral', 'view.comp.center', '-', 'view.comp.turn', 'view.comp.all'] }],
   },
   {
     label: 'Ventana', items: [panelToggle('color'), panelToggle('properties'), panelToggle('adjustments'), panelToggle('effects'), panelToggle('colorlab'), panelToggle('layers'), panelToggle('channels'), panelToggle('artboards'), panelToggle('history'), panelToggle('social'), panelToggle('behance'), panelToggle('brand'), '-', 'view.hideUI',

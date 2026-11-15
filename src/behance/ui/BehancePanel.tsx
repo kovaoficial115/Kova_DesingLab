@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Copy, Trash2, GripVertical, Eye, Download, ChevronUp, ChevronDown, Unlink } from 'lucide-react';
+import { Plus, Copy, Trash2, GripVertical, Eye, Download, ChevronUp, ChevronDown, Unlink, LayoutGrid } from 'lucide-react';
 import { useStore, set } from '../../core/store';
 import type { Doc } from '../../core/types';
 import * as A from '../../core/actions';
@@ -104,6 +104,7 @@ export function BehancePanel({ doc }: { doc: Doc }) {
 
       <div className="section-title">Producción</div>
       <div className="col" style={{ gap: 4 }}>
+        <button className="btn sm" onClick={() => openDialog('editorial-layout')} title="Márgenes, columnas, filas y línea base para todas las secciones; guías de composición"><LayoutGrid size={12} />Retícula y composición…</button>
         <button className="btn sm" onClick={() => openDialog('behance-preview', { project: proj.id })}><Eye size={12} />Vista previa de Behance…</button>
         <button className="btn sm primary" onClick={() => openDialog('behance-export', { project: proj.id })}><Download size={12} />Exportar para Behance…</button>
         <button className="btn sm" onClick={() => openDialog('behance-new', { mode: 'add' })}><Plus size={12} />Otro proyecto en este documento…</button>
