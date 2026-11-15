@@ -90,6 +90,8 @@ export interface AppState {
   compositionTurn: number;
   /** dibujar la guía de composición en todas las mesas */
   compositionAll: boolean;
+  /** vista previa de un preajuste al pasar el ratón (cambio en vivo que se descarta al salir) */
+  fxHoverPreview: boolean;
   /** cómo se ve la selección: hormigas, superposición roja o máscara en blanco y negro */
   selView: 'ants' | 'overlay' | 'mask';
   /** capa cuya máscara se muestra en blanco y negro en el lienzo */
@@ -182,7 +184,7 @@ export const useStore = create<AppState>(() => ({
   dockOpen: false,
   compare: false,
   fxFocus: null,
-  peekOriginal: false, quickMask: false, behanceGuides: true, showLayout: true, composition: null, compositionTurn: 0, compositionAll: false, selView: 'ants', maskView: null,
+  peekOriginal: false, quickMask: false, behanceGuides: true, showLayout: true, composition: null, compositionTurn: 0, compositionAll: false, fxHoverPreview: false, selView: 'ants', maskView: null,
   proof: false,
   channelView: 'all',
   dialog: null,
@@ -271,6 +273,8 @@ function isBlocked(docId: string) {
 }
 /** true mientras hay un cambio en vivo (arrastre, trazo) sin consolidar. */
 export function isLive(docId: string) { return liveBase.has(docId); }
+/** Estado anterior al cambio en vivo en curso (o null si no hay ninguno). */
+export function liveBaseState(docId: string): DocState | null { return liveBase.get(docId)?.state ?? null; }
 /** Aplica un cambio remoto al estado actual y a la base del cambio en vivo, sin historial. */
 export function patchRemote(docId: string, fn: (s: DocState) => DocState, docFn?: (d: Doc) => Doc) {
   const base = liveBase.get(docId);

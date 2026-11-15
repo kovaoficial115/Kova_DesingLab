@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Trash2, Copy, RotateCcw, GripVertical, Plus, Save, Download, Zap, Tv, Monitor, Grid3x3, Check as CheckIcon, Sun, Contrast, Droplet, Palette, SunMedium, Spline, BarChart3, Blend, Layers2, SquareSplitHorizontal, Waves, Focus, Sparkle, PaintBucket, Rainbow, ArrowLeftRight } from 'lucide-react';
-import { live, finishLive, set, useStore, toast } from '../../core/store';
+import { live, finishLive, set, useStore, toast, liveBaseState } from '../../core/store';
 import { fxDef } from '../../engine/fx/registry';
 import { FX_BLENDS } from '../../engine/fx/core';
 import { FxParams, MixControls } from '../../fx/ui/FxEditor';
@@ -203,7 +203,11 @@ function SavePresetRow({ l, onDone }: { l: Layer; onDone: () => void }) {
 const catIcon: Record<string, any> = { blur: Waves, noise: Sparkle, distortion: Spline, glitch: Zap, vhs: Tv, crt: Monitor, glow: Sun, color: Palette, texture: Grid3x3 };
 
 export function AdjustmentsPanel({ doc }: { doc: Doc }) {
-  const s = doc.state;
+  // durante la vista previa al pasar el ratón por un preajuste el panel sigue mostrando la pila
+  // guardada: si creciera, empujaría la biblioteca de efectos bajo el ratón y la vista previa
+  // saltaría de una miniatura a otra (parpadeo)
+  const fxHover = useStore(st => st.fxHoverPreview);
+  const s = (fxHover && liveBaseState(doc.id)) || doc.state;
   const l = s.layers.find(x => x.id === s.selectedLayerIds[s.selectedLayerIds.length - 1]);
   const [open, setOpen] = useState<string | null>(null);
   const [drag, setDrag] = useState<number | null>(null);

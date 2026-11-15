@@ -171,8 +171,12 @@ export function previewPreset(p: FxPreset | null, mode: 'append' | 'replace' = '
   if (!id) return;
   if (previewing) { cancelLive(id); previewing = false; }
   if (p && !get().peekOriginal) { applyPreset(p, mode, true); previewing = true; }
+  if (get().fxHoverPreview !== previewing) set({ fxHoverPreview: previewing });
 }
-export function endPreview() { if (previewing) { const id = get().activeDocId; if (id) cancelLive(id); previewing = false; } }
+export function endPreview() {
+  if (previewing) { const id = get().activeDocId; if (id) cancelLive(id); previewing = false; }
+  if (get().fxHoverPreview) set({ fxHoverPreview: false });
+}
 export function commitPreviewAs(p: FxPreset, mode: 'append' | 'replace' = 'append') { endPreview(); applyPreset(p, mode); }
 
 /** Guarda la pila de la capa como preajuste propio (los px se guardan a la escala de referencia). */
