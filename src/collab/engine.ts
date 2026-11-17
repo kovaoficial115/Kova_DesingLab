@@ -192,6 +192,9 @@ function layerJSON(l: Layer, a: AssetStore, waits: Promise<unknown>[]): LayerJSO
     origin, ow: origin && origin !== 'same' ? l.origin!.width : 0, oh: origin && origin !== 'same' ? l.origin!.height : 0,
     mask, mw: l.mask?.width ?? 0, mh: l.mask?.height ?? 0,
     component: l.component ?? null, link: l.link ?? null, brand: l.brand ?? null, adjust: l.adjust ?? null,
+    crop: l.crop && l.cropSource ? l.crop : null,
+    cropSrc: l.crop && l.cropSource ? ref(l.cropSource.canvas) : null, csw: l.cropSource?.canvas.width ?? 0, csh: l.cropSource?.canvas.height ?? 0,
+    cropMask: l.crop && l.cropSource?.mask ? ref(l.cropSource.mask) : null, cmw: l.cropSource?.mask?.width ?? 0, cmh: l.cropSource?.mask?.height ?? 0,
     z: '',
   };
 }
@@ -208,6 +211,10 @@ function layerFromJSON(id: string, j: LayerJSON, a: AssetStore, prev?: Layer, on
   if (has('origin', 'ow', 'oh', 'canvas')) L.origin = j.origin === 'same' ? L.canvas : isFileRef(j.origin) ? a.canvas(j.origin, j.ow, j.oh, prev?.origin) : undefined;
   if (has('mask', 'mw', 'mh')) L.mask = j.mask ? a.canvas(j.mask, j.mw, j.mh, prev?.mask) : null;
   for (const k of ['component', 'link', 'brand', 'adjust'] as const) if (has(k)) L[k] = j[k] ? clone(j[k]) : null;
+  if (has('crop', 'cropSrc', 'csw', 'csh', 'cropMask', 'cmw', 'cmh')) {
+    L.crop = j.crop && j.cropSrc ? clone(j.crop) : null;
+    L.cropSource = j.crop && j.cropSrc ? { canvas: a.canvas(j.cropSrc, j.csw ?? 0, j.csh ?? 0, prev?.cropSource?.canvas), mask: j.cropMask ? a.canvas(j.cropMask, j.cmw ?? 0, j.cmh ?? 0, prev?.cropSource?.mask) : null } : null;
+  }
   return L as Layer;
 }
 function plainFromJSON<T>(id: string, j: any, prev?: T, only?: string[]): T {
@@ -627,9 +634,11 @@ export class CollabSession {
         let vector = l.vector;
         const m = vector?.svg.match(/data-kova-pending="([^"]+)"/);
         if (m && vector) { const t = this.assets.textLoaded.get(m[1]); if (t != null) vector = { ...vector, svg: t }; }
-        if (canvas === l.canvas && origin === l.origin && mask === l.mask && vector === l.vector) return l;
+        const csC = swap(l.cropSource?.canvas), csM = swap(l.cropSource?.mask);
+        const cropSource = l.cropSource && (csC !== l.cropSource.canvas || csM !== l.cropSource.mask) ? { canvas: csC!, mask: csM ?? null } : l.cropSource;
+        if (canvas === l.canvas && origin === l.origin && mask === l.mask && vector === l.vector && cropSource === l.cropSource) return l;
         changed = true;
-        const nl = { ...l, canvas, origin, mask, vector };
+        const nl = { ...l, canvas, origin, mask, vector, cropSource };
         const sh = this.sh.layers.get(l.id);
         if (sh && sh.ref === l) sh.ref = nl;
         return nl;

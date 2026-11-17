@@ -7,6 +7,7 @@ import { childrenOf, descendants } from './doc';
 import { runOp } from '../engine/workerClient';
 import { bumpRender, get, isLive } from './store';
 import { fxDef } from '../engine/fx/registry';
+import { canvasGradient, dashArray, polygonPoints, DEFAULT_STROKE_STYLE } from './paint';
 
 // ---------- identidad de objetos para firmas de caché ----------
 const objIds = new WeakMap<object, number>();
@@ -37,6 +38,16 @@ function renderText(l: Layer): HTMLCanvasElement {
     g.lineJoin = 'round';
     const each = (fn: (q: NonNullable<typeof glyphs>[number]) => void) => { for (const q of glyphs) { if (!q.ch.trim()) continue; g.save(); g.translate(q.x, q.y); g.rotate(q.a); fn(q); g.restore(); } };
     if (t.strokeWidth > 0) { g.strokeStyle = t.strokeColor; g.lineWidth = t.strokeWidth * 2; each(q => g.strokeText(q.ch, -q.w / 2, 0)); }
+    if (t.gradient) {
+      // el degradado ocupa la caja del texto; cada letra está girada, así que se pinta en una capa aparte
+      const fillC = createCanvas(w, h), fg = ctx2d(fillC);
+      fg.translate(ox, oy); fg.font = g.font; fg.textBaseline = 'alphabetic'; fg.textAlign = 'left';
+      for (const q of glyphs) { if (!q.ch.trim()) continue; fg.save(); fg.translate(q.x, q.y); fg.rotate(q.a); fg.fillText(q.ch, -q.w / 2, 0); fg.restore(); }
+      fg.setTransform(1, 0, 0, 1, 0, 0); fg.globalCompositeOperation = 'source-in';
+      fg.fillStyle = canvasGradient(fg, t.gradient, w, h); fg.fillRect(0, 0, w, h);
+      g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(fillC, 0, 0); g.restore();
+      return c;
+    }
     g.fillStyle = t.color;
     each(q => g.fillText(q.ch, -q.w / 2, 0));
     return c;
@@ -62,7 +73,7 @@ function renderText(l: Layer): HTMLCanvasElement {
       for (const [x, y, bw, bh] of bars(ln)) g.strokeRect(x, y, bw, bh);
     }
   }
-  g.fillStyle = t.color;
+  g.fillStyle = t.gradient ? canvasGradient(g, t.gradient, w, h, -ox, -oy) : t.color;
   for (const ln of lines) {
     for (const p of pieces(ln)) if (p.text) g.fillText(p.text, p.x, ln.y);
     for (const [x, y, bw, bh] of bars(ln)) g.fillRect(x, y, bw, bh);
@@ -74,17 +85,40 @@ function renderShape(l: Layer): HTMLCanvasElement {
   const s = l.shape!;
   const c = createCanvas(s.w, s.h);
   const g = ctx2d(c);
+  const st = s.strokeStyle ?? DEFAULT_STROKE_STYLE;
   const sw = s.stroke ? s.strokeWidth : 0;
-  const i = sw / 2;
-  g.beginPath();
-  if (s.shape === 'ellipse') g.ellipse(s.w / 2, s.h / 2, Math.max(0.5, s.w / 2 - i), Math.max(0.5, s.h / 2 - i), 0, 0, Math.PI * 2);
-  else if (s.shape === 'line') { g.moveTo(0, s.h / 2); g.lineTo(s.w, s.h / 2); }
-  else (g as any).roundRect(i, i, Math.max(1, s.w - sw), Math.max(1, s.h - sw), Math.max(0, s.radius));
-  if (s.fill && s.shape !== 'line') { g.fillStyle = s.fill; g.fill(); }
+  // la caja incluye el contorno: se dibuja centrado a sw/2 del borde (como siempre). El relleno llega
+  // hasta el centro del contorno (centrado, el modo de siempre), hasta su borde exterior (interior: el
+  // contorno queda dentro del relleno) o hasta su borde interior (exterior: el relleno no pasa por debajo)
+  const fillInset = st.align === 'outside' ? sw : st.align === 'inside' ? 0 : sw / 2;
+  const path = (inset: number) => {
+    g.beginPath();
+    if (s.shape === 'ellipse') g.ellipse(s.w / 2, s.h / 2, Math.max(0.5, s.w / 2 - inset), Math.max(0.5, s.h / 2 - inset), 0, 0, Math.PI * 2);
+    else if (s.shape === 'line') { g.moveTo(0, s.h / 2); g.lineTo(s.w, s.h / 2); }
+    else if (s.shape === 'polygon' || s.shape === 'star') {
+      const pts = polygonPoints(s.sides ?? (s.shape === 'star' ? 5 : 6), s.w, s.h, inset, s.shape === 'star' ? s.inner ?? 0.5 : undefined);
+      pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+      g.closePath();
+    } else (g as any).roundRect(inset, inset, Math.max(1, s.w - 2 * inset), Math.max(1, s.h - 2 * inset), Math.max(0, s.radius + (s.radius > 0 ? sw / 2 - inset : 0)));
+  };
+  if ((s.fill || s.fillGradient) && s.shape !== 'line') {
+    path(Math.min(fillInset, Math.min(s.w, s.h) / 2 - 0.5));
+    g.fillStyle = s.fillGradient ? canvasGradient(g, s.fillGradient, s.w, s.h) : s.fill!;
+    g.fill();
+  }
   if (s.stroke || s.shape === 'line') {
+    path(s.shape === 'line' ? 0 : sw / 2);
+    const lw = s.shape === 'line' ? Math.max(1, s.h) : sw;
     g.strokeStyle = s.stroke || s.fill || '#fff';
-    g.lineWidth = s.shape === 'line' ? Math.max(1, s.h) : sw;
-    g.stroke();
+    g.lineWidth = lw;
+    g.lineCap = st.dash === 'dotted' ? 'round' : st.cap;
+    g.lineJoin = st.join;
+    g.setLineDash(dashArray(st.dash, lw));
+    g.globalAlpha = st.opacity;
+    // una línea larga a lo ancho: el trazo no debe salirse de la caja por los extremos
+    if (s.shape === 'line' && g.lineCap !== 'butt') { g.save(); g.beginPath(); g.moveTo(lw / 2, s.h / 2); g.lineTo(s.w - lw / 2, s.h / 2); g.stroke(); g.restore(); }
+    else g.stroke();
+    g.globalAlpha = 1;
   }
   return c;
 }

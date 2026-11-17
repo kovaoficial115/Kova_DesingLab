@@ -30,9 +30,13 @@ export interface LayerJSON {
   component?: { name: string } | null; link?: { master: string; src: string } | null; brand?: { kit: string; asset: string; color?: string } | null;
   /** capa de ajuste: zona donde actúa */
   adjust?: { w: number; h: number } | null;
+  /** recorte no destructivo: zona visible e imagen original (y su máscara) */
+  crop?: { x: number; y: number; w: number; h: number } | null;
+  cropSrc?: FileRef | null; csw?: number; csh?: number;
+  cropMask?: FileRef | null; cmw?: number; cmh?: number;
   z: string;
 }
-export const FILE_KEYS = ['svgFile', 'canvas', 'origin', 'mask'] as const;
+export const FILE_KEYS = ['svgFile', 'canvas', 'origin', 'mask', 'cropSrc', 'cropMask'] as const;
 
 export interface ArtboardJSON { name: string; x: number; y: number; w: number; h: number; dpi: number; background: string | null; margin: number; z: string }
 export interface GuideJSON { axis: 'x' | 'y'; pos: number }

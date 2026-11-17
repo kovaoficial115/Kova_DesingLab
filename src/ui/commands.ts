@@ -3,7 +3,7 @@
 import { collabConfigured } from '../collab/config';
 import { get, set, undo, redo, activeDoc, activeLayer, docState, toast, withBusy, selectedLayers, brushFor, setBrush, redrawOverlay } from '../core/store';
 import * as A from '../core/actions';
-import { setTool, applyCrop, cancelCrop, cropState } from '../tools/tools';
+import { setTool, applyCrop, cancelCrop, cropState, imageCrop, imageCropTarget, beginImageCrop, removeImageCrop, hasEditableCrop } from '../tools/tools';
 import { pickFiles, openFiles, placeFiles, saveProject, saveToBrowserLibrary, autosave } from '../io/fileOps';
 import type { AdjustmentType, ToolId } from '../core/types';
 import { discardAutosave } from '../io/fileOps';
@@ -20,6 +20,9 @@ import { addEffect, importLut } from '../fx/lib';
 import * as AL from '../core/adjustLayers';
 import { COMPOSITIONS } from '../editorial/layout';
 import { clipText, type LayerClip } from '../core/clipboard';
+import { editableLoss, mergeWarningText } from '../core/layerOps';
+import { childrenOf } from '../core/doc';
+import { toggleFullscreen, enterPresentation } from './viewModes';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -27,6 +30,29 @@ export interface Command { label: string; keys?: string; run: () => any; enabled
 
 const hasDoc = () => !!activeDoc();
 const hasLayer = () => !!activeLayer();
+/** Capa hermana justo debajo de la activa (la que recibe «Combinar con la capa inferior»). */
+function layerBelow() {
+  const s = docState(), l = activeLayer();
+  if (!s || !l) return null;
+  const sibs = childrenOf(s.layers, l.parentId);
+  return sibs[sibs.findIndex(x => x.id === l.id) - 1] ?? null;
+}
+/** Aviso antes de combinar o acoplar si se pierde algo editable (acoplar siempre pregunta). */
+export async function confirmMerge(kind: 'sel' | 'below' | 'flatten'): Promise<boolean> {
+  const s = docState();
+  if (!s) return false;
+  if (kind === 'flatten') {
+    const loss = editableLoss(s.layers, s.layers.filter(l => !l.parentId).map(l => l.id));
+    const extra = loss.length ? `\n\nSe convierten en píxeles: ${loss.join(', ')}.` : '';
+    return platform.confirm(`Acoplar la imagen une todas las capas de la mesa activa en una sola capa de píxeles.${extra}\n\nPuedes deshacerlo con ⌘Z / Ctrl+Z.`, { okLabel: 'Acoplar' });
+  }
+  const below = layerBelow();
+  const ids = kind === 'sel' ? s.selectedLayerIds : [activeLayer()?.id, below?.id].filter((x): x is string => !!x);
+  const loss = editableLoss(s.layers, ids);
+  if (!loss.length) return true;
+  return platform.confirm(mergeWarningText(kind === 'sel' ? 'Combinar las capas seleccionadas' : 'Combinar con la capa inferior', loss), { okLabel: 'Combinar' });
+}
+
 const hasSel = () => !!docState()?.selection;
 const hasSocial = () => !!docState()?.artboards.some(a => a.social?.preset);
 const behanceProject = () => { const s = docState(); return s?.artboards.find(a => a.id === s.activeArtboardId)?.behance?.project ?? s?.artboards.find(a => a.behance)?.behance?.project; };
@@ -145,7 +171,7 @@ export const commands: Record<string, Command> = {
     },
   },
   // Edición
-  'edit.undo': { label: 'Deshacer', keys: 'mod+z', run: undo, enabled: () => !!activeDoc()?.past.length },
+  'edit.undo': { label: 'Deshacer', keys: 'mod+z', run: () => { if (imageCrop.layerId) cancelCrop(); else undo(); }, enabled: () => !!imageCrop.layerId || !!activeDoc()?.past.length },
   'edit.redo': { label: 'Rehacer', keys: 'mod+shift+z', run: redo, enabled: () => !!activeDoc()?.future.length },
   'edit.cut': { label: 'Cortar', keys: 'mod+x', run: () => clipboardCopy(true), enabled: hasLayer },
   'edit.copy': { label: 'Copiar', keys: 'mod+c', run: () => clipboardCopy(false), enabled: hasLayer },
@@ -219,8 +245,10 @@ export const commands: Record<string, Command> = {
   'layer.newAdjustClip': { label: 'Capa de ajuste solo para esta capa', run: () => AL.newAdjustmentLayer({ clip: true }), enabled: () => { const l = activeLayer(); return !!l && l.kind !== 'group' && l.kind !== 'adjust'; } },
   'layer.rasterize': { label: 'Rasterizar capa', run: () => { const l = activeLayer(); if (l) A.rasterizeLayer(l.id); }, enabled: hasLayer },
   'layer.resample': { label: 'Remuestrear al tamaño actual', run: () => { const l = activeLayer(); if (l) withBusy('Remuestreando…', () => A.rasterizeLayer(l.id, { bakeScale: true })); }, enabled: hasLayer },
-  'layer.mergeDown': { label: 'Combinar hacia abajo / selección', keys: 'mod+e', run: () => A.mergeSelected(), enabled: hasLayer },
-  'layer.flatten': { label: 'Acoplar imagen', run: () => A.flattenImage(), enabled: hasDoc },
+  'layer.mergeDown': { label: 'Combinar hacia abajo / selección', keys: 'mod+e', run: async () => { if (await confirmMerge(selectedLayers().length > 1 ? 'sel' : 'below')) await A.mergeSelected(); }, enabled: hasLayer },
+  'layer.mergeSel': { label: 'Combinar capas seleccionadas', run: async () => { if (await confirmMerge('sel')) await A.mergeSelected(); }, enabled: () => selectedLayers().length > 1 },
+  'layer.mergeBelow': { label: 'Combinar con la capa inferior', run: async () => { if (await confirmMerge('below')) await A.mergeDown(); }, enabled: () => !!layerBelow() },
+  'layer.flatten': { label: 'Acoplar imagen', run: async () => { if (await confirmMerge('flatten')) await A.flattenImage(); }, enabled: hasDoc },
   'layer.up': { label: 'Traer adelante', keys: 'mod+]', run: () => A.nudgeLayerOrder(1), enabled: hasLayer },
   'layer.down': { label: 'Enviar atrás', keys: 'mod+[', run: () => A.nudgeLayerOrder(-1), enabled: hasLayer },
   'layer.top': { label: 'Traer al frente', keys: 'mod+shift+]', run: () => A.nudgeLayerOrder('top'), enabled: hasLayer },
@@ -293,7 +321,9 @@ export const commands: Record<string, Command> = {
   'view.gridSettings': { label: 'Configurar cuadrícula y unidades…', run: () => openDialog('grid') },
   'view.proof': { label: 'Prueba de color CMYK', keys: 'mod+y', run: () => set(s => ({ proof: !s.proof })), checked: () => get().proof },
   'view.compare': { label: 'Comparar antes/después', keys: '\\', run: () => set(s => ({ compare: !s.compare })), checked: () => get().compare },
-  'view.hideUI': { label: 'Ocultar paneles', keys: 'tab', run: () => set(s => ({ hideUI: !s.hideUI })), checked: () => get().hideUI },
+  'view.fullscreen': { label: 'Pantalla completa', keys: 'mod+shift+f', run: () => { void toggleFullscreen(); }, checked: () => get().fullscreen },
+  'view.present': { label: 'Presentación', keys: 'mod+alt+p', run: () => { void enterPresentation(); }, enabled: hasDoc },
+  'view.hideUI': { label: 'Modo enfoque (ocultar paneles)', keys: 'tab', run: () => set(s => ({ hideUI: !s.hideUI })), checked: () => get().hideUI },
   // Herramientas
   'tool.move': toolCmd('move', 'Mover', 'v'),
   'tool.marquee': toolCmd('marquee', 'Marco rectangular', 'm'),
@@ -316,8 +346,10 @@ export const commands: Record<string, Command> = {
   'color.default': { label: 'Colores por defecto', keys: 'd', run: () => set({ fg: '#000000', bg: '#ffffff' }) },
   'brush.smaller': { label: 'Pincel más pequeño', keys: '[', run: () => resizeBrush(v => Math.max(1, Math.round(v / 1.2))) },
   'brush.bigger': { label: 'Pincel más grande', keys: ']', run: () => resizeBrush(v => Math.min(5000, Math.round(v * 1.2 + 1))) },
-  'crop.apply': { label: 'Aplicar recorte', keys: 'enter', run: () => applyCrop(), enabled: () => get().tool === 'crop' && !!cropState.rect },
-  'esc': { label: 'Cancelar', keys: 'escape', run: () => { if (get().tool === 'crop') cancelCrop(); else if (docState()?.selection) A.deselect(); } },
+  'crop.apply': { label: 'Aplicar recorte', keys: 'enter', run: () => applyCrop(), enabled: () => get().tool === 'crop' && (!!cropState.rect || !!imageCrop.layerId) },
+  'layer.cropImage': { label: 'Recortar imagen…', run: () => { beginImageCrop(); }, enabled: () => !!imageCropTarget() },
+  'layer.uncropImage': { label: 'Quitar recorte de imagen', run: () => removeImageCrop(), enabled: () => hasEditableCrop(imageCropTarget()) },
+  'esc': { label: 'Cancelar', keys: 'escape', run: () => { if (get().gradientEdit) set({ gradientEdit: null }); else if (get().tool === 'crop') cancelCrop(); else if (docState()?.selection) A.deselect(); else if (get().hideUI) set({ hideUI: false }); } },
   // Ayuda
   'help.about': { label: 'Acerca de KOVA Design Lab y limitaciones', run: () => openDialog('about') },
 };

@@ -74,6 +74,11 @@ export const desktopPlatform: PlatformAdapter = {
   droppedFiles: dt => Array.from(dt?.files ?? []),
   // WKWebView (wry) no implementa window.confirm(): devolvería «no» sin mostrar nada
   confirm: (message, o) => confirm(message, { title: 'KOVA Design Lab', kind: 'warning', okLabel: o?.okLabel ?? 'Aceptar', cancelLabel: 'Cancelar' }),
+  async setFullscreen(on) {
+    try { await getCurrentWindow().setFullscreen(on); } catch { /* sin permiso o no disponible */ }
+    return getCurrentWindow().isFullscreen().catch(() => false);
+  },
+  isFullscreen: () => getCurrentWindow().isFullscreen().catch(() => false),
   // la ventana nativa no dispara beforeunload: se pregunta al pedir el cierre
   guardClose(shouldWarn) {
     let off: (() => void) | null = null, gone = false;

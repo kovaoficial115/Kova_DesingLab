@@ -127,6 +127,7 @@ function ChannelsPanel({ doc }: { doc: Doc }) {
 export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?: boolean; open?: boolean }) {
   const panels = useStore(s => s.panels);
   const width = useStore(s => s.rightWidth);
+  const layersHeight = useStore(s => s.layersHeight);
   // el panel de redes aparece en el espacio «Redes» o cuando el documento tiene mesas sociales
   const workspace = useStore(s => s.workspace);
   const socialDoc = workspace === 'social' || doc.state.artboards.some(a => a.social?.preset);
@@ -146,6 +147,22 @@ export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?:
     const mv = (ev: PointerEvent) => set({ rightWidth: Math.max(240, Math.min(520, w0 - (ev.clientX - sx))) });
     const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  };
+  // alto del panel de Capas: se arrastra su borde inferior; doble clic vuelve a «ocupar el espacio libre»
+  const startLayersResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const panel = (e.currentTarget as HTMLElement).parentElement!;
+    const sy = e.clientY, h0 = panel.getBoundingClientRect().height;
+    const mv = (ev: PointerEvent) => set({ layersHeight: Math.round(Math.max(160, Math.min(1200, h0 + ev.clientY - sy))) });
+    const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  };
+  const layersKey = (e: React.KeyboardEvent) => {
+    const panel = (e.currentTarget as HTMLElement).parentElement!;
+    const h = layersHeight ?? panel.getBoundingClientRect().height;
+    const d = e.key === 'ArrowDown' ? 20 : e.key === 'ArrowUp' ? -20 : 0;
+    if (d) { e.preventDefault(); set({ layersHeight: Math.round(Math.max(160, Math.min(1200, h + d))) }); }
+    if (e.key === 'Enter' || e.key === 'Home') { e.preventDefault(); set({ layersHeight: null }); }
   };
   const body = (id: PanelId) => {
     switch (id) {
@@ -175,7 +192,8 @@ export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?:
       {panels.filter(p => p.visible && (p.id !== 'social' || socialDoc) && (p.id !== 'behance' || behanceDoc)).map(p => {
         const M = meta[p.id];
         return (
-          <div key={p.id} className={'panel' + (p.id === 'layers' && !p.collapsed ? ' fill' : '') + (overId === p.id && dragId !== p.id ? ' drag-over' : '')}
+          <div key={p.id} className={'panel' + (p.id === 'layers' && !p.collapsed ? ' fill' + (layersHeight && !drawer ? ' sized' : '') : '') + (overId === p.id && dragId !== p.id ? ' drag-over' : '')}
+            style={p.id === 'layers' && !p.collapsed && layersHeight && !drawer ? { height: layersHeight } : undefined}
             onDragOver={e => { if (dragId) { e.preventDefault(); setOverId(p.id); } }}
             onDrop={e => { e.preventDefault(); if (dragId && dragId !== p.id) reorder(dragId, p.id); setDragId(null); setOverId(null); }}>
             <div className="panel-head" role="button" tabIndex={0} aria-expanded={!p.collapsed}
@@ -189,6 +207,11 @@ export function Dock({ doc, drawer = false, open = false }: { doc: Doc; drawer?:
               <button className="icon-btn sm" title="Ocultar panel (Ventana para mostrar)" aria-label={`Ocultar ${M.title}`} onClick={e => { e.stopPropagation(); toggle(p.id, { visible: false }); }}><X size={12} /></button>
             </div>
             {!p.collapsed && <div className="panel-body">{body(p.id)}</div>}
+            {p.id === 'layers' && !p.collapsed && !drawer && (
+              <div className="panel-hresize" role="separator" aria-orientation="horizontal" aria-label="Alto del panel de capas" tabIndex={0}
+                title="Arrastra para cambiar el alto · doble clic: ocupar el espacio libre"
+                onPointerDown={startLayersResize} onDoubleClick={() => set({ layersHeight: null })} onKeyDown={layersKey} />
+            )}
           </div>
         );
       })}

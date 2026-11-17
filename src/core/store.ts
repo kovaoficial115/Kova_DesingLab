@@ -31,7 +31,9 @@ export interface ToolOptions {
   wandSampleAll: boolean;
   selMode: 'new' | 'add' | 'subtract' | 'intersect';
   feather: number;
-  shapeType: 'rect' | 'ellipse' | 'line';
+  shapeType: 'rect' | 'ellipse' | 'line' | 'polygon' | 'star';
+  /** lados del polígono / puntas de la estrella */
+  shapeSides: number;
   shapeFill: boolean;
   shapeStroke: boolean;
   shapeStrokeWidth: number;
@@ -65,6 +67,12 @@ export interface AppState {
   unit: Unit;
   panels: PanelConf[];
   rightWidth: number;
+  /** alto del panel de Capas en px (null = ocupa el espacio libre del lateral) */
+  layersHeight: number | null;
+  /** modo presentación: solo el diseño, sin interfaz, guías ni selección */
+  presenting: boolean;
+  /** la ventana está a pantalla completa */
+  fullscreen: boolean;
   showRulers: boolean;
   showGrid: boolean;
   showGuides: boolean;
@@ -92,6 +100,8 @@ export interface AppState {
   compositionAll: boolean;
   /** vista previa de un preajuste al pasar el ratón (cambio en vivo que se descarta al salir) */
   fxHoverPreview: boolean;
+  /** degradado que se ajusta arrastrando sus puntos sobre el lienzo */
+  gradientEdit: { layerId: string; target: 'fill' | 'text' } | null;
   /** cómo se ve la selección: hormigas, superposición roja o máscara en blanco y negro */
   selView: 'ants' | 'overlay' | 'mask';
   /** capa cuya máscara se muestra en blanco y negro en el lienzo */
@@ -102,6 +112,8 @@ export interface AppState {
   toasts: Toast[];
   busy: string | null;
   renderTick: number;
+  /** cambia al mover el marco del recorte de imagen (refresca solo la barra de opciones) */
+  cropTick: number;
   cursor: { x: number; y: number } | null;
   swatches: string[];
   /** segundos entre el último cambio y el autoguardado; 0 = desactivado */
@@ -151,7 +163,9 @@ function loadPrefs(): Partial<AppState> {
     const workspace: Workspace = p.workspace === 'graphic' || p.workspace === 'social' ? p.workspace : 'dtf';
     const sg = { ...defaultSocialGuides(), ...(p.socialGuides && typeof p.socialGuides === 'object' ? p.socialGuides : {}) };
     for (const k of Object.keys(sg) as (keyof SocialGuides)[]) sg[k] = !!sg[k];
-    return { ...p, panels: mergePanels(p.panels), brushes: sanitizeBrushes(p.brushes), workspace, socialGuides: sg, socialFormats: sanitizeUserFormats(p.socialFormats), simAppearance: sanitizeSimAppearance(p.simAppearance) };
+    return { ...p, panels: mergePanels(p.panels), brushes: sanitizeBrushes(p.brushes), workspace, socialGuides: sg, socialFormats: sanitizeUserFormats(p.socialFormats), simAppearance: sanitizeSimAppearance(p.simAppearance),
+      layersHeight: typeof p.layersHeight === 'number' && Number.isFinite(p.layersHeight) ? Math.max(120, Math.min(1200, p.layersHeight)) : null,
+      presenting: false, fullscreen: false };
   } catch { return {}; }
 }
 
@@ -164,7 +178,7 @@ export const useStore = create<AppState>(() => ({
   opts: {
     brushTarget: 'pixels',
     wandTolerance: 32, wandContiguous: true, wandSampleAll: false, selMode: 'new', feather: 0,
-    shapeType: 'rect', shapeFill: true, shapeStroke: false, shapeStrokeWidth: 8, shapeRadius: 0,
+    shapeType: 'rect', shapeSides: 6, shapeFill: true, shapeStroke: false, shapeStrokeWidth: 8, shapeRadius: 0,
     fillTolerance: 32, fillContiguous: true, gradientType: 'linear', gradientToTransparent: false,
     fontFamily: 'Inter, sans-serif', fontSize: 160, fontWeight: 700, showTransform: true, autoSelect: true,
   },
@@ -174,6 +188,9 @@ export const useStore = create<AppState>(() => ({
   unit: 'cm',
   panels: defaultPanels,
   rightWidth: 300,
+  layersHeight: null,
+  presenting: false,
+  fullscreen: false,
   showRulers: true,
   showGrid: false,
   showGuides: true,
@@ -184,13 +201,14 @@ export const useStore = create<AppState>(() => ({
   dockOpen: false,
   compare: false,
   fxFocus: null,
-  peekOriginal: false, quickMask: false, behanceGuides: true, showLayout: true, composition: null, compositionTurn: 0, compositionAll: false, fxHoverPreview: false, selView: 'ants', maskView: null,
+  peekOriginal: false, quickMask: false, behanceGuides: true, showLayout: true, composition: null, compositionTurn: 0, compositionAll: false, fxHoverPreview: false, gradientEdit: null, selView: 'ants', maskView: null,
   proof: false,
   channelView: 'all',
   dialog: null,
   toasts: [],
   busy: null,
   renderTick: 0,
+  cropTick: 0,
   cursor: null,
   autosaveSec: 4,
   workspace: 'dtf',
@@ -203,11 +221,11 @@ export const useStore = create<AppState>(() => ({
 
 // Persistencia de preferencias de interfaz
 useStore.subscribe((s, prev) => {
-  if (s.panels !== prev.panels || s.unit !== prev.unit || s.rightWidth !== prev.rightWidth || s.showRulers !== prev.showRulers ||
+  if (s.panels !== prev.panels || s.unit !== prev.unit || s.rightWidth !== prev.rightWidth || s.layersHeight !== prev.layersHeight || s.showRulers !== prev.showRulers ||
     s.gridSize !== prev.gridSize || s.swatches !== prev.swatches || s.snap !== prev.snap || s.autosaveSec !== prev.autosaveSec || s.brushes !== prev.brushes ||
     s.workspace !== prev.workspace || s.socialGuides !== prev.socialGuides || s.socialFormats !== prev.socialFormats || s.simAppearance !== prev.simAppearance || s.showLayout !== prev.showLayout) {
     try {
-      localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap, autosaveSec: s.autosaveSec, brushes: s.brushes,
+      localStorage.setItem('kova.prefs', JSON.stringify({ panels: s.panels, unit: s.unit, rightWidth: s.rightWidth, layersHeight: s.layersHeight, showRulers: s.showRulers, gridSize: s.gridSize, gridSub: s.gridSub, swatches: s.swatches, snap: s.snap, autosaveSec: s.autosaveSec, brushes: s.brushes,
         workspace: s.workspace, socialGuides: s.socialGuides, socialFormats: s.socialFormats, simAppearance: s.simAppearance, showLayout: s.showLayout }));
     } catch { /* almacenamiento no disponible */ }
   }

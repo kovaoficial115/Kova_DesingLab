@@ -23,6 +23,8 @@ export const platform: PlatformAdapter = {
   saveFile: async (data, o) => { await ready; return impl.saveFile(data, o); },
   droppedFiles: dt => impl.droppedFiles(dt),
   confirm: async (message, o) => { await ready; return impl.confirm(message, o); },
+  setFullscreen: async on => { await ready; return impl.setFullscreen(on); },
+  isFullscreen: async () => { await ready; return impl.isFullscreen(); },
   guardClose(shouldWarn) {
     let off: (() => void) | null = null, gone = false;
     ready.then(() => { if (!gone) off = impl.guardClose(shouldWarn); });

@@ -42,7 +42,7 @@ const menus: { label: string; items: Item[] }[] = [
       { label: 'Texto en trayectoria', sub: ['text.pathCircle', 'text.pathArc', 'text.pathWave', 'text.pathNone'] }, '-',
       { label: 'Máscara de capa', sub: ['layer.mask', 'layer.maskHide', '-', 'layer.maskReveal', 'layer.maskHideAll', 'layer.maskLumLights', 'layer.maskLumShadows', 'layer.maskGradient', '-', 'layer.maskInvert', 'layer.maskView', '-', 'layer.maskApply', 'layer.maskDelete'] }, 'layer.clip', '-',
       { label: 'Organizar', sub: ['layer.top', 'layer.up', 'layer.down', 'layer.bottom'] }, '-',
-      'layer.rasterize', 'layer.resample', 'layer.outline', '-', 'layer.mergeDown', 'layer.flatten'],
+      'layer.rasterize', 'layer.resample', 'layer.cropImage', 'layer.uncropImage', 'layer.outline', '-', 'layer.mergeDown', 'layer.flatten'],
   },
   { label: 'Selección', items: ['sel.all', 'sel.none', 'sel.invert', '-', 'sel.layer', 'sel.colorRange', 'sel.subject', 'sel.subjectQuick', '-',
     { label: 'Sujeto', sub: ['subj.hideBg', 'subj.extract', 'subj.replaceBg', '-', 'subj.fxSubject', 'subj.fxBackground', '-', 'subj.export'] },
@@ -64,7 +64,7 @@ const menus: { label: string; items: Item[] }[] = [
       '-', { head: 'Behance Project Builder' }, 'behance.new', 'behance.add', 'behance.preview', 'behance.export', 'behance.guides'],
   },
   {
-    label: 'Vista', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.100', 'view.print', '-', 'view.proof', 'view.compare', '-',
+    label: 'Vista', items: ['view.zoomIn', 'view.zoomOut', 'view.fit', 'view.100', 'view.print', '-', 'view.proof', 'view.compare', '-', 'view.fullscreen', 'view.present', 'view.hideUI', '-',
       'view.rulers', 'view.grid', 'view.guides', 'view.layout', 'view.snap', 'view.clearGuides', 'view.gridSettings', '-',
       'view.layoutSettings', { label: 'Guías de composición', sub: ['view.comp.none', 'view.comp.thirds', 'view.comp.phi', 'view.comp.diagonals', 'view.comp.spiral', 'view.comp.center', '-', 'view.comp.turn', 'view.comp.all'] }],
   },

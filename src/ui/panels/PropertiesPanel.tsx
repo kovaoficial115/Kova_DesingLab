@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { FlipHorizontal2, FlipVertical2, RotateCw, RotateCcw, Link, Unlink, AlignHorizontalSpaceAround, AlignVerticalSpaceAround, AlertTriangle, Bold, Italic, Underline, Strikethrough } from 'lucide-react';
 import { useStore, live, finishLive, get, liveBaseState } from '../../core/store';
-import type { Doc, Layer, Artboard, TextAlign } from '../../core/types';
-import { NumberField, Select, Check, ColorInput } from '../components/controls';
+import type { Doc, Layer, Artboard, TextAlign, ShapeProps as ShapeData } from '../../core/types';
+import { NumberField, Select, Check, ColorInput, Seg } from '../components/controls';
+import { GradientEditor } from '../components/GradientEditor';
+import { DEFAULT_STROKE_STYLE, defaultGradient, type StrokeStyle, type DashKind, type StrokeAlign } from '../../core/paint';
 import { fromPx, toPx, layerSize, layerBounds, layerPivot, placeAtPivot, unionRect } from '../../core/util';
-import { groupTarget } from '../../tools/tools';
+import { groupTarget, hasEditableCrop } from '../../tools/tools';
 import { scalePatch, rotatePatch, applyPatches } from '../../core/groupTransform';
 import * as A from '../../core/actions';
 import { AlignIcon } from '../Chrome';
@@ -88,10 +90,17 @@ function LayerProps({ l, ab, doc }: { l: Layer; ab: Artboard; doc: Doc }) {
         {l.kind === 'raster' && (Math.abs(Math.abs(l.scaleX) - 1) > 0.001 || Math.abs(Math.abs(l.scaleY) - 1) > 0.001) && (
           <button className="btn sm" onClick={() => runCommand('layer.resample')} title="Convierte la escala en píxeles reales">Remuestrear a {Math.round(dw)}×{Math.round(dh)} px</button>
         )}
+        {l.kind === 'raster' && l.canvas && (
+          <div className="row" style={{ gap: 6 }}>
+            <button className="btn sm" disabled={l.locked} onClick={() => runCommand('layer.cropImage')} title="Recorte no destructivo: la imagen original se conserva y puedes volver a ajustarlo">{hasEditableCrop(l) ? 'Editar recorte' : 'Recortar imagen'}</button>
+            {hasEditableCrop(l) && <button className="btn sm" disabled={l.locked} onClick={() => runCommand('layer.uncropImage')} title="Vuelve a mostrar la imagen completa">Quitar recorte</button>}
+            {hasEditableCrop(l) && <span className="tiny muted">{l.crop!.w}×{l.crop!.h} de {l.cropSource?.canvas.width}×{l.cropSource?.canvas.height} px</span>}
+          </div>
+        )}
         <div className="tiny muted">Caja: {fromPx(b.w, get().unit, ab.dpi).toFixed(2)} × {fromPx(b.h, get().unit, ab.dpi).toFixed(2)} {get().unit} · contenido {Math.round(w)}×{Math.round(h)} px</div>
       </>}
       {l.kind === 'text' && l.text && <TextProps l={l} doc={doc} />}
-      {l.kind === 'shape' && l.shape && <ShapeProps l={l} />}
+      {l.kind === 'shape' && l.shape && <ShapeProps l={l} doc={doc} />}
       {l.kind === 'vector' && (
         <div className="row"><button className="btn sm" onClick={() => runCommand('layer.rasterize')}>Rasterizar</button><span className="tiny muted">Vector editable; se exporta nativo a SVG.</span></div>
       )}
@@ -129,12 +138,16 @@ function TextProps({ l, doc }: { l: Layer; doc: Doc }) {
         <button className={'icon-btn sm' + (t.italic ? ' active' : '')} onClick={() => up({ italic: !t.italic })}><Italic size={12} /></button>
       </div>
       <div className="row">
-        <ColorInput value={t.color} onChange={v => up({ color: v }, false)} onCommit={() => finishLive('Color de texto')} />
+        {!t.gradient && <ColorInput value={t.color} onChange={v => up({ color: v }, false)} onCommit={() => finishLive('Color de texto')} />}
+        <Seg<'solid' | 'gradient'> value={t.gradient ? 'gradient' : 'solid'} onChange={v => { up({ gradient: v === 'gradient' ? defaultGradient(t.color, get().bg) : null }, false); finishLive(v === 'gradient' ? 'Texto degradado' : 'Texto de un color'); }}
+          options={[{ value: 'solid', label: 'Color' }, { value: 'gradient', label: 'Degradado' }]} />
         <div className="grow" />
         <button className={'icon-btn sm txt-opt' + (t.caps ? ' active' : '')} title="Todo mayúsculas" onClick={() => up({ caps: !t.caps })}>TT</button>
         <button className={'icon-btn sm' + (t.underline ? ' active' : '')} title="Subrayado" onClick={() => up({ underline: !t.underline })}><Underline size={12} /></button>
         <button className={'icon-btn sm' + (t.strike ? ' active' : '')} title="Tachado" onClick={() => up({ strike: !t.strike })}><Strikethrough size={12} /></button>
       </div>
+      {t.gradient && <GradientEditor value={t.gradient} editKey={{ layerId: l.id, target: 'text' }}
+        onChange={(g, c) => { up({ gradient: g, color: g.stops[0]?.color ?? t.color }, false); if (c) finishLive('Degradado del texto'); }} />}
       <div className="grid2">
         <NumberField label="↕" value={t.lineHeight} min={0.5} max={4} step={0.05} digits={2} onChange={v => up({ lineHeight: v }, false)} onCommit={v => up({ lineHeight: v })} title="Interlineado" />
         <NumberField label="↔" value={t.letterSpacing} min={-200} max={500} digits={0} suffix="px" onChange={v => up({ letterSpacing: v }, false)} onCommit={v => up({ letterSpacing: v })} title="Espaciado" />
@@ -205,22 +218,66 @@ function ParagraphProps({ l, up }: { l: Layer; up: (p: Partial<NonNullable<Layer
   );
 }
 
-function ShapeProps({ l }: { l: Layer }) {
+function ShapeProps({ l, doc }: { l: Layer; doc: Doc }) {
   const s = l.shape!;
-  const up = (p: Partial<typeof s>, c = true) => { liveLayer(l.id, x => ({ shape: { ...x.shape!, ...p } })); if (c) finishLive('Forma'); };
+  const ss = s.strokeStyle ?? DEFAULT_STROKE_STYLE;
+  // con varias formas seleccionadas, los cambios se aplican a todas
+  const ids = new Set(doc.state.layers.filter(x => x.kind === 'shape' && x.shape && doc.state.selectedLayerIds.includes(x.id)).map(x => x.id).concat(l.id));
+  const n = ids.size;
+  const up = (p: Partial<ShapeData> | ((x: ShapeData) => Partial<ShapeData>), c: boolean | string = true) => {
+    live(st => ({ ...st, layers: st.layers.map(x => (ids.has(x.id) && x.shape ? { ...x, shape: { ...x.shape, ...(typeof p === 'function' ? p(x.shape) : p) } } : x)) }));
+    if (c) finishLive(typeof c === 'string' ? c : n > 1 ? `Formas (${n})` : 'Forma');
+  };
+  const upStroke = (p: Partial<StrokeStyle>, c: boolean | string = 'Estilo del contorno') => up(x => ({ strokeStyle: { ...(x.strokeStyle ?? DEFAULT_STROKE_STYLE), ...p } }), c);
+  const isLine = s.shape === 'line';
+  const fillMode = s.fillGradient ? 'gradient' : 'solid';
   return (
     <>
-      <div className="section-title">Forma</div>
+      <div className="section-title">{n > 1 ? `Forma · ${n} seleccionadas` : 'Forma'}</div>
+      {!isLine && <>
+        <div className="row">
+          <Check checked={!!(s.fill || s.fillGradient)} onChange={v => up(v ? { fill: s.fill ?? get().fg } : { fill: null, fillGradient: null }, v ? 'Relleno' : 'Quitar relleno')} label="Relleno" />
+          {(s.fill || s.fillGradient) && <Seg<'solid' | 'gradient'> value={fillMode} onChange={v => up(v === 'gradient'
+            ? x => ({ fillGradient: defaultGradient(x.fill ?? get().fg, get().bg), fill: x.fill ?? get().fg })
+            : { fillGradient: null }, v === 'gradient' ? 'Relleno degradado' : 'Relleno sólido')}
+            options={[{ value: 'solid', label: 'Color' }, { value: 'gradient', label: 'Degradado' }]} />}
+          <div className="grow" />
+          {s.fill && !s.fillGradient && <ColorInput value={s.fill} onChange={v => up({ fill: v }, false)} onCommit={() => finishLive('Relleno')} />}
+        </div>
+        {s.fillGradient && <GradientEditor value={s.fillGradient} editKey={n === 1 ? { layerId: l.id, target: 'fill' } : undefined}
+          onChange={(g, c) => up({ fillGradient: g, fill: g.stops[0]?.color ?? s.fill }, c ? 'Degradado' : false)} />}
+      </>}
       <div className="row">
-        <Check checked={!!s.fill} onChange={v => up({ fill: v ? get().fg : null })} label="Relleno" />
-        {s.fill && <ColorInput value={s.fill} onChange={v => up({ fill: v }, false)} onCommit={() => finishLive('Relleno')} />}
+        <Check checked={!!s.stroke || isLine} onChange={v => { if (!isLine) up({ stroke: v ? s.stroke ?? get().bg : null }, v ? 'Contorno' : 'Quitar contorno'); }} label={isLine ? 'Línea' : 'Contorno'} />
         <div className="grow" />
-        <Check checked={!!s.stroke} onChange={v => up({ stroke: v ? get().bg : null })} label="Trazo" />
-        {s.stroke && <ColorInput value={s.stroke} onChange={v => up({ stroke: v }, false)} onCommit={() => finishLive('Trazo')} />}
+        {(s.stroke || isLine) && <ColorInput value={s.stroke || s.fill || '#ffffff'} onChange={v => up({ stroke: v }, false)} onCommit={() => finishLive('Color del contorno')} />}
       </div>
+      {(s.stroke || isLine) && <>
+        <div className="grid2">
+          {!isLine && <NumberField label="Grosor" value={s.strokeWidth} min={0} max={1000} digits={0} suffix="px" onChange={v => up({ strokeWidth: v }, false)} onCommit={v => up({ strokeWidth: v }, 'Grosor del contorno')} />}
+          <NumberField label="Opac." value={Math.round(ss.opacity * 100)} min={0} max={100} digits={0} suffix="%" onChange={v => upStroke({ opacity: v / 100 }, false)} onCommit={v => upStroke({ opacity: v / 100 })} />
+        </div>
+        <div className="grid2">
+          <Select<DashKind> value={ss.dash} onChange={v => upStroke({ dash: v })} title="Estilo del contorno"
+            options={[{ value: 'solid', label: 'Continuo' }, { value: 'dashed', label: 'Discontinuo' }, { value: 'dotted', label: 'Punteado' }]} />
+          {!isLine
+            ? <Select<StrokeAlign> value={ss.align} onChange={v => upStroke({ align: v })} title="Posición del contorno respecto al relleno (la caja de la forma incluye el contorno)"
+                options={[{ value: 'center', label: 'Centrado' }, { value: 'inside', label: 'Interior' }, { value: 'outside', label: 'Exterior' }]} />
+            : <span />}
+        </div>
+        <div className="grid2">
+          <Select<CanvasLineCap> value={ss.cap} onChange={v => upStroke({ cap: v })} title="Extremos de las líneas y de los trazos discontinuos"
+            options={[{ value: 'butt', label: 'Extremo recto' }, { value: 'round', label: 'Extremo redondo' }, { value: 'square', label: 'Extremo cuadrado' }]} />
+          <Select<CanvasLineJoin> value={ss.join} onChange={v => upStroke({ join: v })} title="Unión de las esquinas"
+            options={[{ value: 'miter', label: 'Esquina en punta' }, { value: 'round', label: 'Esquina redonda' }, { value: 'bevel', label: 'Esquina biselada' }]} />
+        </div>
+      </>}
       <div className="grid2">
-        <NumberField label="Trazo" value={s.strokeWidth} min={0} max={1000} digits={0} suffix="px" onChange={v => up({ strokeWidth: v }, false)} onCommit={v => up({ strokeWidth: v })} />
-        {s.shape === 'rect' && <NumberField label="Radio" value={s.radius} min={0} max={5000} digits={0} suffix="px" onChange={v => up({ radius: v }, false)} onCommit={v => up({ radius: v })} />}
+        {s.shape === 'rect' && <NumberField label="Radio" value={s.radius} min={0} max={5000} digits={0} suffix="px" onChange={v => up({ radius: v }, false)} onCommit={v => up({ radius: v }, 'Radio de las esquinas')} />}
+        {(s.shape === 'polygon' || s.shape === 'star') && <NumberField label={s.shape === 'star' ? 'Puntas' : 'Lados'} value={s.sides ?? (s.shape === 'star' ? 5 : 6)} min={3} max={64} digits={0}
+          onChange={v => up({ sides: Math.round(v) }, false)} onCommit={v => up({ sides: Math.round(v) }, s.shape === 'star' ? 'Puntas de la estrella' : 'Lados del polígono')} />}
+        {s.shape === 'star' && <NumberField label="Interior" value={Math.round((s.inner ?? 0.5) * 100)} min={5} max={95} digits={0} suffix="%" title="Radio interior de la estrella"
+          onChange={v => up({ inner: v / 100 }, false)} onCommit={v => up({ inner: v / 100 }, 'Forma de la estrella')} />}
       </div>
     </>
   );
@@ -247,6 +304,7 @@ export function ArtboardProps({ ab }: { ab: Artboard }) {
         <Check checked={ab.background == null} onChange={v => upd({ background: v ? null : '#ffffff' })} label="Fondo transparente" />
         <div className="grow" />
         {ab.background && <ColorInput value={ab.background} onChange={v => upd({ background: v }, false)} onCommit={() => finishLive('Fondo de mesa')} />}
+        <button className="btn sm" title="Añade debajo de todo una forma del tamaño de la mesa con un degradado editable" onClick={() => A.addGradientBackground(ab.id)}>Fondo degradado</button>
       </div>
       <div className="tiny muted">{ab.w}×{ab.h} px · {(ab.w / ab.dpi * 2.54).toFixed(2)}×{(ab.h / ab.dpi * 2.54).toFixed(2)} cm a {ab.dpi} ppp</div>
       <div className="row">

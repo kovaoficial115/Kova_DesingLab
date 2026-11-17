@@ -3,7 +3,8 @@
 // una polilínea medida y calculan la posición y el giro de cada letra. Las usan el dibujo, la
 // exportación a SVG y los tests.
 
-import type { TextAlign, TextPath } from './types';
+import type { TextAlign, TextPath, ShapeKind } from './types';
+import { polygonPoints } from './paint';
 
 export interface Pt { x: number; y: number }
 
@@ -140,7 +141,11 @@ export function wavePath(amp: number, wavelength: number, waves: number) {
 }
 
 /** Contorno de una forma (en sus coordenadas, ya escalada). */
-export function shapeOutline(shape: 'rect' | 'ellipse' | 'line', w: number, h: number, radius = 0): string {
+export function shapeOutline(shape: ShapeKind, w: number, h: number, radius = 0, sides = 6, inner?: number): string {
+  if (shape === 'polygon' || shape === 'star') {
+    const pts = polygonPoints(sides, w, h, 0, shape === 'star' ? inner ?? 0.5 : undefined);
+    return pts.map((p, i) => `${i ? 'L' : 'M'}${f(p.x)} ${f(p.y)}`).join('') + 'Z';
+  }
   if (shape === 'line') return `M0 ${f(h / 2)}L${f(w)} ${f(h / 2)}`;
   if (shape === 'ellipse') return `M${f(w / 2)} 0A${f(w / 2)} ${f(h / 2)} 0 1 1 ${f(w / 2)} ${f(h)}A${f(w / 2)} ${f(h / 2)} 0 1 1 ${f(w / 2)} 0Z`;
   const r = Math.max(0, Math.min(radius, w / 2, h / 2));

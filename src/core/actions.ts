@@ -9,7 +9,8 @@ import {
   uid, createCanvas, ctx2d, cloneCanvas, layerSize, layerMatrix, layerBounds, layerPivot, placeAtPivot, textLayout, unionRect, getImageData, canvasFromImageData,
   resampleCanvas, rectsIntersect, type Rect, pointInLayer, hexToRgb, trimCanvas, fmtUnit,
 } from './util';
-import { rasterLayer, groupLayer, newDoc, fitIn, descendants, isEffectivelyLocked, isEffectivelyVisible, childrenOf } from './doc';
+import { rasterLayer, groupLayer, shapeLayer, newDoc, fitIn, descendants, isEffectivelyLocked, isEffectivelyVisible, childrenOf } from './doc';
+import { defaultGradient } from './paint';
 import { bakedLayerCanvas, renderArtboard, renderLayerAlone, invalidateLayer, ensureProcessed, processedContent } from './render';
 import { runOp } from '../engine/workerClient';
 import { magicWand, colorRange } from '../engine/alpha';
@@ -159,6 +160,19 @@ export function duplicateSelectedLayers() {
     }
     return { ...st, layers, selectedLayerIds: newIds };
   });
+}
+
+/** Fondo degradado: una forma editable del tamaño de la mesa, debajo de todo lo demás. */
+export function addGradientBackground(abId: string) {
+  const s = docState();
+  const ab = s?.artboards.find(a => a.id === abId);
+  if (!s || !ab) return;
+  const l: Layer = {
+    ...shapeLayer({ shape: 'rect', w: ab.w, h: ab.h, fill: get().fg, stroke: null, strokeWidth: 0, radius: 0, fillGradient: { ...defaultGradient(get().fg, get().bg), x1: 0.5, y1: 0, x2: 0.5, y2: 1 } }, ab.x, ab.y),
+    name: 'Fondo degradado',
+  };
+  commit('Fondo degradado', st => ({ ...st, layers: [l, ...st.layers], selectedLayerIds: [l.id] }));
+  set({ gradientEdit: { layerId: l.id, target: 'fill' } });
 }
 
 // ---------- portapapeles de objetos ----------
@@ -337,9 +351,25 @@ export async function flattenImage() {
   const s = docState();
   const ab = activeArtboard();
   if (!s || !ab) return;
-  const canvas = await renderArtboard(s, ab, 1, { background: false });
+  if (s.artboards.length <= 1) {
+    const canvas = await renderArtboard(s, ab, 1, { background: false });
+    const l = rasterLayer(canvas, 'Fondo', ab.x, ab.y);
+    commit('Acoplar imagen', st => ({ ...st, layers: [l], selectedLayerIds: [l.id] }));
+    return;
+  }
+  // con varias mesas solo se acopla lo que está sobre la activa: el resto de mesas no se toca
+  const hit = (l: Layer) => { const b = layerBounds(l); return b.x < ab.x + ab.w && b.x + b.w > ab.x && b.y < ab.y + ab.h && b.y + b.h > ab.y; };
+  const ids = new Set<string>();
+  for (const l of s.layers.filter(x => !x.parentId && hit(x))) { ids.add(l.id); descendants(s.layers, l.id).forEach(d => ids.add(d.id)); }
+  if (!ids.size) return toast('No hay capas en esta mesa', 'warn');
+  const canvas = await renderArtboard(s, ab, 1, { background: false, only: ids });
   const l = rasterLayer(canvas, 'Fondo', ab.x, ab.y);
-  commit('Acoplar imagen', st => ({ ...st, layers: [l], selectedLayerIds: [l.id] }));
+  commit('Acoplar imagen', st => {
+    const first = st.layers.findIndex(x => ids.has(x.id));
+    const rest = st.layers.filter(x => !ids.has(x.id));
+    const at = st.layers.slice(0, first).filter(x => !ids.has(x.id)).length;
+    return { ...st, layers: [...rest.slice(0, at), l, ...rest.slice(at)], selectedLayerIds: [l.id] };
+  });
 }
 
 // ---------- ajustes no destructivos ----------

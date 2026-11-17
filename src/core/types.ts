@@ -3,6 +3,7 @@ import type { Garment3DData } from './garment3d';
 import type { ArtboardSocial, DocSocial } from '../social/model';
 import type { ArtboardBehance } from '../behance/model';
 import type { LayoutGrid } from '../editorial/layout';
+import type { Gradient, StrokeStyle } from './paint';
 
 // Modelo de datos del documento. Los bitmaps (HTMLCanvasElement) se tratan como
 // inmutables: cualquier edición de píxeles crea un canvas nuevo (copy-on-write),
@@ -63,6 +64,8 @@ export interface TextProps {
   styleId?: string | null;
   /** texto en trayectoria: las letras siguen una curva en vez de ir en renglones */
   path?: TextPath | null;
+  /** relleno degradado (sustituye a `color`, que queda como color de reserva) */
+  gradient?: Gradient | null;
 }
 
 /** Trayectoria de un texto. `d` es la curva (SVG, coordenadas de la capa); las formas
@@ -118,14 +121,24 @@ export interface BrandRef {
 
 export type TextAlign = 'left' | 'center' | 'right' | 'justify-left' | 'justify-center' | 'justify-right' | 'justify';
 
+export type ShapeKind = 'rect' | 'ellipse' | 'line' | 'polygon' | 'star';
 export interface ShapeProps {
-  shape: 'rect' | 'ellipse' | 'line';
+  shape: ShapeKind;
   w: number;
   h: number;
+  /** color de relleno (con degradado, color de reserva para marca y exportadores sin degradados) */
   fill: string | null;
   stroke: string | null;
   strokeWidth: number;
   radius: number;
+  /** lados del polígono o puntas de la estrella */
+  sides?: number;
+  /** estrella: radio interior relativo (0..1) */
+  inner?: number;
+  /** relleno degradado editable (si existe, se pinta en lugar de `fill`) */
+  fillGradient?: Gradient | null;
+  /** discontinuo/punteado, extremos, uniones, posición y opacidad del contorno */
+  strokeStyle?: StrokeStyle | null;
 }
 
 export interface VectorProps {
@@ -168,6 +181,10 @@ export interface Layer {
   link?: LayerLink | null;
   /** recurso de marca (logotipo, marca responsive, icono) */
   brand?: BrandRef | null;
+  /** recorte no destructivo de una imagen: zona visible (px de la imagen original) */
+  crop?: { x: number; y: number; w: number; h: number } | null;
+  /** imagen original completa (y su máscara) mientras la capa está recortada */
+  cropSource?: { canvas: HTMLCanvasElement; mask?: HTMLCanvasElement | null } | null;
 }
 
 export interface Artboard {

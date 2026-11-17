@@ -2,6 +2,8 @@
 // guardado automático y recuperación ante cierres inesperados.
 
 import type { Doc, DocState, Layer } from '../core/types';
+import { sanitizeGradient, sanitizeStrokeStyle } from '../core/paint';
+import { sanitizeCrop } from '../core/imageCrop';
 import { canvasToBlob, blobToCanvas, uid, createCanvas, ctx2d } from '../core/util';
 import { platform, type SaveTarget } from '../platform';
 import { storage, type ProjectBucket, type ProjectRecord } from '../storage';
@@ -9,7 +11,7 @@ import { renderArtboard } from '../core/render';
 import { embedFonts, installEmbedded } from './fonts';
 import { parseKova, buildKova, KOVA_SCHEMA, KOVA_FORMAT, type EmbeddedModel } from './kova';
 
-interface SerialLayer extends Omit<Layer, 'canvas' | 'origin' | 'mask'> { canvas?: string; origin?: string; mask?: string }
+interface SerialLayer extends Omit<Layer, 'canvas' | 'origin' | 'mask' | 'cropSource'> { canvas?: string; origin?: string; mask?: string; cropSource?: { canvas?: string; mask?: string } }
 
 async function canvasToDataUrl(c: HTMLCanvasElement) {
   const blob = await canvasToBlob(c, 'image/png');
@@ -33,8 +35,11 @@ export async function serializeDoc(doc: Doc): Promise<string> {
   };
   const layers: SerialLayer[] = [];
   for (const l of doc.state.layers) {
-    const { canvas, origin, mask, ...rest } = l;
-    layers.push({ ...rest, canvas: await ref(canvas), origin: origin && origin !== canvas ? await ref(origin) : undefined, mask: await ref(mask) });
+    const { canvas, origin, mask, cropSource, ...rest } = l;
+    layers.push({
+      ...rest, canvas: await ref(canvas), origin: origin && origin !== canvas ? await ref(origin) : undefined, mask: await ref(mask),
+      ...(cropSource ? { cropSource: { canvas: await ref(cropSource.canvas), mask: await ref(cropSource.mask) } } : {}),
+    } as SerialLayer);
   }
   const { selection: _sel, ...st } = doc.state;
   // un GLB propio viaja dentro del archivo para que el proyecto se abra en cualquier equipo
@@ -80,7 +85,15 @@ export async function deserializeDoc(json: string, opts: OpenOptions = {}): Prom
   const layers: Layer[] = [];
   for (const l of data.state.layers as SerialLayer[]) {
     const canvas = await get(l.canvas);
-    layers.push({ ...(l as any), canvas, origin: (await get(l.origin)) ?? canvas, mask: (await get(l.mask)) ?? null });
+    const cs = l.cropSource ? await get(l.cropSource.canvas) : undefined;
+    const layer: Layer = { ...(l as any), canvas, origin: (await get(l.origin)) ?? canvas, mask: (await get(l.mask)) ?? null };
+    // propiedades opcionales nuevas: si vienen dañadas se descartan (el archivo se abre igual)
+    if (layer.shape) layer.shape = { ...layer.shape, fillGradient: sanitizeGradient(layer.shape.fillGradient) ?? undefined, strokeStyle: sanitizeStrokeStyle(layer.shape.strokeStyle) ?? undefined };
+    if (layer.text) layer.text = { ...layer.text, gradient: sanitizeGradient(layer.text.gradient) ?? undefined };
+    const crop = sanitizeCrop(l.crop);
+    if (crop && cs) { layer.crop = crop; layer.cropSource = { canvas: cs, mask: (await get(l.cropSource!.mask)) ?? null }; }
+    else { delete layer.crop; delete layer.cropSource; }
+    layers.push(layer);
   }
   const state: DocState = { ...data.state, layers, selection: null };
   return {

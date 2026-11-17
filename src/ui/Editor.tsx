@@ -1,3 +1,5 @@
+import { presentationKey } from './viewModes';
+import { FocusHud, PresentHud } from './ViewHud';
 import React, { useEffect } from 'react';
 import { useStore, get, set, activeDoc } from '../core/store';
 import { MenuBar } from './MenuBar';
@@ -20,6 +22,7 @@ export function useEditorKeys() {
     const down = (e: KeyboardEvent) => {
       if (isTyping(e) || get().dialog) return;
       if (get().screen !== 'editor') return;
+      if (presentationKey(e)) return;
       if (e.code === 'Space' && !e.repeat) { keys.space = true; const el = document.getElementById('kova-viewport'); if (el) el.style.cursor = 'grab'; e.preventDefault(); return; }
       if (e.key.startsWith('Arrow') && !e.metaKey && !e.ctrlKey && activeDoc()?.state.selectedLayerIds.length) {
         e.preventDefault();
@@ -65,7 +68,17 @@ export function Editor() {
   const compact = useMedia(COMPACT_QUERY);
   // al volver a pantalla ancha el cajón deja de tener sentido
   useEffect(() => { if (!compact && get().dockOpen) set({ dockOpen: false }); }, [compact]);
+  const presenting = useStore(s => s.presenting);
   const showDock = !hideUI && !!doc;
+  if (presenting && doc) {
+    // presentación: solo el diseño a toda la ventana (sin menús, paneles, reglas ni guías)
+    return (
+      <div className="app presenting">
+        <div className="stage"><Viewport key={doc.id} doc={doc} /></div>
+        <PresentHud />
+      </div>
+    );
+  }
   return (
     <div className={'app' + (hideUI ? ' hide-ui' : '') + (compact ? ' compact' : '')}>
       <MenuBar compact={compact} />
@@ -78,6 +91,7 @@ export function Editor() {
             <div className="stage">
               <Viewport key={doc.id} doc={doc} />
               {!hideUI && <QuickBar />}
+              {hideUI && <FocusHud />}
               <ZoomHud />
             </div>
           ) : <div className="muted" style={{ display: 'grid', placeItems: 'center' }}>Abre o crea un documento</div>}

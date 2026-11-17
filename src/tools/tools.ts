@@ -10,13 +10,15 @@ import {
   hitTestLayers, selectLayers, setSelection, shapeSelection, polygonSelection, wandSelect, ensureRaster, selectionInLayer,
   insertLayers, cropArtboard, zoomTo, setActiveArtboard, updateArtboard, addArtboard, maskCanvas,
 } from '../core/actions';
-import { layerMatrix, layerSize, layerBounds, layerPivot, pivotBox, cloneCanvas, createCanvas, ctx2d, getImageData, resampleCanvas, hexToRgb, unionRect, type Rect } from '../core/util';
+import { layerMatrix, layerSize, layerBounds, layerPivot, pivotBox, placeAtPivot, cloneCanvas, createCanvas, ctx2d, getImageData, resampleCanvas, hexToRgb, unionRect, type Rect } from '../core/util';
 import { shapeLayer, textLayer, defaultText, descendants } from '../core/doc';
 import { renderArtboard, processedContent, beginLiveCanvas, updateLiveRegion, invalidateLayer } from '../core/render';
 import { makeStamp, makeTextureMask, dabPositions, type BrushSettings, type BrushToolId } from '../engine/brush';
 import { magicWand } from '../engine/alpha';
 import { hasLayout, layoutSnapLines } from '../editorial/layout';
 import { scalePatch, rotatePatch, applyPatches, handleScale } from '../core/groupTransform';
+import type { Gradient } from '../core/paint';
+import { CROP_ASPECTS, fitAspect, resizeCrop, moveCrop, roundCrop, pivotAfterResize, type CropRect, type CropHandle } from '../core/imageCrop';
 
 export interface ToolEvent {
   wx: number; wy: number; sx: number; sy: number;
@@ -136,6 +138,37 @@ export function groupTarget(): { units: Layer[]; box: Rect } | null {
   const box = unionRect(units.map(layerBounds));
   return box && box.w > 0 && box.h > 0 ? { units, box } : null;
 }
+/** Degradado que se edita sobre el lienzo: la capa, el degradado y sus dos puntos en el mundo. */
+export function gradientHandles(): { l: Layer; g: Gradient; target: 'fill' | 'text'; p1: { x: number; y: number }; p2: { x: number; y: number } } | null {
+  const ge = get().gradientEdit;
+  const s = docState();
+  if (!ge || !s || s.selectedLayerIds.length !== 1 || s.selectedLayerIds[0] !== ge.layerId) return null;
+  const l = s.layers.find(x => x.id === ge.layerId);
+  const g = ge.target === 'fill' ? l?.shape?.fillGradient : l?.text?.gradient;
+  if (!l || !g) return null;
+  const { w, h } = layerSize(l);
+  const m = layerMatrix(l);
+  const a = m.transformPoint(new DOMPoint(g.x1 * w, g.y1 * h)), b = m.transformPoint(new DOMPoint(g.x2 * w, g.y2 * h));
+  return { l, g, target: ge.target, p1: { x: a.x, y: a.y }, p2: { x: b.x, y: b.y } };
+}
+function hitGradient(sx: number, sy: number): 1 | 2 | 'line' | null {
+  const gh = gradientHandles();
+  if (!gh) return null;
+  const v = getView();
+  const S = (p: { x: number; y: number }) => ({ x: p.x * v.zoom + v.panX, y: p.y * v.zoom + v.panY });
+  const a = S(gh.p1), b = S(gh.p2);
+  if (Math.hypot(a.x - sx, a.y - sy) < 9) return 1;
+  if (Math.hypot(b.x - sx, b.y - sy) < 9) return 2;
+  // cerca de la línea entre los dos puntos: se mueve entero
+  const L = Math.hypot(b.x - a.x, b.y - a.y);
+  if (L > 1) {
+    const u = ((sx - a.x) * (b.x - a.x) + (sy - a.y) * (b.y - a.y)) / (L * L);
+    const d = Math.abs((sx - a.x) * (b.y - a.y) - (sy - a.y) * (b.x - a.x)) / L;
+    if (u > 0 && u < 1 && d < 5) return 'line';
+  }
+  return null;
+}
+
 /** Asa de la caja conjunta bajo el puntero (coordenadas de pantalla). */
 export function hitBoxHandle(box: Rect, sx: number, sy: number): Handle | null {
   const v = getView();
@@ -161,7 +194,14 @@ const moveTool = {
   cursor: 'default',
   down(e: ToolEvent) {
     const s = docState()!;
-    const t = get().opts.showTransform ? transformTarget() : null;
+    // puntos del degradado (tienen prioridad sobre las asas de transformación)
+    const gh = hitGradient(e.sx, e.sy);
+    if (gh) {
+      const G = gradientHandles()!;
+      drag = { mode: 'gradient', which: gh, l0: G.l, g0: G.g, target: G.target, inv: layerMatrix(G.l).inverse(), size: layerSize(G.l), start: { x: e.wx, y: e.wy } };
+      return;
+    }
+    const t = get().opts.showTransform && !gradientHandles() ? transformTarget() : null;
     if (t) {
       const h = hitHandle(t, e.sx, e.sy);
       if (h) {
@@ -223,9 +263,10 @@ const moveTool = {
       const el = document.getElementById('kova-viewport');
       if (el) {
         const gt = !t && get().opts.showTransform ? groupTarget() : null;
-        const h = t ? hitHandle(t, e.sx, e.sy) : gt ? hitBoxHandle(gt.box, e.sx, e.sy) : null;
+        const hg = hitGradient(e.sx, e.sy);
+        const h = hg ? null : t && !gradientHandles() ? hitHandle(t, e.sx, e.sy) : gt ? hitBoxHandle(gt.box, e.sx, e.sy) : null;
         const cursors: Record<string, string> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', rot: 'alias' };
-        let cur = h ? cursors[h] : 'default';
+        let cur = hg ? (hg === 'line' ? 'move' : 'crosshair') : h ? cursors[h] : 'default';
         if (!h && get().showGuides) {
           const th = 5 / getView().zoom;
           const g = docState()?.guides.find(g => Math.abs((g.axis === 'x' ? e.wx : e.wy) - g.pos) < th);
@@ -253,6 +294,16 @@ const moveTool = {
       overlay.snapLines = sn.lines;
       const map = new Map<string, { x: number; y: number }>(drag.orig.map((o: any) => [o.id, o]));
       live(s => ({ ...s, layers: s.layers.map(l => (map.has(l.id) ? { ...l, x: map.get(l.id)!.x + dx, y: map.get(l.id)!.y + dy } : l)) }));
+      return;
+    }
+    if (drag.mode === 'gradient') {
+      const inv = drag.inv as DOMMatrix, { w, h } = drag.size, g0: Gradient = drag.g0;
+      const p = inv.transformPoint(new DOMPoint(e.wx, e.wy)), p0 = inv.transformPoint(new DOMPoint(drag.start.x, drag.start.y));
+      const nx = p.x / w, ny = p.y / h, dx = (p.x - p0.x) / w, dy = (p.y - p0.y) / h;
+      const g: Gradient = drag.which === 1 ? { ...g0, x1: nx, y1: ny } : drag.which === 2 ? { ...g0, x2: nx, y2: ny }
+        : { ...g0, x1: g0.x1 + dx, y1: g0.y1 + dy, x2: g0.x2 + dx, y2: g0.y2 + dy };
+      const id = drag.l0.id, target = drag.target;
+      live(s => ({ ...s, layers: s.layers.map(l => (l.id !== id ? l : target === 'fill' && l.shape ? { ...l, shape: { ...l.shape, fillGradient: g } } : l.text ? { ...l, text: { ...l.text, gradient: g } } : l)) }));
       return;
     }
     if (drag.mode === 'grotate' || drag.mode === 'gscale') {
@@ -352,7 +403,7 @@ const moveTool = {
       return;
     }
     overlay.groupBox = null;
-    finishLive(d.mode === 'move' ? 'Mover' : d.mode === 'rotate' ? 'Rotar' : d.mode === 'grotate' ? 'Rotar selección' : d.mode === 'gscale' ? 'Escalar selección' : d.mode === 'box' ? 'Tamaño del cuadro de texto' : 'Escalar');
+    finishLive(d.mode === 'move' ? 'Mover' : d.mode === 'rotate' ? 'Rotar' : d.mode === 'grotate' ? 'Rotar selección' : d.mode === 'gscale' ? 'Escalar selección' : d.mode === 'gradient' ? 'Degradado' : d.mode === 'box' ? 'Tamaño del cuadro de texto' : 'Escalar');
     redraw();
   },
   dblclick(e: ToolEvent) {
@@ -415,25 +466,177 @@ const wandTool = {
 };
 
 // ---------- recorte ----------
+// Dos modos: recortar la mesa (como siempre) o recortar una imagen de forma no destructiva.
 export const cropState = { rect: null as Rect | null };
+/** Recorte de imagen en curso: la capa se muestra completa (cambio en vivo) con el marco encima. */
+export const imageCrop = { layerId: null as string | null, rect: null as CropRect | null, W: 0, H: 0, aspect: 'free' };
+
+/** Imagen que se puede recortar: una sola capa de píxeles seleccionada y sin bloquear. */
+export function imageCropTarget(): Layer | null {
+  const s = docState();
+  if (!s || s.selectedLayerIds.length !== 1) return null;
+  const l = s.layers.find(x => x.id === s.selectedLayerIds[0]);
+  return l && l.kind === 'raster' && l.canvas && !l.locked ? l : null;
+}
+/** El recorte guardado sigue siendo válido (si la imagen se remuestreó después, ya no se puede reeditar). */
+export const hasEditableCrop = (l: Layer | null | undefined) =>
+  !!(l?.crop && l.cropSource && l.canvas && l.canvas.width === l.crop.w && l.canvas.height === l.crop.h);
+const cropLayer = () => (imageCrop.layerId ? docState()?.layers.find(l => l.id === imageCrop.layerId) ?? null : null);
+export const cropRatio = () => { const a = CROP_ASPECTS.find(x => x.id === imageCrop.aspect)?.ratio ?? null; return a === -1 ? imageCrop.W / imageCrop.H : a; };
+
+/** Empieza (o vuelve a editar) el recorte de la imagen seleccionada. */
+export function beginImageCrop(): boolean {
+  const l = imageCropTarget();
+  if (!l) { toast('Selecciona una imagen (capa de píxeles) para recortarla', 'warn'); return false; }
+  if (get().tool !== 'crop') setTool('crop');
+  cancelCrop();
+  let U: Layer = l;
+  let rect: CropRect = { x: 0, y: 0, w: l.canvas!.width, h: l.canvas!.height };
+  if (hasEditableCrop(l)) {
+    const c0 = l.crop!, s0 = l.cropSource!;
+    // la imagen original con lo pintado después del recorte dentro de su zona
+    const c = c0, src = cloneCanvas(s0.canvas);
+    const g = ctx2d(src); g.clearRect(c.x, c.y, c.w, c.h); g.drawImage(l.canvas!, c.x, c.y);
+    let mask: HTMLCanvasElement | null = null;
+    if (l.mask) {
+      mask = s0.mask ? cloneCanvas(s0.mask) : createCanvas(src.width, src.height);
+      const gm = ctx2d(mask);
+      if (!s0.mask) { gm.fillStyle = '#fff'; gm.fillRect(0, 0, mask.width, mask.height); }
+      gm.clearRect(c.x, c.y, c.w, c.h); gm.drawImage(l.mask, c.x, c.y);
+    }
+    const piv = pivotAfterResize(layerPivot(l), l.rotation, l.scaleX, l.scaleY, l.canvas!.width, l.canvas!.height, src.width, src.height, { x: 0, y: 0 }, { x: c.x, y: c.y });
+    U = { ...l, canvas: src, origin: src, mask, crop: null, cropSource: null };
+    U = { ...U, ...placeAtPivot(U, piv.x, piv.y) };
+    rect = { ...c };
+  }
+  imageCrop.layerId = l.id; imageCrop.rect = rect; imageCrop.W = U.canvas!.width; imageCrop.H = U.canvas!.height;
+  if (U !== l) live(s => ({ ...s, layers: s.layers.map(x => (x.id === l.id ? U : x)) }));
+  redraw(); set(s => ({ cropTick: s.cropTick + 1 }));
+  return true;
+}
+/** Aplica el recorte: la capa pasa a mostrar solo la zona elegida; la imagen original se conserva. */
+export function applyImageCrop() {
+  const U = cropLayer();
+  if (!U || !imageCrop.rect || !U.canvas) { cancelImageCrop(); return; }
+  const W = U.canvas.width, H = U.canvas.height;
+  const r = roundCrop(imageCrop.rect, W, H);
+  let next: Layer;
+  if (r.x === 0 && r.y === 0 && r.w === W && r.h === H) next = { ...U, crop: null, cropSource: null };
+  else {
+    const cut = (src: HTMLCanvasElement) => { const c = createCanvas(r.w, r.h); ctx2d(c).drawImage(src, -r.x, -r.y); return c; };
+    const canvas = cut(U.canvas);
+    const piv = pivotAfterResize(layerPivot(U), U.rotation, U.scaleX, U.scaleY, W, H, r.w, r.h, { x: r.x, y: r.y }, { x: 0, y: 0 });
+    next = { ...U, canvas, origin: canvas, mask: U.mask ? cut(U.mask) : null, crop: r, cropSource: { canvas: U.canvas, mask: U.mask } };
+    next = { ...next, ...placeAtPivot(next, piv.x, piv.y) };
+  }
+  live(s => ({ ...s, layers: s.layers.map(x => (x.id === U.id ? next : x)) }));
+  finishLive(next.crop ? 'Recortar imagen' : 'Quitar recorte');
+  imageCrop.layerId = null; imageCrop.rect = null;
+  redraw(); set(s => ({ cropTick: s.cropTick + 1 }));
+}
+export function cancelImageCrop() {
+  if (!imageCrop.layerId) return;
+  cancelLive();
+  imageCrop.layerId = null; imageCrop.rect = null;
+  redraw(); set(s => ({ cropTick: s.cropTick + 1 }));
+}
+/** Quita el recorte de la imagen seleccionada (vuelve a la imagen completa, sin mover su contenido). */
+export function removeImageCrop() {
+  const l = imageCropTarget();
+  if (!hasEditableCrop(l)) return;
+  const prevTool = get().tool;
+  if (!beginImageCrop()) return;
+  imageCrop.rect = { x: 0, y: 0, w: imageCrop.W, h: imageCrop.H };
+  applyImageCrop();
+  if (prevTool !== 'crop') setTool(prevTool);
+}
+/** Cambia el marco desde las opciones (proporción o medidas exactas). */
+export function setImageCropRect(fn: (r: CropRect, W: number, H: number) => CropRect) {
+  if (!imageCrop.rect) return;
+  imageCrop.rect = fn(imageCrop.rect, imageCrop.W, imageCrop.H);
+  redrawOverlay(); set(s => ({ cropTick: s.cropTick + 1 }));
+}
+export function setImageCropAspect(id: string) {
+  imageCrop.aspect = id;
+  const ratio = cropRatio();
+  if (ratio && imageCrop.rect) imageCrop.rect = fitAspect(imageCrop.rect, ratio, imageCrop.W, imageCrop.H);
+  redrawOverlay(); set(s => ({ cropTick: s.cropTick + 1 }));
+}
+/** Esquinas del marco y de la imagen en pantalla (para dibujarlas y para las asas). */
+export function imageCropScreen() {
+  const U = cropLayer();
+  if (!U || !imageCrop.rect) return null;
+  const v = getView();
+  const m = new DOMMatrix([v.zoom, 0, 0, v.zoom, v.panX, v.panY]).multiply(layerMatrix(U));
+  const P = (x: number, y: number) => { const p = m.transformPoint(new DOMPoint(x, y)); return { x: p.x, y: p.y }; };
+  const r = imageCrop.rect;
+  return {
+    image: [P(0, 0), P(imageCrop.W, 0), P(imageCrop.W, imageCrop.H), P(0, imageCrop.H)],
+    frame: [P(r.x, r.y), P(r.x + r.w, r.y), P(r.x + r.w, r.y + r.h), P(r.x, r.y + r.h)],
+    handles: (Object.entries(handleLocal) as [CropHandle, [number, number]][]).map(([k, [u, w]]) => ({ k, p: P(r.x + u * r.w, r.y + w * r.h) })),
+    thirds: [1, 2].flatMap(i => [[P(r.x + (r.w * i) / 3, r.y), P(r.x + (r.w * i) / 3, r.y + r.h)], [P(r.x, r.y + (r.h * i) / 3), P(r.x + r.w, r.y + (r.h * i) / 3)]]),
+    size: { w: Math.round(r.w), h: Math.round(r.h) },
+  };
+}
+
 const cropTool = {
   cursor: 'crosshair',
-  down(e: ToolEvent) { const p = snapPoint(e.wx, e.wy); drag = { x: p.x, y: p.y }; },
+  down(e: ToolEvent) {
+    const U = cropLayer();
+    if (U && imageCrop.rect) {
+      const inv = layerMatrix(U).inverse();
+      const loc = (wx: number, wy: number) => inv.transformPoint(new DOMPoint(wx, wy));
+      const sc = imageCropScreen()!;
+      const h = sc.handles.find(x => Math.hypot(x.p.x - e.sx, x.p.y - e.sy) < 9)?.k;
+      const p0 = loc(e.wx, e.wy), r0 = { ...imageCrop.rect };
+      const inside = p0.x >= r0.x && p0.x <= r0.x + r0.w && p0.y >= r0.y && p0.y <= r0.y + r0.h;
+      drag = { mode: h ? 'ic-resize' : inside ? 'ic-move' : 'ic-new', h, r0, p0, loc };
+      return;
+    }
+    const p = snapPoint(e.wx, e.wy); drag = { x: p.x, y: p.y };
+  },
   move(e: ToolEvent) {
-    if (!drag) return;
+    if (!drag) {
+      const sc = imageCropScreen();
+      const el = document.getElementById('kova-viewport');
+      if (sc && el) {
+        const h = sc.handles.find(x => Math.hypot(x.p.x - e.sx, x.p.y - e.sy) < 9)?.k;
+        const cursors: Record<string, string> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
+        el.style.cursor = h ? cursors[h] : 'crosshair';
+      }
+      return;
+    }
+    if (drag.mode?.startsWith('ic-')) {
+      const p = drag.loc(e.wx, e.wy), dx = p.x - drag.p0.x, dy = p.y - drag.p0.y;
+      const W = imageCrop.W, H = imageCrop.H;
+      const ratio = cropRatio() ?? (e.shift ? drag.r0.w / drag.r0.h : null);
+      if (drag.mode === 'ic-move') imageCrop.rect = moveCrop(drag.r0, dx, dy, W, H);
+      else if (drag.mode === 'ic-resize') imageCrop.rect = resizeCrop(drag.r0, drag.h, dx, dy, W, H, ratio);
+      else {
+        const start = { x: Math.min(Math.max(drag.p0.x, 0), W), y: Math.min(Math.max(drag.p0.y, 0), H), w: 0, h: 0 };
+        const h: CropHandle = `${dy < 0 ? 'n' : 's'}${dx < 0 ? 'w' : 'e'}` as CropHandle;
+        imageCrop.rect = resizeCrop(start, h, dx, dy, W, H, ratio ?? (e.shift ? 1 : null));
+      }
+      redrawOverlay(); set(s => ({ cropTick: s.cropTick + 1 }));
+      return;
+    }
     const p = snapPoint(e.wx, e.wy);
     cropState.rect = normRect(drag.x, drag.y, p.x, p.y, e.shift);
     overlay.crop = cropState.rect;
     redrawOverlay();
   },
-  up() { drag = null; overlay.snapLines = []; set({}); redraw(); },
+  up() {
+    if (drag?.mode === 'ic-new' && imageCrop.rect && (imageCrop.rect.w < 2 || imageCrop.rect.h < 2)) imageCrop.rect = drag.r0;
+    drag = null; overlay.snapLines = []; set({}); redraw();
+  },
   dblclick() { applyCrop(); },
 };
 export function applyCrop() {
+  if (imageCrop.layerId) return applyImageCrop();
   if (cropState.rect && cropState.rect.w > 2) cropArtboard(cropState.rect);
-  cropState.rect = null; overlay.crop = null; redraw(); set({});
+  cropState.rect = null; overlay.crop = null; redraw(); set(s => ({ cropTick: s.cropTick + 1 }));
 }
-export function cancelCrop() { cropState.rect = null; overlay.crop = null; redraw(); set({}); }
+export function cancelCrop() { cancelImageCrop(); cropState.rect = null; overlay.crop = null; redraw(); set(s => ({ cropTick: s.cropTick + 1 })); }
 
 // ---------- cuentagotas ----------
 export async function sampleColor(wx: number, wy: number): Promise<string | null> {
@@ -890,7 +1093,8 @@ const shapeTool = {
     if (!r || r.w < 2 || r.h < 2) return redraw();
     const l = shapeLayer({
       shape: opts.shapeType, w: r.w, h: r.h, fill: opts.shapeFill ? fg : null, stroke: opts.shapeStroke ? bg : null,
-      strokeWidth: opts.shapeStrokeWidth, radius: opts.shapeRadius,
+      strokeWidth: opts.shapeStrokeWidth, radius: opts.shapeType === 'rect' ? opts.shapeRadius : 0,
+      ...(opts.shapeType === 'polygon' || opts.shapeType === 'star' ? { sides: opts.shapeSides, ...(opts.shapeType === 'star' ? { inner: 0.5 } : {}) } : {}),
     }, r.x, r.y);
     insertLayers([l], 'Forma');
   },

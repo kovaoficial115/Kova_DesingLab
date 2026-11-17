@@ -2,11 +2,13 @@ import React from 'react';
 import {
   Move, SquareDashed, CircleDashed, Lasso, Wand2, Crop, Pipette, Brush, Eraser, History, PaintBucket, Blend, Type, Shapes, Hand, ZoomIn,
   Frame, ArrowLeftRight, X, Check, Sparkles, Grid3x3, ScanLine, Shirt, Printer, Layers, Eye, SplitSquareHorizontal, Minus, Plus, Maximize,
-  Square, Circle, Slash, Users, Box,
+  Square, Circle, Slash, Users, Box, Hexagon, Star,
+  Maximize2, Minimize2, Presentation,
 } from 'lucide-react';
 import { useStore, set, get, activeArtboard, getView } from '../core/store';
 import type { ToolId } from '../core/types';
-import { setTool, cropState, applyCrop, cancelCrop } from '../tools/tools';
+import { setTool, cropState, applyCrop, cancelCrop, imageCrop, imageCropTarget, beginImageCrop, setImageCropAspect, setImageCropRect, cropRatio } from '../tools/tools';
+import { CROP_ASPECTS } from '../core/imageCrop';
 import { NumberField, Seg, Check as CheckBox, Select } from './components/controls';
 import { commands, displayKeys, runCommand, openDialog } from './commands';
 import { closeDoc, zoomTo, fitToScreen } from '../core/actions';
@@ -66,6 +68,8 @@ export function OptionsBar() {
   const selView = useStore(s => s.selView);
   const hasSel = useStore(s => !!s.docs.find(d => d.id === s.activeDocId)?.state.selection);
   useStore(s => s.renderTick);
+  useStore(s => s.cropTick);
+  useStore(s => s.docs.find(d => d.id === s.activeDocId)?.state.selectedLayerIds);
   const setO = (p: Partial<typeof o>) => set(s => ({ opts: { ...s.opts, ...p } }));
   const Ic = toolIcons[tool];
   const selModes = (
@@ -129,14 +133,31 @@ export function OptionsBar() {
     <span className="muted small">Clic: texto de punto · arrastrar: cuadro de texto · doble clic con Mover para editar</span>
   </>;
   if (tool === 'shape') content = <>
-    <Seg value={o.shapeType} onChange={v => setO({ shapeType: v })} options={[{ value: 'rect', label: <Square size={12} /> }, { value: 'ellipse', label: <Circle size={12} /> }, { value: 'line', label: <Slash size={12} /> }]} />
+    <Seg value={o.shapeType} onChange={v => setO({ shapeType: v })} options={[{ value: 'rect', label: <Square size={12} /> }, { value: 'ellipse', label: <Circle size={12} /> }, { value: 'line', label: <Slash size={12} /> }, { value: 'polygon', label: <Hexagon size={12} />, title: 'Polígono' }, { value: 'star', label: <Star size={12} />, title: 'Estrella' }]} />
+    {(o.shapeType === 'polygon' || o.shapeType === 'star') && <OptNum label={o.shapeType === 'star' ? 'Puntas' : 'Lados'} value={o.shapeSides} onChange={v => setO({ shapeSides: Math.max(3, Math.min(64, Math.round(v))) })} min={3} max={64} />}
     <CheckBox checked={o.shapeFill} onChange={v => setO({ shapeFill: v })} label="Relleno (frontal)" />
     <CheckBox checked={o.shapeStroke} onChange={v => setO({ shapeStroke: v })} label="Trazo (fondo)" />
     <OptNum label="Grosor" value={o.shapeStrokeWidth} onChange={v => setO({ shapeStrokeWidth: v })} min={1} max={500} suffix="px" />
-    <OptNum label="Radio" value={o.shapeRadius} onChange={v => setO({ shapeRadius: v })} min={0} max={2000} suffix="px" />
+    {o.shapeType === 'rect' && <OptNum label="Radio" value={o.shapeRadius} onChange={v => setO({ shapeRadius: v })} min={0} max={2000} suffix="px" />}
   </>;
-  if (tool === 'crop') content = <>
+  if (tool === 'crop' && imageCrop.layerId && imageCrop.rect) {
+    const r = imageCrop.rect;
+    content = <>
+      <span className="chip accent">Recortar imagen</span>
+      <Select value={imageCrop.aspect} onChange={v => setImageCropAspect(v)} width={96} title="Proporción del recorte (Mayús mantiene la actual en Libre)"
+        options={CROP_ASPECTS.map(a => ({ value: a.id, label: a.label }))} />
+      <OptNum label="An" value={Math.round(r.w)} min={1} max={imageCrop.W} suffix="px"
+        onChange={v => setImageCropRect((q, W, H) => { const w = Math.min(Math.max(1, v), W - q.x); const ratio = cropRatio(); return { ...q, w, h: ratio ? Math.min(w / ratio, H - q.y) : q.h }; })} />
+      <OptNum label="Al" value={Math.round(r.h)} min={1} max={imageCrop.H} suffix="px"
+        onChange={v => setImageCropRect((q, W, H) => { const h = Math.min(Math.max(1, v), H - q.y); const ratio = cropRatio(); return { ...q, h, w: ratio ? Math.min(h * ratio, W - q.x) : q.w }; })} />
+      <button className="btn sm" title="Muestra la imagen entera (luego Aplicar quita el recorte)" onClick={() => setImageCropRect((_, W, H) => ({ x: 0, y: 0, w: W, h: H }))}>Imagen completa</button>
+      <button className="btn sm primary" onClick={applyCrop}><Check size={12} /> Aplicar (Enter)</button>
+      <button className="btn sm" onClick={cancelCrop}><X size={12} /> Cancelar (Esc)</button>
+      <span className="muted small">No destructivo: la imagen original se conserva y puedes volver a recortarla</span>
+    </>;
+  } else if (tool === 'crop') content = <>
     <span className="muted small">Arrastra sobre la mesa para definir el recorte</span>
+    {!cropState.rect && <button className="btn sm" disabled={!imageCropTarget()} title="Recorta solo la imagen seleccionada, sin perder la original" onClick={() => beginImageCrop()}>Recortar imagen seleccionada</button>}
     {cropState.rect && <>
       <button className="btn sm primary" onClick={applyCrop}><Check size={12} /> Aplicar (Enter)</button>
       <button className="btn sm" onClick={cancelCrop}><X size={12} /> Cancelar</button>
@@ -224,6 +245,7 @@ export function ZoomHud() {
   const view = useStore(s => (s.activeDocId ? s.views[s.activeDocId] : null));
   const compare = useStore(s => s.compare);
   const proof = useStore(s => s.proof);
+  const fullscreen = useStore(s => s.fullscreen);
   return (
     <div className="zoom-hud" onPointerDown={e => e.stopPropagation()}>
       <button className={'icon-btn sm' + (proof ? ' active' : '')} title="Prueba de color CMYK (Ctrl/⌘+Y)" onClick={() => runCommand('view.proof')}><Eye size={13} /></button>
@@ -233,6 +255,9 @@ export function ZoomHud() {
       <span className="mono small" style={{ minWidth: 46, textAlign: 'center', cursor: 'pointer' }} onClick={() => zoomTo(1)} title="100 %">{Math.round((view?.zoom ?? 1) * 100)}%</span>
       <button className="icon-btn sm" onClick={() => runCommand('view.zoomIn')}><Plus size={13} /></button>
       <button className="icon-btn sm" title="Ajustar (Ctrl/⌘+0)" onClick={() => fitToScreen()}><Maximize size={13} /></button>
+      <div className="vsep" />
+      <button className={'icon-btn sm' + (fullscreen ? ' active' : '')} title={fullscreen ? 'Salir de pantalla completa (⌘⇧F)' : 'Pantalla completa (⌘⇧F)'} aria-label="Pantalla completa" onClick={() => runCommand('view.fullscreen')}>{fullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>
+      <button className="icon-btn sm" title="Presentación: solo el diseño (⌘⌥P · Esc para salir)" aria-label="Presentación" onClick={() => runCommand('view.present')}><Presentation size={13} /></button>
     </div>
   );
 }

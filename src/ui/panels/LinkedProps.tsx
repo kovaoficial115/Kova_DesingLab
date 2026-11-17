@@ -132,7 +132,7 @@ function pathFromLayer(textLayer: Layer, other: Layer) {
   if (other.shape) {
     const sx = Math.abs(other.scaleX), sy = Math.abs(other.scaleY);
     w = other.shape.w * sx; h = other.shape.h * sy;
-    d = shapeOutline(other.shape.shape, w, h, other.shape.radius * Math.min(sx, sy));
+    d = shapeOutline(other.shape.shape, w, h, other.shape.radius * Math.min(sx, sy), other.shape.sides, other.shape.inner);
   } else if (other.vector) {
     const r = firstSvgPath(other.vector.svg, other.vector.w * Math.abs(other.scaleX), other.vector.h * Math.abs(other.scaleY));
     if (r) { d = r; w = other.vector.w * Math.abs(other.scaleX); h = other.vector.h * Math.abs(other.scaleY); }

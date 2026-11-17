@@ -7,7 +7,7 @@ import { renderLayers } from '../core/render';
 import { fxDef } from '../engine/fx/registry';
 import { setAdjParams, finishAdjLive } from '../fx/lib';
 import { layerMatrix, layerSize, createCanvas, ctx2d, fromPx, toPx, layerBounds } from '../core/util';
-import { tools, overlay, textEdit, setTextEdit, transformTarget, groupTarget, cropState, type ToolEvent } from '../tools/tools';
+import { tools, overlay, textEdit, setTextEdit, transformTarget, groupTarget, gradientHandles, imageCropScreen, cropState, type ToolEvent } from '../tools/tools';
 import { zoomTo, fitToScreen, addGuide, hitTestLayers, selectLayers, textToBox } from '../core/actions';
 import { MenuList, type Item } from './MenuBar';
 import { placeFiles } from '../io/fileOps';
@@ -107,14 +107,15 @@ function drawScene(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, dp
     }
   }
 
-  // atenuar el contenido fuera de las mesas
+  // atenuar el contenido fuera de las mesas (en presentación: solo se ve la mesa activa, sin nada alrededor)
   g.save();
   g.beginPath();
   g.rect(0, 0, canvas.width, canvas.height);
-  for (const r of abRects) g.rect(r.x, r.y, r.w, r.h);
-  g.fillStyle = 'rgba(17,17,20,0.78)';
+  for (const r of abRects) if (!st.presenting || r.a.id === s.activeArtboardId) g.rect(r.x, r.y, r.w, r.h);
+  g.fillStyle = st.presenting ? KOVA.pasteboard : 'rgba(17,17,20,0.78)';
   g.fill('evenodd');
   g.restore();
+  if (st.presenting) return;
 
   // bordes y nombres de mesas
   g.save();
@@ -398,6 +399,8 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
   const g = ctx2d(canvas, { willReadFrequently: false });
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.clearRect(0, 0, canvas.width, canvas.height);
+  // presentación: solo el diseño (sin guías, selección, asas ni etiquetas)
+  if (st.presenting) return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const s = doc.state;
   const sx = (x: number) => x * v.zoom + v.panX, sy = (y: number) => y * v.zoom + v.panY;
@@ -482,7 +485,23 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
       const x1 = Math.min(...bs.map(b => b.x)), y1 = Math.min(...bs.map(b => b.y)), x2 = Math.max(...bs.map(b => b.x + b.w)), y2 = Math.max(...bs.map(b => b.y + b.h));
       g.setLineDash([5, 3]); g.strokeRect(sx(x1), sy(y1), (x2 - x1) * v.zoom, (y2 - y1) * v.zoom); g.setLineDash([]);
     }
-    const t = st.tool === 'move' && st.opts.showTransform ? transformTarget() : null;
+    const gh = st.tool === 'move' ? gradientHandles() : null;
+    const t = st.tool === 'move' && st.opts.showTransform && !gh ? transformTarget() : null;
+    if (gh) {
+      // degradado sobre el lienzo: línea entre sus dos puntos (arrastrables) y los colores extremos
+      const a = { x: sx(gh.p1.x), y: sy(gh.p1.y) }, b = { x: sx(gh.p2.x), y: sy(gh.p2.y) };
+      const stops = [...gh.g.stops].sort((p, q) => p.pos - q.pos);
+      g.save();
+      g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+      g.lineWidth = 1.5; g.strokeStyle = '#fff'; g.setLineDash([5, 3]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
+      for (const s of stops) { const x = a.x + (b.x - a.x) * s.pos, y = a.y + (b.y - a.y) * s.pos; g.fillStyle = s.color; g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill(); g.stroke(); }
+      for (const [p, s] of [[a, stops[0]], [b, stops[stops.length - 1]]] as const) {
+        g.fillStyle = s.color; g.lineWidth = 2; g.strokeStyle = '#fff';
+        g.beginPath(); g.arc(p.x, p.y, 7, 0, Math.PI * 2); g.fill(); g.stroke();
+        g.lineWidth = 1; g.strokeStyle = 'rgba(0,0,0,.6)'; g.beginPath(); g.arc(p.x, p.y, 8.5, 0, Math.PI * 2); g.stroke();
+      }
+      g.restore();
+    }
     if (t) {
       const m = new DOMMatrix([v.zoom, 0, 0, v.zoom, v.panX, v.panY]).multiply(layerMatrix(t));
       const { w, h } = layerSize(t);
@@ -554,6 +573,23 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
     g.beginPath();
     for (const f of [1 / 3, 2 / 3]) { g.moveTo(sx(r.x + r.w * f), sy(r.y)); g.lineTo(sx(r.x + r.w * f), sy(r.y + r.h)); g.moveTo(sx(r.x), sy(r.y + r.h * f)); g.lineTo(sx(r.x + r.w), sy(r.y + r.h * f)); }
     g.stroke();
+  }
+  const ic = st.tool === 'crop' ? imageCropScreen() : null;
+  if (ic) {
+    // recorte de imagen: fuera del marco, oscurecido; marco, tercios, asas y medida
+    const poly = (pts: { x: number; y: number }[]) => { pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y))); g.closePath(); };
+    g.fillStyle = 'rgba(0,0,0,.6)';
+    g.beginPath(); poly(ic.image); poly(ic.frame); g.fill('evenodd');
+    g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1;
+    g.beginPath(); for (const [a, b] of ic.thirds) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); } g.stroke();
+    g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); poly(ic.frame); g.stroke();
+    g.fillStyle = '#fff'; g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 1;
+    for (const { p } of ic.handles) { g.fillRect(p.x - 4, p.y - 4, 8, 8); g.strokeRect(p.x - 4 + 0.5, p.y - 4 + 0.5, 7, 7); }
+    const txt = `${ic.size.w} × ${ic.size.h} px`;
+    g.font = '11px JetBrains Mono, monospace';
+    const br = ic.frame[2], tw = g.measureText(txt).width + 12;
+    g.fillStyle = 'rgba(20,20,24,.9)'; g.fillRect(br.x + 8, br.y + 8, tw, 20);
+    g.fillStyle = '#fff'; g.fillText(txt, br.x + 14, br.y + 22);
   }
   if (overlay.artboardDraft) {
     const r = overlay.artboardDraft;
@@ -701,10 +737,11 @@ export function Viewport({ doc }: { doc: Doc }) {
   const [compareX, setCompareX] = useState<number | null>(null);
   const view = useStore(s => s.views[doc.id]);
   const tick = useStore(s => s.renderTick);
-  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}|${s.peekOriginal}|${s.fxFocus?.adjId ?? ''}|${s.quickMask}|${s.selView}|${s.maskView}|${s.behanceGuides}|${s.showLayout}|${s.composition}|${s.compositionTurn}|${s.compositionAll}`);
+  const flags = useStore(s => `${s.proof}|${s.channelView}|${s.showGrid}|${s.showGuides}|${s.gridSize}|${s.gridSub}|${s.unit}|${s.tool}|${s.opts.showTransform}|${JSON.stringify(s.socialGuides)}|${s.peekOriginal}|${s.fxFocus?.adjId ?? ''}|${s.quickMask}|${s.selView}|${s.maskView}|${s.behanceGuides}|${s.showLayout}|${s.composition}|${s.compositionTurn}|${s.compositionAll}|${s.gradientEdit?.layerId ?? ''}|${s.presenting}`);
   const socialFormats = useStore(s => s.socialFormats);
   const compare = useStore(s => s.compare);
-  const showRulers = useStore(s => s.showRulers);
+  const presenting = useStore(s => s.presenting);
+  const showRulers = useStore(s => s.showRulers) && !presenting;
   const tool = useStore(s => s.tool);
   const cursor = useStore(s => s.cursor);
   const [, force] = useState(0);
@@ -815,7 +852,7 @@ export function Viewport({ doc }: { doc: Doc }) {
       const v = getView();
       if (Math.hypot(fh.wx * v.zoom + v.panX - ev.sx, fh.wy * v.zoom + v.panY - ev.sy) < 14) { fxDrag.current = true; return; }
     }
-    if (e.button === 1 || keys.space || (e.button === 0 && tool === 'hand')) {
+    if (e.button === 1 || keys.space || (e.button === 0 && tool === 'hand') || get().presenting) {
       const v = getView();
       panDrag.current = { sx: e.clientX, sy: e.clientY, px: v.panX, py: v.panY };
       return;
@@ -842,6 +879,7 @@ export function Viewport({ doc }: { doc: Doc }) {
       setView({ panX: p.px + e.clientX - p.sx, panY: p.py + e.clientY - p.sy });
       return;
     }
+    if (get().presenting) return;
     if (tool === 'move') { pending.current.ev = ev; return; }
     tools[tool]?.move(ev);
   };
@@ -853,7 +891,7 @@ export function Viewport({ doc }: { doc: Doc }) {
     if (panDrag.current) { panDrag.current = null; return; }
     tools[tool]?.up(toEvent(e));
   };
-  const onDbl = (e: React.MouseEvent) => tools[tool]?.dblclick?.(toEvent(e));
+  const onDbl = (e: React.MouseEvent) => { if (!get().presenting) tools[tool]?.dblclick?.(toEvent(e)); };
 
   // reglas → guías
   const startGuide = (axis: 'x' | 'y') => (e: React.PointerEvent) => {
@@ -880,6 +918,7 @@ export function Viewport({ doc }: { doc: Doc }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: Item[] } | null>(null);
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (get().presenting) return;
     const ev = toEvent(e);
     const hit = hitTestLayers(ev.wx, ev.wy);
     const sel = doc.state.selectedLayerIds;
@@ -888,6 +927,7 @@ export function Viewport({ doc }: { doc: Doc }) {
     const items: Item[] = hasSel
       ? ['artboard.fromSelection', 'artboard.copyToNew', '-', 'edit.copy', 'edit.paste', 'layer.duplicate', 'layer.delete', '-',
         'layer.group', 'layer.ungroup', { label: 'Organizar', sub: ['layer.top', 'layer.up', 'layer.down', 'layer.bottom'] }, '-',
+        ...((hit ?? doc.state.layers.find(l => l.id === sel[0]))?.kind === 'raster' ? ['layer.cropImage', ...((hit ?? doc.state.layers.find(l => l.id === sel[0]))?.crop ? ['layer.uncropImage'] : []), '-'] : []),
         'dtf.bg', 'dtf.halftone', 'dtf.vectorize']
       : ['edit.paste', 'file.place', '-', 'view.fit'];
     setCtxMenu({ x: e.clientX, y: e.clientY, items });

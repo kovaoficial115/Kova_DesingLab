@@ -8,6 +8,7 @@ import { childrenOf } from '../core/doc';
 import { pngSetDpi, jpegSetDpi, encodeTiff, encodeBmp } from './binary';
 import { rgbaToCmyk, cmsState, hasIcc } from '../engine/cms';
 import { fontFaceCss } from './fonts';
+import { svgGradientDef, dashArray, polygonPoints, DEFAULT_STROKE_STYLE } from '../core/paint';
 
 export type ExportFormat = 'png' | 'jpg' | 'webp' | 'tiff' | 'tiff-cmyk' | 'bmp' | 'svg' | 'pdf' | 'psd';
 
@@ -135,7 +136,9 @@ async function buildSvg(state: DocState, ab: Artboard) {
       const m = layerMatrix(l);
       const tf = `matrix(${m.a} ${m.b} ${m.c} ${m.d} ${m.e} ${m.f})`;
       const { w, h } = layerSize(l);
-      const needsRaster = l.adjustments.some(a => a.enabled) || (l.mask && l.maskEnabled) || l.clip;
+      // el SVG no tiene degradados angulares: esas capas se exportan como imagen
+      const needsRaster = l.adjustments.some(a => a.enabled) || (l.mask && l.maskEnabled) || l.clip || l.shape?.fillGradient?.type === 'conic' || l.text?.gradient?.type === 'conic';
+      const gid = `g-${l.id.replace(/[^\w-]/g, '')}`;
       parts.push(`<g transform="${tf}"${op}${blend}>`);
       if (!needsRaster && l.kind === 'vector' && l.vector) {
         // el <svg> raíz puede traer su propio tamaño: se quita para no repetir atributos (XML inválido)
@@ -144,13 +147,16 @@ async function buildSvg(state: DocState, ab: Artboard) {
         parts.push(svg);
       } else if (!needsRaster && l.kind === 'text' && l.text) {
         const t = l.text;
+        const gdef = t.gradient ? svgGradientDef(gid, t.gradient, w, h) : null;
+        if (gdef) parts.push(`<defs>${gdef}</defs>`);
+        const tfill = gdef ? `url(#${gid})` : t.color;
         // misma disposición que en pantalla: las líneas (ya cortadas y alineadas) empiezan en (ox, oy)
         const { ox, oy, base, lines, glyphs } = textLayout(t);
         const deco = decorationLines(t, base);
         const stroke = t.strokeWidth > 0 ? ` stroke="${t.strokeColor}" stroke-width="${t.strokeWidth * 2}" paint-order="stroke" stroke-linejoin="round"` : '';
         if (glyphs) {
           // texto en trayectoria: una letra por elemento, girada como en pantalla
-          parts.push(`<g font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} fill="${t.color}"${stroke}>`);
+          parts.push(`<g font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} fill="${tfill}"${stroke}>`);
           for (const q of glyphs) {
             if (!q.ch.trim()) continue;
             const x = +(ox + q.x).toFixed(2), y = +(oy + q.y).toFixed(2), deg = +((q.a * 180) / Math.PI).toFixed(3);
@@ -159,7 +165,7 @@ async function buildSvg(state: DocState, ab: Artboard) {
           parts.push('</g></g>');
           continue;
         }
-        parts.push(`<text xml:space="preserve" font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} letter-spacing="${t.letterSpacing}" fill="${t.color}"${stroke}>`);
+        parts.push(`<text xml:space="preserve" font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} letter-spacing="${t.letterSpacing}" fill="${tfill}"${stroke}>`);
         for (const ln of lines) {
           if (!ln.text) continue;
           const y = oy + ln.y + base;
@@ -171,16 +177,37 @@ async function buildSvg(state: DocState, ab: Artboard) {
         for (const ln of lines) {
           if (!ln.text) continue;
           const ys = [t.underline ? deco.underline : null, t.strike ? deco.strike : null].filter((v): v is number => v !== null);
-          for (const dy of ys) parts.push(`<rect x="${ox + ln.x}" y="${oy + ln.y + dy}" width="${ln.width}" height="${deco.thickness}" fill="${t.color}"${stroke}/>`);
+          for (const dy of ys) parts.push(`<rect x="${ox + ln.x}" y="${oy + ln.y + dy}" width="${ln.width}" height="${deco.thickness}" fill="${tfill}"${stroke}/>`);
         }
       } else if (!needsRaster && l.kind === 'shape' && l.shape) {
         const s = l.shape;
+        const ss = s.strokeStyle ?? DEFAULT_STROKE_STYLE;
         const sw = s.stroke ? s.strokeWidth : 0;
-        const fill = s.fill && s.shape !== 'line' ? s.fill : 'none';
-        const stroke = s.stroke || s.shape === 'line' ? ` stroke="${s.stroke || s.fill}" stroke-width="${s.shape === 'line' ? s.h : sw}"` : '';
-        if (s.shape === 'ellipse') parts.push(`<ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2 - sw / 2}" ry="${h / 2 - sw / 2}" fill="${fill}"${stroke}/>`);
-        else if (s.shape === 'line') parts.push(`<line x1="0" y1="${h / 2}" x2="${w}" y2="${h / 2}"${stroke}/>`);
-        else parts.push(`<rect x="${sw / 2}" y="${sw / 2}" width="${w - sw}" height="${h - sw}" rx="${s.radius}" fill="${fill}"${stroke}/>`);
+        const gdef = s.fillGradient && s.shape !== 'line' ? svgGradientDef(gid, s.fillGradient, w, h) : null;
+        if (gdef) parts.push(`<defs>${gdef}</defs>`);
+        const fill = s.shape === 'line' ? 'none' : gdef ? `url(#${gid})` : s.fill || 'none';
+        const lw = s.shape === 'line' ? s.h : sw;
+        const dash = dashArray(ss.dash, lw);
+        const strokeAttrs = s.stroke || s.shape === 'line'
+          ? ` stroke="${s.stroke || s.fill}" stroke-width="${lw}"${ss.dash === 'dotted' ? ' stroke-linecap="round"' : ss.cap !== 'butt' ? ` stroke-linecap="${ss.cap}"` : ''}${ss.join !== 'miter' ? ` stroke-linejoin="${ss.join}"` : ''}${dash.length ? ` stroke-dasharray="${dash.map(v => +v.toFixed(3)).join(' ')}"` : ''}${ss.opacity < 1 ? ` stroke-opacity="${ss.opacity}"` : ''}`
+          : '';
+        // mismo dibujo que en pantalla: relleno hasta donde indique la posición del contorno, contorno a sw/2 del borde
+        const fi = ss.align === 'outside' ? sw : ss.align === 'inside' ? 0 : sw / 2;
+        const geom = (inset: number) => {
+          if (s.shape === 'ellipse') return `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${Math.max(0.5, w / 2 - inset)}" ry="${Math.max(0.5, h / 2 - inset)}"`;
+          if (s.shape === 'line') return `<line x1="0" y1="${h / 2}" x2="${w}" y2="${h / 2}"`;
+          if (s.shape === 'polygon' || s.shape === 'star') {
+            const pts = polygonPoints(s.sides ?? (s.shape === 'star' ? 5 : 6), w, h, inset, s.shape === 'star' ? s.inner ?? 0.5 : undefined);
+            return `<polygon points="${pts.map(p => `${+p.x.toFixed(3)},${+p.y.toFixed(3)}`).join(' ')}"`;
+          }
+          const r = Math.max(0, s.radius + (s.radius > 0 ? sw / 2 - inset : 0));
+          return `<rect x="${inset}" y="${inset}" width="${Math.max(1, w - 2 * inset)}" height="${Math.max(1, h - 2 * inset)}" rx="${r}"`;
+        };
+        if (fi === sw / 2 || s.shape === 'line') parts.push(`${geom(s.shape === 'line' ? 0 : sw / 2)} fill="${fill}"${strokeAttrs}/>`);
+        else {
+          if (fill !== 'none') parts.push(`${geom(fi)} fill="${fill}"/>`);
+          if (strokeAttrs) parts.push(`${geom(sw / 2)} fill="none"${strokeAttrs}/>`);
+        }
       } else {
         const src = processedContent(l);
         if (src) {

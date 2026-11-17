@@ -54,4 +54,7 @@ export interface PlatformAdapter {
   confirm(message: string, o?: { okLabel?: string }): Promise<boolean>;
   /** Avisa antes de cerrar la ventana o la pestaña si `shouldWarn()` es cierto. Devuelve cómo quitar el aviso. */
   guardClose(shouldWarn: () => boolean): () => void;
+  /** Pantalla completa de la ventana (navegador: Fullscreen API; escritorio: ventana nativa). Devuelve el estado final. */
+  setFullscreen(on: boolean): Promise<boolean>;
+  isFullscreen(): Promise<boolean>;
 }

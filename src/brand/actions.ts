@@ -68,8 +68,8 @@ export function applyBrandColor(hex: string, target: 'fill' | 'stroke' = 'fill')
     ...s,
     layers: s.layers.map(l => {
       if (!tid.has(l.id)) return l;
-      if (l.text) return { ...l, text: target === 'fill' ? { ...l.text, color: hex } : { ...l.text, strokeColor: hex, strokeWidth: l.text.strokeWidth || Math.max(1, Math.round(l.text.fontSize / 30)) } };
-      if (l.shape) return { ...l, shape: target === 'fill' && l.shape.shape !== 'line' ? { ...l.shape, fill: hex } : { ...l.shape, stroke: hex } };
+      if (l.text) return { ...l, text: target === 'fill' ? { ...l.text, color: hex, gradient: null } : { ...l.text, strokeColor: hex, strokeWidth: l.text.strokeWidth || Math.max(1, Math.round(l.text.fontSize / 30)) } };
+      if (l.shape) return { ...l, shape: target === 'fill' && l.shape.shape !== 'line' ? { ...l.shape, fill: hex, fillGradient: null } : { ...l.shape, stroke: hex } };
       if (l.vector && l.brand?.color) return recolored(l, hex);
       return l;
     }),

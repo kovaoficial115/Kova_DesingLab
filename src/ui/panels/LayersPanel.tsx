@@ -11,6 +11,7 @@ import { childrenOf } from '../../core/doc';
 import * as A from '../../core/actions';
 import { Select, NumberField } from '../components/controls';
 import { openDialog } from '../commands';
+import { MenuList, type Item } from '../MenuBar';
 import { KOVA } from '../theme';
 
 const setSelOpacity = (v: number) => (st: DocState): DocState => ({ ...st, layers: st.layers.map(x => (st.selectedLayerIds.includes(x.id) ? { ...x, opacity: v / 100 } : x)) });
@@ -52,8 +53,13 @@ function kindIcon(l: Layer) {
   return null;
 }
 
-function LayerRow({ l, depth, doc, drop, setDrop }: { l: Layer; depth: number; doc: Doc; drop: { id: string; pos: string } | null; setDrop: (d: any) => void }) {
+function LayerRow({ l, depth, doc, drop, setDrop, onMenu }: { l: Layer; depth: number; doc: Doc; drop: { id: string; pos: string } | null; setDrop: (d: any) => void; onMenu: (e: React.MouseEvent, l: Layer) => void }) {
   const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    const ren = (e: Event) => { if ((e as CustomEvent).detail === l.id) setEditing(true); };
+    window.addEventListener('kova-rename-layer', ren);
+    return () => window.removeEventListener('kova-rename-layer', ren);
+  }, [l.id]);
   const sel = doc.state.selectedLayerIds.includes(l.id);
   const target = useStore(s => s.opts.brushTarget);
   const maskView = useStore(s => s.maskView);
@@ -61,6 +67,7 @@ function LayerRow({ l, depth, doc, drop, setDrop }: { l: Layer; depth: number; d
   return (
     <div className={cls} style={{ paddingLeft: 6 + depth * 16 }} draggable={!editing}
       onClick={e => A.toggleSelectLayer(l.id, e.metaKey || e.ctrlKey, e.shiftKey)}
+      onContextMenu={e => onMenu(e, l)}
       onDoubleClick={() => setEditing(true)}
       onDragStart={e => { e.dataTransfer.setData('text/kova-layer', l.id); e.dataTransfer.effectAllowed = 'move'; }}
       onDragOver={e => {
@@ -145,10 +152,39 @@ export function LayersPanel({ doc }: { doc: Doc }) {
   const s = doc.state;
   const act = s.layers.find(l => l.id === s.selectedLayerIds[s.selectedLayerIds.length - 1]);
   const rows: React.ReactNode[] = [];
+  // clic derecho en una capa: la selecciona (si no lo estaba) y abre sus acciones
+  const [menu, setMenu] = useState<{ x: number; y: number; items: Item[] } | null>(null);
+  const openMenu = (e: React.MouseEvent, l: Layer) => {
+    e.preventDefault(); e.stopPropagation();
+    if (!s.selectedLayerIds.includes(l.id)) A.selectLayers([l.id]);
+    const multi = s.selectedLayerIds.includes(l.id) && s.selectedLayerIds.length > 1;
+    const items: Item[] = [
+      ...(!multi ? [{ label: 'Cambiar nombre', run: () => window.dispatchEvent(new CustomEvent('kova-rename-layer', { detail: l.id })) } as Item] : []),
+      'layer.duplicate', 'layer.delete', '-',
+      'layer.group', ...(l.kind === 'group' ? ['layer.ungroup'] : []), '-',
+      ...(multi ? ['layer.mergeSel'] : ['layer.mergeBelow']), 'layer.flatten', '-',
+      { label: 'Organizar', sub: ['layer.top', 'layer.up', 'layer.down', 'layer.bottom'] },
+      { label: l.visible ? 'Ocultar' : 'Mostrar', run: () => A.updateLayers(docState()!.selectedLayerIds, () => ({ visible: !l.visible }), l.visible ? 'Ocultar capa' : 'Mostrar capa') },
+      { label: l.locked ? 'Desbloquear' : 'Bloquear', run: () => A.updateLayers(docState()!.selectedLayerIds, () => ({ locked: !l.locked }), l.locked ? 'Desbloquear' : 'Bloquear') },
+      'layer.clip',
+      ...(!multi && (l.kind === 'text' || l.kind === 'shape' || l.kind === 'vector') ? ['-', 'layer.rasterize'] : []),
+      ...(!multi && l.kind === 'raster' ? ['-', 'layer.cropImage', ...(l.crop ? ['layer.uncropImage'] : [])] : []),
+    ];
+    setMenu({ x: e.clientX, y: e.clientY, items });
+  };
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', key);
+    window.addEventListener('blur', close);
+    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('keydown', key); window.removeEventListener('blur', close); };
+  }, [menu]);
   const walk = (pid: string | null, depth: number) => {
     const kids = childrenOf(s.layers, pid).slice().reverse();
     for (const l of kids) {
-      rows.push(<LayerRow key={l.id} l={l} depth={depth} doc={doc} drop={drop} setDrop={setDrop} />);
+      rows.push(<LayerRow key={l.id} l={l} depth={depth} doc={doc} drop={drop} setDrop={setDrop} onMenu={openMenu} />);
       if (l.kind === 'group' && !l.collapsed) walk(l.id, depth + 1);
     }
   };
@@ -165,6 +201,7 @@ export function LayersPanel({ doc }: { doc: Doc }) {
           onChange={v => { setOpacity(v); if (act) live(setSelOpacity(v)); }}
           onCommit={v => { if (act) { live(setSelOpacity(v)); finishLive('Opacidad'); } }} />
       </div>
+      {menu && <MenuList items={menu.items} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />}
       <div className="layers-list">
         {rows.length ? rows : <div className="muted small" style={{ padding: 16, textAlign: 'center' }}>Sin capas. Arrastra imágenes al lienzo o usa Archivo → Colocar.</div>}
       </div>

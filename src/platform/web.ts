@@ -58,6 +58,14 @@ export const webPlatform: PlatformAdapter = {
   saveFile,
   droppedFiles: dt => Array.from(dt?.files ?? []),
   confirm: async message => window.confirm(message),
+  async setFullscreen(on) {
+    try {
+      if (on && !document.fullscreenElement) await document.documentElement.requestFullscreen();
+      else if (!on && document.fullscreenElement) await document.exitFullscreen();
+    } catch { /* el navegador lo rechazó (sin gesto del usuario o no permitido) */ }
+    return !!document.fullscreenElement;
+  },
+  isFullscreen: async () => !!document.fullscreenElement,
   guardClose(shouldWarn) {
     const before = (e: BeforeUnloadEvent) => { if (shouldWarn()) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', before);
