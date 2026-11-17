@@ -4,7 +4,7 @@ import { MenuBar } from './MenuBar';
 import { ToolRail, OptionsBar, DocTabs, QuickBar, ZoomHud, StatusBar } from './Chrome';
 import { Viewport, keys } from './Viewport';
 import { Dock } from './panels/Dock';
-import { handleShortcut, hasInternalClip } from './commands';
+import { handleShortcut, hasInternalClip, pasteObjectsIfOurs } from './commands';
 import { nudge } from '../core/actions';
 import { pasteImageBlob, pasteSvgText } from '../io/fileOps';
 import { isDragging } from '../tools/tools';
@@ -41,6 +41,8 @@ export function useEditorKeys() {
     };
     const paste = async (e: ClipboardEvent) => {
       if (isTyping(e) || get().screen !== 'editor' && get().docs.length) return;
+      // objetos copiados en KOVA (texto editable, formas, grupos…): el sistema guarda su texto
+      if (pasteObjectsIfOurs(e.clipboardData?.getData('text/plain') ?? '')) { e.preventDefault(); return; }
       const items = Array.from(e.clipboardData?.items || []);
       const img = items.find(i => i.type.startsWith('image/'));
       if (img) { e.preventDefault(); const f = img.getAsFile(); if (f) await pasteImageBlob(f); return; }

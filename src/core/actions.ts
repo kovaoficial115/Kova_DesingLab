@@ -15,6 +15,7 @@ import { runOp } from '../engine/workerClient';
 import { magicWand, colorRange } from '../engine/alpha';
 import { blurFloat } from '../engine/pixels';
 import { alignDeltas, distributeDeltas, hasLayout, contentBox } from '../editorial/layout';
+import { collectClip, instantiateClip, type LayerClip } from './clipboard';
 
 // ---------- documentos ----------
 export function addDoc(doc: Doc, fit = true) {
@@ -125,12 +126,12 @@ function nextName(base: string) {
   return `${base} ${n}`;
 }
 
-export function deleteSelectedLayers() {
+export function deleteSelectedLayers(label = 'Eliminar capa') {
   const s = docState();
   if (!s || !s.selectedLayerIds.length) return;
   const kill = new Set<string>();
   for (const id of s.selectedLayerIds) { kill.add(id); descendants(s.layers, id).forEach(d => kill.add(d.id)); }
-  commit('Eliminar capa', st => {
+  commit(label, st => {
     const layers = st.layers.filter(l => !kill.has(l.id));
     return { ...st, layers, selectedLayerIds: layers.length ? [layers[layers.length - 1].id] : [] };
   });
@@ -158,6 +159,49 @@ export function duplicateSelectedLayers() {
     }
     return { ...st, layers, selectedLayerIds: newIds };
   });
+}
+
+// ---------- portapapeles de objetos ----------
+/** Selección actual como portapapeles de objetos editables (sin rasterizar). */
+export function clipFromSelection(): LayerClip | null {
+  const s = docState();
+  return s ? collectClip(s.layers, s.selectedLayerIds, c => cloneCanvas(c)) : null;
+}
+/**
+ * Inserta un portapapeles de objetos: encima de la capa seleccionada más alta (en su mismo grupo)
+ * o arriba del todo. Si los objetos quedan dentro de la mesa activa se desplazan `offset` px; si
+ * vienen de otra mesa u otro documento se centran en la mesa activa. Selecciona lo pegado.
+ */
+export function pasteClip(clip: LayerClip, offset: number, label = 'Pegar'): string[] {
+  const s = docState();
+  const ab = activeArtboard();
+  if (!s || !ab || !clip.layers.length) return [];
+  const b = unionRect(clip.layers.filter(l => l.kind !== 'group').map(layerBounds));
+  let dx = offset, dy = offset;
+  if (b) {
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    const inside = cx >= ab.x && cx <= ab.x + ab.w && cy >= ab.y && cy <= ab.y + ab.h;
+    if (!inside) { dx = Math.round(ab.x + ab.w / 2 - cx); dy = Math.round(ab.y + ab.h / 2 - cy); }
+  }
+  let roots: string[] = [];
+  commit(label, st => {
+    const selIdx = st.layers.map((l, i) => (st.selectedLayerIds.includes(l.id) ? i : -1)).filter(i => i >= 0);
+    const top = selIdx.length ? st.layers[Math.max(...selIdx)] : null;
+    const parentId = top ? top.parentId : null;
+    const at = top ? st.layers.indexOf(top) + 1 : st.layers.length;
+    const made = instantiateClip(clip, { dx, dy, parentId, newId: () => uid('ly'), existingIds: new Set(st.layers.map(l => l.id)), cloneCanvas: c => cloneCanvas(c) });
+    roots = made.roots;
+    const layers = [...st.layers];
+    layers.splice(at, 0, ...made.layers);
+    return { ...st, layers, selectedLayerIds: made.roots };
+  });
+  return roots;
+}
+/** Duplica la selección (capas, grupos, máscaras y efectos) desplazada ligeramente. */
+export function duplicateWithOffset(offset: number) {
+  const clip = clipFromSelection();
+  if (!clip) return;
+  pasteClip(clip, offset, clip.roots.length > 1 ? `Duplicar ${clip.roots.length} objetos` : 'Duplicar');
 }
 
 export function groupSelected() {

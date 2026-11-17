@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { FlipHorizontal2, FlipVertical2, RotateCw, RotateCcw, Link, Unlink, AlignHorizontalSpaceAround, AlignVerticalSpaceAround, AlertTriangle, Bold, Italic, Underline, Strikethrough } from 'lucide-react';
-import { useStore, live, finishLive, get } from '../../core/store';
+import { useStore, live, finishLive, get, liveBaseState } from '../../core/store';
 import type { Doc, Layer, Artboard, TextAlign } from '../../core/types';
 import { NumberField, Select, Check, ColorInput } from '../components/controls';
-import { fromPx, toPx, layerSize, layerBounds, layerPivot, placeAtPivot } from '../../core/util';
+import { fromPx, toPx, layerSize, layerBounds, layerPivot, placeAtPivot, unionRect } from '../../core/util';
+import { groupTarget } from '../../tools/tools';
+import { scalePatch, rotatePatch, applyPatches } from '../../core/groupTransform';
 import * as A from '../../core/actions';
 import { AlignIcon } from '../Chrome';
 import { FontPicker } from '../components/FontPicker';
@@ -54,7 +56,8 @@ function LayerProps({ l, ab, doc }: { l: Layer; ab: Artboard; doc: Doc }) {
         <span className="chip">{{ raster: 'Píxeles', text: 'Texto', shape: 'Forma', vector: 'Vector', group: 'Grupo', adjust: 'Capa de ajuste' }[l.kind]}</span>
         <span className="small grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{multi ? `${doc.state.selectedLayerIds.length} capas` : l.name}</span>
       </div>
-      {l.kind !== 'group' && <>
+      {(multi || l.kind === 'group') && <GroupTransformProps doc={doc} ab={ab} />}
+      {!multi && l.kind !== 'group' && <>
         <div className="grid2">
           <UnitField label="X" px={l.x - ab.x} dpi={ab.dpi} onPx={setX} />
           <UnitField label="Y" px={l.y - ab.y} dpi={ab.dpi} onPx={setY} />
@@ -265,6 +268,60 @@ export function PropertiesPanel({ doc }: { doc: Doc }) {
 const ALIGN_TITLES: Record<A.AlignKind, string> = { left: 'Alinear a la izquierda', hcenter: 'Centrar en horizontal', right: 'Alinear a la derecha', top: 'Alinear arriba', vcenter: 'Centrar en vertical', bottom: 'Alinear abajo' };
 
 /** Alinear y distribuir (capas y grupos como bloque) a la selección, la mesa, sus márgenes o la primera seleccionada. */
+/**
+ * Posición, tamaño y giro de la selección como un bloque (varias capas o un grupo). Los valores
+ * se calculan siempre desde el estado del inicio del gesto: arrastrar un campo no acumula errores.
+ */
+function GroupTransformProps({ doc, ab }: { doc: Doc; ab: Artboard }) {
+  const [linked, setLinked] = useState(true);
+  const [turn, setTurn] = useState(0);
+  const gt = groupTarget();
+  if (!gt) return null;
+  const ids = new Set(gt.units.map(u => u.id));
+  const b = gt.box;
+  const apply = (fn: (units: Layer[], box: NonNullable<ReturnType<typeof unionRect>>) => Map<string, Partial<Layer>>, label: string, commit: boolean) => {
+    const base = liveBaseState(doc.id) ?? doc.state;
+    const units = base.layers.filter(l => ids.has(l.id));
+    const box = unionRect(units.map(layerBounds));
+    if (!box) return;
+    const patches = fn(units, box);
+    live(s => ({ ...s, layers: applyPatches(s.layers, patches) }));
+    if (commit) finishLive(label);
+  };
+  const move = (dx: (box: { x: number }) => number, dy: (box: { y: number }) => number) => (units: Layer[], box: { x: number; y: number }) =>
+    new Map(units.map(u => [u.id, { x: u.x + dx(box), y: u.y + dy(box) }]));
+  const size = (w: number | null, h: number | null) => (units: Layer[], box: { x: number; y: number; w: number; h: number }) => {
+    let rx = w != null ? Math.max(0.01, w / box.w) : 1, ry = h != null ? Math.max(0.01, h / box.h) : 1;
+    if (linked) { if (w != null) ry = rx; else rx = ry; }
+    return new Map(units.map(u => [u.id, scalePatch(u, { x: box.x, y: box.y }, rx, ry)]));
+  };
+  return (
+    <>
+      <div className="grid2">
+        <UnitField label="X" px={b.x - ab.x} dpi={ab.dpi} onPx={(v, c) => apply(move(box => v + ab.x - box.x, () => 0), 'Mover selección', c)} />
+        <UnitField label="Y" px={b.y - ab.y} dpi={ab.dpi} onPx={(v, c) => apply(move(() => 0, box => v + ab.y - box.y), 'Mover selección', c)} />
+      </div>
+      <div className="row">
+        <div className="grid2 grow">
+          <UnitField label="An" px={b.w} dpi={ab.dpi} min={0.01} onPx={(v, c) => apply(size(v, null), 'Escalar selección', c)} />
+          <UnitField label="Al" px={b.h} dpi={ab.dpi} min={0.01} onPx={(v, c) => apply(size(null, v), 'Escalar selección', c)} />
+        </div>
+        <button className={'icon-btn sm' + (linked ? ' active' : '')} title="Mantener proporción" onClick={() => setLinked(!linked)}>{linked ? <Link size={12} /> : <Unlink size={12} />}</button>
+      </div>
+      <div className="row">
+        <NumberField label="Girar" value={turn} digits={1} suffix="°" min={-360} max={360} width={110} title="Gira la selección entera alrededor de su centro"
+          onChange={setTurn} onCommit={v => { if (v) apply(units => { const c = { x: b.x + b.w / 2, y: b.y + b.h / 2 }; return new Map(units.map(u => [u.id, rotatePatch(u, c, v)])); }, 'Rotar selección', true); setTurn(0); }} />
+        <div className="grow" />
+        <button className="icon-btn sm" title="Rotar la selección 90° antihorario" onClick={() => apply(units => new Map(units.map(u => [u.id, rotatePatch(u, { x: b.x + b.w / 2, y: b.y + b.h / 2 }, -90)])), 'Rotar selección', true)}><RotateCcw size={13} /></button>
+        <button className="icon-btn sm" title="Rotar la selección 90° horario" onClick={() => apply(units => new Map(units.map(u => [u.id, rotatePatch(u, { x: b.x + b.w / 2, y: b.y + b.h / 2 }, 90)])), 'Rotar selección', true)}><RotateCw size={13} /></button>
+        <button className="icon-btn sm" title="Voltear horizontal (cada capa)" onClick={() => A.flipLayers('h')}><FlipHorizontal2 size={13} /></button>
+        <button className="icon-btn sm" title="Voltear vertical (cada capa)" onClick={() => A.flipLayers('v')}><FlipVertical2 size={13} /></button>
+      </div>
+      <div className="tiny muted">{gt.units.length} capas como un bloque. En el lienzo, las asas de la caja escalan (Mayús: libre, Alt: desde el centro) y fuera de las esquinas giran.</div>
+    </>
+  );
+}
+
 function AlignSection({ doc, multi }: { doc: Doc; multi: boolean }) {
   const [to, setTo] = useState<A.AlignTarget>('selection');
   const [mode, setMode] = useState<'gap' | 'fixed' | 'centers'>('gap');

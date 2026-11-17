@@ -16,6 +16,7 @@ import { renderArtboard, processedContent, beginLiveCanvas, updateLiveRegion, in
 import { makeStamp, makeTextureMask, dabPositions, type BrushSettings, type BrushToolId } from '../engine/brush';
 import { magicWand } from '../engine/alpha';
 import { hasLayout, layoutSnapLines } from '../editorial/layout';
+import { scalePatch, rotatePatch, applyPatches, handleScale } from '../core/groupTransform';
 
 export interface ToolEvent {
   wx: number; wy: number; sx: number; sy: number;
@@ -31,6 +32,8 @@ export interface Overlay {
   brush?: { x: number; y: number; r: number; ry?: number; angle?: number } | null;
   artboardDraft?: Rect | null;
   hoverLayerId?: string | null;
+  /** caja de la selección múltiple mientras se gira (se dibuja girada) */
+  groupBox?: { box: Rect; deg: number } | null;
 }
 export const overlay: Overlay = {};
 export const textEdit = { layerId: null as string | null, listeners: new Set<() => void>() };
@@ -117,6 +120,30 @@ export function transformTarget(): Layer | null {
   if (!l || l.kind === 'group' || l.locked) return null;
   return l;
 }
+/**
+ * Caja de transformación conjunta: con dos o más capas (o un grupo) seleccionadas, sus capas
+ * movibles y el rectángulo que las contiene en el documento.
+ */
+export function groupTarget(): { units: Layer[]; box: Rect } | null {
+  const s = docState();
+  if (!s || !s.selectedLayerIds.length || transformTarget()) return null;
+  const ids = new Set<string>();
+  for (const id of s.selectedLayerIds) { ids.add(id); descendants(s.layers, id).forEach(d => ids.add(d.id)); }
+  const locked = (l: Layer) => { for (let c: Layer | undefined = l; c; c = c.parentId ? s.layers.find(x => x.id === c!.parentId) : undefined) if (c.locked) return true; return false; };
+  const units = s.layers.filter(l => ids.has(l.id) && l.kind !== 'group' && !locked(l));
+  const hasGroup = s.selectedLayerIds.some(id => s.layers.find(l => l.id === id)?.kind === 'group');
+  if (!units.length || (units.length < 2 && !hasGroup)) return null;
+  const box = unionRect(units.map(layerBounds));
+  return box && box.w > 0 && box.h > 0 ? { units, box } : null;
+}
+/** Asa de la caja conjunta bajo el puntero (coordenadas de pantalla). */
+export function hitBoxHandle(box: Rect, sx: number, sy: number): Handle | null {
+  const v = getView();
+  const pts = Object.entries(handleLocal).map(([k, [u, t]]) => ({ k: k as Handle, p: { x: (box.x + u * box.w) * v.zoom + v.panX, y: (box.y + t * box.h) * v.zoom + v.panY } }));
+  for (const { k, p } of pts) if (Math.hypot(p.x - sx, p.y - sy) < 8) return k;
+  for (const { k, p } of pts) if (k.length === 2 && Math.hypot(p.x - sx, p.y - sy) < 24) return 'rot';
+  return null;
+}
 export function hitHandle(l: Layer, sx: number, sy: number): Handle | null {
   const v = getView();
   const { w, h } = layerSize(l);
@@ -143,6 +170,15 @@ const moveTool = {
         // con Ctrl/⌘ se escala como cualquier capa
         const boxMode = h !== 'rot' && t.kind === 'text' && !!t.text?.box && !e.ctrl;
         drag = { mode: h === 'rot' ? 'rotate' : boxMode ? 'box' : 'scale', handle: h, l0: t, m0: layerMatrix(t), center: c, start: { x: e.wx, y: e.wy } };
+        return;
+      }
+    }
+    const gt = get().opts.showTransform && !t ? groupTarget() : null;
+    if (gt) {
+      const h = hitBoxHandle(gt.box, e.sx, e.sy);
+      if (h) {
+        const b = gt.box;
+        drag = { mode: h === 'rot' ? 'grotate' : 'gscale', handle: h, units: gt.units, box: b, center: { x: b.x + b.w / 2, y: b.y + b.h / 2 }, start: { x: e.wx, y: e.wy } };
         return;
       }
     }
@@ -186,7 +222,8 @@ const moveTool = {
       const t = transformTarget();
       const el = document.getElementById('kova-viewport');
       if (el) {
-        const h = t ? hitHandle(t, e.sx, e.sy) : null;
+        const gt = !t && get().opts.showTransform ? groupTarget() : null;
+        const h = t ? hitHandle(t, e.sx, e.sy) : gt ? hitBoxHandle(gt.box, e.sx, e.sy) : null;
         const cursors: Record<string, string> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', rot: 'alias' };
         let cur = h ? cursors[h] : 'default';
         if (!h && get().showGuides) {
@@ -216,6 +253,24 @@ const moveTool = {
       overlay.snapLines = sn.lines;
       const map = new Map<string, { x: number; y: number }>(drag.orig.map((o: any) => [o.id, o]));
       live(s => ({ ...s, layers: s.layers.map(l => (map.has(l.id) ? { ...l, x: map.get(l.id)!.x + dx, y: map.get(l.id)!.y + dy } : l)) }));
+      return;
+    }
+    if (drag.mode === 'grotate' || drag.mode === 'gscale') {
+      const units: Layer[] = drag.units;
+      const patches = new Map<string, Partial<Layer>>();
+      if (drag.mode === 'grotate') {
+        const c = drag.center;
+        const a0 = Math.atan2(drag.start.y - c.y, drag.start.x - c.x), a1 = Math.atan2(e.wy - c.y, e.wx - c.x);
+        let deg = ((a1 - a0) * 180) / Math.PI;
+        if (e.shift) deg = Math.round(deg / 15) * 15;
+        for (const u of units) patches.set(u.id, rotatePatch(u, c, deg));
+        overlay.groupBox = { box: drag.box, deg };
+      } else {
+        const [hu, hv] = handleLocal[drag.handle as Exclude<Handle, 'rot'>];
+        const { A, rx, ry } = handleScale(drag.box, hu, hv, { x: e.wx, y: e.wy }, { fromCenter: e.alt, free: e.shift, keep: e.shift });
+        for (const u of units) patches.set(u.id, scalePatch(u, A, rx, ry));
+      }
+      live(s => ({ ...s, layers: applyPatches(s.layers, patches) }));
       return;
     }
     const l0: Layer = drag.l0;
@@ -296,7 +351,8 @@ const moveTool = {
       else finishLive('Mover guía');
       return;
     }
-    finishLive(d.mode === 'move' ? 'Mover' : d.mode === 'rotate' ? 'Rotar' : d.mode === 'box' ? 'Tamaño del cuadro de texto' : 'Escalar');
+    overlay.groupBox = null;
+    finishLive(d.mode === 'move' ? 'Mover' : d.mode === 'rotate' ? 'Rotar' : d.mode === 'grotate' ? 'Rotar selección' : d.mode === 'gscale' ? 'Escalar selección' : d.mode === 'box' ? 'Tamaño del cuadro de texto' : 'Escalar');
     redraw();
   },
   dblclick(e: ToolEvent) {

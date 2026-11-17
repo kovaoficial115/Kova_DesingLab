@@ -7,7 +7,7 @@ import { renderLayers } from '../core/render';
 import { fxDef } from '../engine/fx/registry';
 import { setAdjParams, finishAdjLive } from '../fx/lib';
 import { layerMatrix, layerSize, createCanvas, ctx2d, fromPx, toPx, layerBounds } from '../core/util';
-import { tools, overlay, textEdit, setTextEdit, transformTarget, cropState, type ToolEvent } from '../tools/tools';
+import { tools, overlay, textEdit, setTextEdit, transformTarget, groupTarget, cropState, type ToolEvent } from '../tools/tools';
 import { zoomTo, fitToScreen, addGuide, hitTestLayers, selectLayers, textToBox } from '../core/actions';
 import { MenuList, type Item } from './MenuBar';
 import { placeFiles } from '../io/fileOps';
@@ -493,6 +493,24 @@ function drawOverlay(canvas: HTMLCanvasElement, doc: Doc, W: number, H: number, 
       }
       const c = m.transformPoint(new DOMPoint(w / 2, h / 2));
       g.beginPath(); g.arc(c.x, c.y, 3, 0, Math.PI * 2); g.stroke();
+    }
+    // caja conjunta de varias capas (o de un grupo): se escala y gira como un bloque
+    const gt = !t && st.tool === 'move' && st.opts.showTransform ? groupTarget() : null;
+    if (gt) {
+      const rot = overlay.groupBox;
+      const b = rot ? rot.box : gt.box;
+      const cx = sx(b.x + b.w / 2), cy = sy(b.y + b.h / 2);
+      g.save();
+      g.translate(cx, cy); if (rot) g.rotate((rot.deg * Math.PI) / 180);
+      const W = b.w * v.zoom, H = b.h * v.zoom;
+      g.strokeRect(-W / 2 + 0.5, -H / 2 + 0.5, W, H);
+      g.fillStyle = '#fff';
+      for (const [u, tt] of [[0, 0], [0.5, 0], [1, 0], [1, 0.5], [1, 1], [0.5, 1], [0, 1], [0, 0.5]]) {
+        const px = -W / 2 + u * W, py = -H / 2 + tt * H;
+        g.fillRect(px - 4, py - 4, 8, 8); g.strokeRect(px - 4 + 0.5, py - 4 + 0.5, 7, 7);
+      }
+      g.beginPath(); g.arc(0, 0, 3, 0, Math.PI * 2); g.stroke();
+      g.restore();
     }
     g.restore();
   }

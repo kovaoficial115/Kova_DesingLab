@@ -19,6 +19,7 @@ import { FX } from '../engine/fx/registry';
 import { addEffect, importLut } from '../fx/lib';
 import * as AL from '../core/adjustLayers';
 import { COMPOSITIONS } from '../editorial/layout';
+import { clipText, type LayerClip } from '../core/clipboard';
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -150,6 +151,7 @@ export const commands: Record<string, Command> = {
   'edit.copy': { label: 'Copiar', keys: 'mod+c', run: () => clipboardCopy(false), enabled: hasLayer },
   'edit.copyMerged': { label: 'Copiar combinado', keys: 'mod+shift+c', run: () => clipboardCopy(false, true), enabled: hasDoc },
   'edit.paste': { label: 'Pegar', keys: 'mod+v', run: () => clipboardPaste() },
+  'edit.duplicate': { label: 'Duplicar', keys: 'mod+d', run: () => A.duplicateWithOffset(pasteStep()), enabled: hasLayer },
   'edit.fill': { label: 'Rellenar con color frontal', keys: 'alt+backspace', run: () => A.fillSelection(get().fg), enabled: hasLayer },
   'edit.fillBg': { label: 'Rellenar con color de fondo', keys: 'mod+backspace', run: () => A.fillSelection(get().bg), enabled: hasLayer },
   'edit.delete': { label: 'Borrar', keys: 'delete', run: () => A.deleteSelectionPixels(), enabled: hasLayer },
@@ -335,17 +337,51 @@ function printSize() {
 }
 
 // ---------- portapapeles ----------
+// Dos clases de contenido: píxeles (con una selección activa, o «Copiar combinado») y objetos
+// editables (capas, grupos, textos, formas…), que se pegan como capas nuevas sin rasterizar.
 let internalClip: { canvas: HTMLCanvasElement; x: number; y: number } | null = null;
+let layerClip: { clip: LayerClip; stamp: string | null; pastes: number } | null = null;
+/** desplazamiento del pegado en px del documento: ~16 px de pantalla al zoom actual */
+const pasteStep = () => Math.max(1, Math.round(16 / (get().views[get().activeDocId!]?.zoom ?? 1)));
+
 async function clipboardCopy(cut: boolean, merged = false) {
+  if (!merged && !docState()?.selection) return copyObjects(cut);
   const data = await A.copySelection(merged);
   if (!data) return;
   internalClip = data;
+  layerClip = null;
   try {
     const blob: Blob = await new Promise(r => data.canvas.toBlob(b => r(b!), 'image/png'));
     await (navigator.clipboard as any).write([new ClipboardItem({ 'image/png': blob })]);
   } catch { /* sin permiso de portapapeles del sistema: queda el interno */ }
   if (cut) await A.deleteSelectionPixels();
   toast(cut ? 'Cortado' : 'Copiado', 'ok', 1200);
+}
+async function copyObjects(cut: boolean) {
+  const clip = A.clipFromSelection();
+  if (!clip) return;
+  internalClip = null;
+  layerClip = { clip, stamp: null, pastes: 0 };
+  const entry = layerClip;
+  // en el portapapeles del sistema queda el texto (sirve para pegarlo en otra app); al volver a
+  // pegar aquí, ese mismo texto indica que lo último copiado siguen siendo estos objetos
+  const text = clipText(clip);
+  try { await navigator.clipboard.writeText(text); entry.stamp = text; } catch { /* sin permiso: se usa el interno */ }
+  const n = clip.roots.length;
+  if (cut) A.deleteSelectedLayers(n > 1 ? `Cortar ${n} objetos` : 'Cortar');
+  toast(`${cut ? 'Cortado' : 'Copiado'}${n > 1 ? `: ${n} objetos` : ''}`, 'ok', 1200);
+}
+function pasteObjects() {
+  if (!layerClip || !activeDoc()) return false;
+  layerClip.pastes++;
+  const roots = A.pasteClip(layerClip.clip, pasteStep() * layerClip.pastes);
+  return roots.length > 0;
+}
+/** El evento paste trae el texto del portapapeles del sistema: si es el que dejamos al copiar
+ *  objetos, se pegan esos objetos (editables). */
+export function pasteObjectsIfOurs(systemText: string): boolean {
+  if (!layerClip || layerClip.stamp === null || systemText !== layerClip.stamp) return false;
+  return pasteObjects();
 }
 export async function clipboardPaste() {
   // El evento paste del documento gestiona las imágenes del sistema; aquí se usa el interno
@@ -355,6 +391,12 @@ export async function clipboardPaste() {
     A.insertLayers([rasterLayer(c.canvas, 'Pegado', c.x, c.y)], 'Pegar');
     return;
   }
+  if (layerClip && activeDoc()) {
+    // desde el menú no hay evento paste: se comprueba si el sistema aún tiene nuestro texto
+    let sys: string | null = null;
+    try { sys = await navigator.clipboard.readText(); } catch { /* sin permiso de lectura */ }
+    if (sys === null || layerClip.stamp === null || sys === layerClip.stamp) { pasteObjects(); return; }
+  }
   try {
     const items = await (navigator.clipboard as any).read();
     for (const it of items) {
@@ -363,8 +405,11 @@ export async function clipboardPaste() {
     }
   } catch { toast('Usa Ctrl/⌘+V sobre el lienzo para pegar desde el sistema', 'info'); }
 }
+/** Al salir de la ventana se olvidan los píxeles copiados (lo nuevo del sistema manda); los
+ *  objetos se conservan porque su texto en el portapapeles dice si siguen siendo lo último. */
 export function setInternalClip(v: typeof internalClip) { internalClip = v; }
-export function hasInternalClip() { return !!internalClip; }
+/** ¿Debe gestionar ⌘V el atajo (portapapeles interno) en lugar del evento paste del sistema? */
+export function hasInternalClip() { return !!internalClip || (!!layerClip && layerClip.stamp === null); }
 
 // ---------- atajos ----------
 export function keyString(e: KeyboardEvent) {
@@ -415,6 +460,8 @@ export function handleShortcut(e: KeyboardEvent): boolean {
   // Mod+E: exportar si no hay capa para combinar
   let id = keyMap.get(k);
   if (k === 'mod+e') id = selectedLayers().length > 1 ? 'layer.mergeDown' : 'file.export';
+  // ⌘D: con una selección de píxeles deselecciona (como siempre); si no, duplica los objetos
+  if (k === 'mod+d') id = docState()?.selection ? 'sel.none' : 'edit.duplicate';
   if (!id) return false;
   const c = commands[id];
   if (c.enabled && !c.enabled()) return false;
