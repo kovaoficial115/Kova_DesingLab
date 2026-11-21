@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Eraser, Sparkles, Pipette, Wand, Brush } from 'lucide-react';
 import { Modal, Slider, Seg, Check, ColorInput, CanvasPreview } from '../components/controls';
 import { activeLayer, docState, withBusy, toast, commit, set } from '../../core/store';
+import type { Layer } from '../../core/types';
+import { descendants } from '../../core/doc';
 import { bakedLayerCanvas } from '../../core/render';
 import { getImageData, canvasFromImageData, cloneCanvas, layerSize, hexToRgb, rgbToHex, createCanvas, ctx2d, canvasToBlob, blobToCanvas } from '../../core/util';
 import { runOp } from '../../engine/workerClient';
@@ -41,8 +43,22 @@ async function removeBgAI(c: HTMLCanvasElement, onProgress: (t: string) => void)
   return blobToCanvas(out);
 }
 
+/** Capas a las que se aplica: todas las seleccionadas (y las de dentro de los grupos seleccionados)
+ *  que tienen píxeles y no están bloqueadas. La activa va primero (es la de la vista previa). */
+function targetLayers(active: Layer | null): Layer[] {
+  const s = docState();
+  if (!s || !active) return active ? [active] : [];
+  const ids = new Set<string>();
+  for (const id of s.selectedLayerIds) { ids.add(id); descendants(s.layers, id).forEach(d => ids.add(d.id)); }
+  const ok = (l: Layer) => ids.has(l.id) && l.kind !== 'group' && l.kind !== 'adjust' && !l.locked;
+  const list = s.layers.filter(ok);
+  return [active, ...list.filter(l => l.id !== active.id)].filter(ok);
+}
+
 export function BgRemoveDialog({ onClose, tab: initialTab, asSelection }: { onClose: () => void; tab?: Tab; asSelection?: boolean }) {
   const layer = activeLayer();
+  const targets = React.useMemo(() => targetLayers(layer), []);
+  const multi = targets.length > 1;
   const [tab, setTab] = useState<Tab>(initialTab ?? 'color');
   const [src, setSrc] = useState<HTMLCanvasElement | null>(null);
   const [preview, setPreview] = useState<HTMLCanvasElement | null>(null);
@@ -86,16 +102,16 @@ export function BgRemoveDialog({ onClose, tab: initialTab, asSelection }: { onCl
     return k < 1 ? cloneCanvas(src, src.width * k, src.height * k) : src;
   }, [src]);
 
-  const process = async (input: HTMLCanvasElement, full: boolean): Promise<HTMLCanvasElement> => {
-    const k = input.width / src!.width;
+  const process = async (input: HTMLCanvasElement, full: boolean, refW = src!.width, mask: HTMLCanvasElement | null = aiMask): Promise<HTMLCanvasElement> => {
+    const k = input.width / refW;
     let img = getImageData(input);
     if (tab === 'ai') {
-      if (!aiMask) return input;
+      if (!mask) return input;
       const out = cloneCanvas(input);
       const g = ctx2d(out);
       const m = createCanvas(input.width, input.height);
       const mg = ctx2d(m);
-      mg.drawImage(aiMask, 0, 0, input.width, input.height);
+      mg.drawImage(mask, 0, 0, input.width, input.height);
       // máscara en luminancia → alfa
       const md = mg.getImageData(0, 0, m.width, m.height);
       for (let i = 0; i < md.data.length; i += 4) { md.data[i + 3] = md.data[i]; md.data[i] = md.data[i + 1] = md.data[i + 2] = 255; }
@@ -140,28 +156,61 @@ export function BgRemoveDialog({ onClose, tab: initialTab, asSelection }: { onCl
 
   if (!layer) { toast('Selecciona una capa', 'warn'); onClose(); return null; }
 
-  const apply = () => withBusy('Aplicando…', async () => {
+  /** Imagen de una capa a su tamaño de contenido (igual que la vista previa de la activa). */
+  const sourceOf = async (l: Layer) => {
+    const b = await bakedLayerCanvas(l);
+    if (!b) return null;
+    const { w, h } = layerSize(l);
+    return cloneCanvas(b, w, h);
+  };
+  const maskFrom = (l: Layer, out: HTMLCanvasElement) => {
+    const { w, h } = layerSize(l);
+    const mask = createCanvas(w, h);
+    const g = ctx2d(mask);
+    g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+    const white = createCanvas(w, h);
+    const wg = ctx2d(white);
+    wg.drawImage(out, 0, 0, w, h);
+    wg.globalCompositeOperation = 'source-in';
+    wg.fillStyle = '#fff'; wg.fillRect(0, 0, w, h);
+    g.drawImage(white, 0, 0);
+    return mask;
+  };
+
+  const apply = () => withBusy(multi && output !== 'selection' ? `Aplicando a ${targets.length} capas…` : 'Aplicando…', async () => {
     if (!src) return;
-    const out = await process(src, true);
     if (output === 'selection') {
+      const out = await process(src, true);
       setSelection(localMaskToWorld(out, layer), 'Seleccionar sujeto', 'new');
-    } else if (output === 'mask') {
-      const { w, h } = layerSize(layer);
-      const mask = createCanvas(w, h);
-      const g = ctx2d(mask);
-      g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
-      const white = createCanvas(w, h);
-      const wg = ctx2d(white);
-      wg.drawImage(out, 0, 0, w, h);
-      wg.globalCompositeOperation = 'source-in';
-      wg.fillStyle = '#fff'; wg.fillRect(0, 0, w, h);
-      g.drawImage(white, 0, 0);
-      commit('Máscara de fondo', st => ({ ...st, layers: st.layers.map(x => (x.id === layer.id ? { ...x, mask, maskEnabled: true } : x)) }));
-    } else {
-      invalidateLayer(layer.id);
-      commit(tab === 'refine' ? 'Refinar bordes' : 'Eliminar fondo', st => ({ ...st, layers: st.layers.map(x => (x.id === layer.id ? { ...x, kind: 'raster', canvas: out, origin: x.origin ?? x.canvas ?? out, adjustments: [], text: undefined, shape: undefined, vector: undefined } : x)) }));
+      toast('Listo', 'ok');
+      onClose();
+      return;
     }
-    toast('Listo', 'ok');
+    // misma configuración para todas las capas seleccionadas, en un solo paso del historial
+    const results = new Map<string, HTMLCanvasElement>();
+    let skipped = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const l = targets[i];
+      if (multi) setAiStatus(`Capa ${i + 1} de ${targets.length}: ${l.name}`);
+      const input = l.id === layer.id ? src : await sourceOf(l);
+      if (!input || !input.width || !input.height) { skipped++; continue; }
+      let mask = aiMask;
+      if (tab === 'ai' && l.id !== layer.id) mask = await removeBgAI(input, t => setAiStatus(`${l.name}: ${t}`));
+      results.set(l.id, await process(input, true, input.width, mask));
+    }
+    if (!results.size) { toast('Ninguna capa seleccionada tiene píxeles que procesar', 'warn'); return; }
+    if (output === 'mask') {
+      const masks = new Map([...results].map(([id, out]) => [id, maskFrom(targets.find(l => l.id === id)!, out)]));
+      commit(multi ? `Máscara de fondo (${masks.size} capas)` : 'Máscara de fondo', st => ({ ...st, layers: st.layers.map(x => (masks.has(x.id) ? { ...x, mask: masks.get(x.id)!, maskEnabled: true } : x)) }));
+    } else {
+      results.forEach((_, id) => invalidateLayer(id));
+      const label = (tab === 'refine' ? 'Refinar bordes' : 'Eliminar fondo') + (multi ? ` (${results.size} capas)` : '');
+      commit(label, st => ({ ...st, layers: st.layers.map(x => {
+        const out = results.get(x.id);
+        return out ? { ...x, kind: 'raster', canvas: out, origin: x.origin ?? x.canvas ?? out, adjustments: [], text: undefined, shape: undefined, vector: undefined } : x;
+      }) }));
+    }
+    toast(multi ? `Aplicado a ${results.size} capas${skipped ? ` (${skipped} sin píxeles, sin cambios)` : ''}` : 'Listo', 'ok');
     onClose();
   });
 
@@ -181,6 +230,7 @@ export function BgRemoveDialog({ onClose, tab: initialTab, asSelection }: { onCl
     <Modal title="Eliminar fondo y transparencias" icon={<Eraser size={16} />} onClose={onClose} width={1040} height="86vh"
       footer={<>
         {stats && <span className={'chip ' + (semiPct > 2 ? 'warn' : 'ok')}>{semiPct.toFixed(1)}% píxeles semitransparentes</span>}
+        {multi && output !== 'selection' && <span className="chip" title={`La vista previa muestra «${layer.name}»; los mismos ajustes se aplican a todas`}>Se aplicará a {targets.length} capas</span>}
         <div className="spacer" />
         <Seg value={output} onChange={setOutput} options={[{ value: 'pixels', label: 'Aplicar a píxeles' }, { value: 'mask', label: 'Como máscara' }, { value: 'selection', label: 'Como selección' }]} />
         <button className="btn" onClick={onClose}>Cancelar</button>
