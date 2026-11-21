@@ -59,6 +59,7 @@ export async function openFiles(files: File[]) {
       const d = docFromImport(r);
       if (d) addDoc(d);
       if (r.kind === 'raster' && !r.dpi) toast(`${f.name}: sin DPI en el archivo, se asumió 300 ppp`, 'info');
+      if (r.kind === 'layers' && r.note) toast(r.note, 'warn', 7000);
     });
   }
 }
@@ -84,6 +85,7 @@ export async function placeFiles(files: File[], at?: { x: number; y: number }) {
       } else if (r.kind === 'layers') {
         const ox = ab.x, oy = ab.y;
         insertLayers(r.layers.map(l => ({ ...l, x: l.x + ox, y: l.y + oy })), 'Colocar PSD');
+        if (r.note) toast(r.note, 'warn', 7000);
       } else if (r.kind === 'pages') {
         insertLayers(r.pages.map((p, i) => fitIn(rasterLayer(p, `${r.name} p${i + 1}`), ab)), 'Colocar PDF');
       }

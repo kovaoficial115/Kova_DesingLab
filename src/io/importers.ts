@@ -1,14 +1,14 @@
 // Importación: PNG, JPG, WEBP, BMP, GIF, SVG, TIFF (UTIF), PSD con capas (ag-psd), PDF (pdf.js) y .kova.
 
 import type { BlendMode, Layer } from '../core/types';
-import { blobToCanvas, createCanvas, ctx2d, cloneCanvas } from '../core/util';
+import { blobToCanvas, createCanvas, ctx2d } from '../core/util';
 import { rasterLayer, groupLayer, vectorLayer } from '../core/doc';
 import { pngReadDpi, jpegReadDpi } from './binary';
 
 export type ImportResult =
   | { kind: 'raster'; name: string; canvas: HTMLCanvasElement; dpi: number | null }
   | { kind: 'vector'; name: string; svg: string; w: number; h: number; dpi: number | null }
-  | { kind: 'layers'; name: string; layers: Layer[]; w: number; h: number; dpi: number | null }
+  | { kind: 'layers'; name: string; layers: Layer[]; w: number; h: number; dpi: number | null; note?: string }
   | { kind: 'pages'; name: string; pages: HTMLCanvasElement[]; dpi: number }
   | { kind: 'project'; name: string; file: File };
 
@@ -85,9 +85,40 @@ const psdBlend: Record<string, BlendMode> = {
   difference: 'difference', exclusion: 'exclusion', hue: 'hue', saturation: 'saturation', color: 'color', luminosity: 'luminosity',
 };
 
+/** Error de memoria del motor del navegador al reservar un bloque enorme (WebKit: «Cannot allocate a buffer
+ *  of this size»; Chrome: «Array buffer allocation failed» o un lienzo que no se puede crear). */
+const isMemoryError = (e: unknown) =>
+  e instanceof RangeError || /allocat|out of memory|buffer|too large|invalid (typed )?array length/i.test(String((e as any)?.message ?? e));
+
 export async function importPsd(buf: ArrayBuffer, name: string): Promise<ImportResult> {
   const { readPsd } = await import('ag-psd');
-  const psd: any = readPsd(buf, { skipThumbnail: true });
+  // Se leen solo las capas: la imagen combinada (tamaño completo del documento), la miniatura y los
+  // archivos incrustados de los objetos inteligentes no se usan y multiplicaban la memoria necesaria.
+  const base = { skipThumbnail: true, skipLinkedFilesData: true };
+  let psd: any;
+  let note: string | undefined;
+  try {
+    psd = readPsd(buf, { ...base, skipCompositeImageData: true });
+  } catch (e) {
+    if (!isMemoryError(e)) throw e;
+    psd = null;
+  }
+  const hasLayerPixels = (n: any): boolean => !!n?.children?.some((c: any) => (c.canvas && c.canvas.width > 0) || hasLayerPixels(c));
+  if (!psd || !hasLayerPixels(psd)) {
+    // sin capas (PSD acoplado) o sin memoria para todas: solo la imagen combinada
+    const layered = !psd; // null = no hubo memoria para leerlo por capas
+    psd = null; // suelta lo leído antes de pedir más memoria
+    try {
+      psd = readPsd(buf, { ...base, skipLayerImageData: true });
+    } catch (e) {
+      if (!isMemoryError(e)) throw e;
+      throw new Error(`${name}: el PSD es demasiado grande para la memoria disponible. Prueba a cerrar otros documentos, o guárdalo en 8 bits/canal o con menos píxeles.`);
+    }
+    if (!psd.canvas) throw new Error(`${name}: el PSD no trae píxeles legibles (guárdalo con «Maximizar compatibilidad» en Photoshop).`);
+    if (layered) note = `${name}: el PSD era demasiado grande para abrirlo por capas; se abrió acoplado en una sola capa.`;
+    const res = psd.imageResources?.resolutionInfo;
+    return { kind: 'layers', name, layers: [rasterLayer(psd.canvas, 'Fondo', 0, 0)], w: psd.width, h: psd.height, dpi: psdDpi(res), note };
+  }
   const layers: Layer[] = [];
   const walk = (children: any[], parentId: string | null) => {
     for (const ch of children) {
@@ -96,17 +127,19 @@ export async function importPsd(buf: ArrayBuffer, name: string): Promise<ImportR
         layers.push(g);
         walk(ch.children, g.id);
       } else if (ch.canvas && ch.canvas.width > 0 && ch.canvas.height > 0) {
-        const l = rasterLayer(cloneCanvas(ch.canvas), ch.name || 'Capa', ch.left ?? 0, ch.top ?? 0);
+        // el lienzo de ag-psd es nuevo y solo lo usa esta capa: no hace falta copiarlo
+        const l = rasterLayer(ch.canvas, ch.name || 'Capa', ch.left ?? 0, ch.top ?? 0);
         layers.push({ ...l, parentId, visible: !ch.hidden, opacity: ch.opacity ?? 1, blend: psdBlend[ch.blendMode] ?? 'source-over', clip: !!ch.clipping });
       }
     }
   };
-  if (psd.children?.length) walk(psd.children, null);
-  else if (psd.canvas) layers.push(rasterLayer(cloneCanvas(psd.canvas), 'Fondo', 0, 0));
-  const res = psd.imageResources?.resolutionInfo;
-  let dpi: number | null = null;
-  if (res?.horizontalResolution) dpi = Math.round(res.horizontalResolutionUnit === 'PPCM' ? res.horizontalResolution * 2.54 : res.horizontalResolution);
-  return { kind: 'layers', name, layers, w: psd.width, h: psd.height, dpi };
+  walk(psd.children, null);
+  return { kind: 'layers', name, layers, w: psd.width, h: psd.height, dpi: psdDpi(psd.imageResources?.resolutionInfo) };
+}
+
+function psdDpi(res: any): number | null {
+  if (!res?.horizontalResolution) return null;
+  return Math.round(res.horizontalResolutionUnit === 'PPCM' ? res.horizontalResolution * 2.54 : res.horizontalResolution);
 }
 
 export async function importPdf(buf: ArrayBuffer, name: string, dpi: number): Promise<ImportResult> {
