@@ -143,6 +143,68 @@ export function polygonPoints(sides: number, w: number, h: number, inset = 0, in
   return pts;
 }
 
+// ---------- puntas de línea (flechas) ----------
+export type ArrowHead = 'none' | 'arrow' | 'triangle' | 'circle' | 'square' | 'bar';
+export const ARROW_HEADS: ArrowHead[] = ['none', 'arrow', 'triangle', 'circle', 'square', 'bar'];
+export const ARROW_LABELS: Record<ArrowHead, string> = { none: 'Sin punta', arrow: 'Flecha', triangle: 'Triángulo', circle: 'Círculo', square: 'Cuadrado', bar: 'Barra' };
+/** Media altura de una punta para una línea de grosor `t`. */
+export const headHalf = (t: number) => Math.max(2 * t, t / 2 + 4);
+/** Alto de la caja de una línea: el grosor, o lo que ocupen las puntas. */
+export const lineBoxHeight = (t: number, start?: ArrowHead, end?: ArrowHead) =>
+  (start && start !== 'none') || (end && end !== 'none') ? Math.ceil(2 * headHalf(t)) : t;
+/** Grosor de una línea (sin puntas el alto de la caja es el grosor). */
+export const lineThickness = (s: { h: number; lineWeight?: number }) => Math.max(0.5, Math.min(s.h, s.lineWeight ?? s.h));
+
+export type HeadPrim =
+  | { kind: 'fill'; pts: { x: number; y: number }[] } // polígono relleno
+  | { kind: 'open'; pts: { x: number; y: number }[] } // trazo abierto (grosor de la línea, uniones redondas)
+  | { kind: 'circle'; cx: number; cy: number; r: number };
+
+/**
+ * Geometría de una línea horizontal en una caja w×h con grosor t y puntas opcionales: el tramo
+ * recortado (para que no asome bajo la punta) y las primitivas de cada punta. La usan el lienzo
+ * y la exportación SVG para que se vean igual.
+ */
+export function lineGeometry(w: number, h: number, t: number, start: ArrowHead = 'none', end: ArrowHead = 'none', cap: CanvasLineCap = 'butt') {
+  const y = h / 2;
+  const hh = Math.max(t / 2, Math.min(headHalf(t), h / 2));
+  const heads: HeadPrim[] = [];
+  // punta en el extremo x = edge que apunta hacia fuera (dir = +1 derecha, -1 izquierda); devuelve hasta dónde llega el tramo
+  const head = (kind: ArrowHead, edge: number, dir: number): number => {
+    const X = (d: number) => edge - dir * d; // d = distancia hacia dentro desde el extremo
+    if (kind === 'triangle') {
+      const L = hh * 1.7;
+      heads.push({ kind: 'fill', pts: [{ x: X(0), y }, { x: X(L), y: y - hh }, { x: X(L), y: y + hh }] });
+      return X(L - Math.min(L, 0.5));
+    }
+    if (kind === 'arrow') {
+      const a = hh - t / 2, tip = t / 2;
+      heads.push({ kind: 'open', pts: [{ x: X(tip + a * 1.1), y: y - a }, { x: X(tip), y }, { x: X(tip + a * 1.1), y: y + a }] });
+      return X(tip);
+    }
+    if (kind === 'circle') {
+      const r = hh * 0.8;
+      heads.push({ kind: 'circle', cx: X(r), cy: y, r });
+      return X(r);
+    }
+    if (kind === 'square') {
+      const r = hh * 0.75;
+      heads.push({ kind: 'fill', pts: [{ x: X(0), y: y - r }, { x: X(2 * r), y: y - r }, { x: X(2 * r), y: y + r }, { x: X(0), y: y + r }] });
+      return X(r);
+    }
+    if (kind === 'bar') {
+      const bw = Math.max(1, t);
+      heads.push({ kind: 'fill', pts: [{ x: X(0), y: y - hh }, { x: X(bw), y: y - hh }, { x: X(bw), y: y + hh }, { x: X(0), y: y + hh }] });
+      return X(bw / 2);
+    }
+    // sin punta: con extremos redondos o cuadrados el trazo no debe salirse de la caja
+    return X(cap === 'butt' ? 0 : t / 2);
+  };
+  const x1 = head(start, 0, -1);
+  const x2 = head(end, w, 1);
+  return { y, t, x1, x2: Math.max(x1, x2), heads };
+}
+
 // ---------- saneado (archivos .kova de cualquier origen) ----------
 export function sanitizeGradient(v: unknown): Gradient | null {
   if (!v || typeof v !== 'object') return null;
@@ -155,6 +217,8 @@ export function sanitizeGradient(v: unknown): Gradient | null {
   if (stops.length < 2) return null;
   return { type, stops, x1: num(o.x1, 0), y1: num(o.y1, 0.5), x2: num(o.x2, 1), y2: num(o.y2, 0.5) };
 }
+export const sanitizeArrowHead = (v: unknown): ArrowHead | undefined =>
+  typeof v === 'string' && v !== 'none' && (ARROW_HEADS as string[]).includes(v) ? (v as ArrowHead) : undefined;
 export function sanitizeStrokeStyle(v: unknown): StrokeStyle | null {
   if (!v || typeof v !== 'object') return null;
   const o = v as any;

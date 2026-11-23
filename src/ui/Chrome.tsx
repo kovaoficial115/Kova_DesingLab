@@ -13,6 +13,7 @@ import { NumberField, Seg, Check as CheckBox, Select } from './components/contro
 import { commands, displayKeys, runCommand, openDialog } from './commands';
 import { closeDoc, zoomTo, fitToScreen } from '../core/actions';
 import { fromPx } from '../core/util';
+import { ARROW_HEADS, ARROW_LABELS, type ArrowHead } from '../core/paint';
 import { discardAutosave } from '../io/fileOps';import { FontPicker } from './components/FontPicker';
 import { BrushOptions } from './components/BrushPanel';
 import { platform } from '../platform';
@@ -138,6 +139,12 @@ export function OptionsBar() {
     <CheckBox checked={o.shapeFill} onChange={v => setO({ shapeFill: v })} label="Relleno (frontal)" />
     <CheckBox checked={o.shapeStroke} onChange={v => setO({ shapeStroke: v })} label="Trazo (fondo)" />
     <OptNum label="Grosor" value={o.shapeStrokeWidth} onChange={v => setO({ shapeStrokeWidth: v })} min={1} max={500} suffix="px" />
+    {o.shapeType === 'line' && <>
+      <Select<ArrowHead> value={o.lineStart} onChange={v => setO({ lineStart: v })} width={130} title="Punta al inicio de la línea (donde empiezas a arrastrar)"
+        options={ARROW_HEADS.map(v => ({ value: v, label: v === 'none' ? 'Inicio: nada' : `Inicio: ${ARROW_LABELS[v].toLowerCase()}` }))} />
+      <Select<ArrowHead> value={o.lineEnd} onChange={v => setO({ lineEnd: v })} width={130} title="Punta al final de la línea (donde sueltas)"
+        options={ARROW_HEADS.map(v => ({ value: v, label: v === 'none' ? 'Final: nada' : `Final: ${ARROW_LABELS[v].toLowerCase()}` }))} />
+    </>}
     {o.shapeType === 'rect' && <OptNum label="Radio" value={o.shapeRadius} onChange={v => setO({ shapeRadius: v })} min={0} max={2000} suffix="px" />}
   </>;
   if (tool === 'crop' && imageCrop.layerId && imageCrop.rect) {

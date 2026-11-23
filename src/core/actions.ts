@@ -2,6 +2,7 @@
 // operaciones de píxeles (vía worker). Todas pasan por el historial.
 
 import type { Adjustment, AdjustmentType, Artboard, Doc, DocState, Layer, Selection } from './types';
+import { adjustRuns } from './textruns';
 import {
   get, set, commit, silent, activeDoc, docState, activeLayer, selectedLayers, activeArtboard, toast, withBusy, setView, bumpRender,
 } from './store';
@@ -886,7 +887,10 @@ export function textToPoint(id: string) {
     const t = l.text;
     const { lines, shown } = textLayout(t);
     const align = t.align === 'justify' || t.align === 'justify-left' ? 'left' : t.align === 'justify-center' ? 'center' : t.align === 'justify-right' ? 'right' : t.align;
-    return { text: { ...t, box: null, align, text: originalLines(t.text, shown, lines.map(x => x.text)).join('\n') } };
+    const text = originalLines(t.text, shown, lines.map(x => x.text)).join('\n');
+    // los cortes cambian espacios por saltos (misma longitud): los fragmentos con estilo siguen valiendo
+    const runs = text.length === t.text.length ? t.runs : adjustRuns(t.runs, t.text, text);
+    return { text: { ...t, box: null, align, text, runs } };
   }, 'Convertir en texto de punto');
 }
 

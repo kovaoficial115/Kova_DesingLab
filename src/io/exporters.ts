@@ -8,7 +8,7 @@ import { childrenOf } from '../core/doc';
 import { pngSetDpi, jpegSetDpi, encodeTiff, encodeBmp } from './binary';
 import { rgbaToCmyk, cmsState, hasIcc } from '../engine/cms';
 import { fontFaceCss } from './fonts';
-import { svgGradientDef, dashArray, polygonPoints, DEFAULT_STROKE_STYLE } from '../core/paint';
+import { svgGradientDef, dashArray, polygonPoints, lineGeometry, lineThickness, DEFAULT_STROKE_STYLE } from '../core/paint';
 
 export type ExportFormat = 'png' | 'jpg' | 'webp' | 'tiff' | 'tiff-cmyk' | 'bmp' | 'svg' | 'pdf' | 'psd';
 
@@ -151,7 +151,7 @@ async function buildSvg(state: DocState, ab: Artboard) {
         if (gdef) parts.push(`<defs>${gdef}</defs>`);
         const tfill = gdef ? `url(#${gid})` : t.color;
         // misma disposición que en pantalla: las líneas (ya cortadas y alineadas) empiezan en (ox, oy)
-        const { ox, oy, base, lines, glyphs } = textLayout(t);
+        const { ox, oy, base, lines, glyphs, pieces } = textLayout(t);
         const deco = decorationLines(t, base);
         const stroke = t.strokeWidth > 0 ? ` stroke="${t.strokeColor}" stroke-width="${t.strokeWidth * 2}" paint-order="stroke" stroke-linejoin="round"` : '';
         if (glyphs) {
@@ -166,7 +166,16 @@ async function buildSvg(state: DocState, ab: Artboard) {
           continue;
         }
         parts.push(`<text xml:space="preserve" font-family="${esc(t.fontFamily)}" font-size="${t.fontSize}" font-weight="${t.fontWeight}"${t.italic ? ' font-style="italic"' : ''} letter-spacing="${t.letterSpacing}" fill="${tfill}"${stroke}>`);
-        for (const ln of lines) {
+        if (pieces) lines.forEach((ln, i) => {
+          // fragmentos con otro estilo: un <tspan> por trozo con su tipografía y color
+          const y = oy + ln.y + base;
+          for (const p of pieces[i]) {
+            if (!p.text) continue;
+            const attrs = `${p.fontFamily !== t.fontFamily ? ` font-family="${esc(p.fontFamily)}"` : ''}${p.fontWeight !== t.fontWeight ? ` font-weight="${p.fontWeight}"` : ''}${p.italic !== t.italic ? ` font-style="${p.italic ? 'italic' : 'normal'}"` : ''}${p.color ? ` fill="${p.color}"` : ''}`;
+            parts.push(`<tspan x="${+(ox + p.x).toFixed(2)}" y="${y}"${attrs}>${esc(p.text)}</tspan>`);
+          }
+        });
+        else for (const ln of lines) {
           if (!ln.text) continue;
           const y = oy + ln.y + base;
           if (ln.words) for (const wd of ln.words) parts.push(`<tspan x="${ox + ln.x + wd.x}" y="${y}">${esc(wd.text)}</tspan>`);
@@ -183,19 +192,18 @@ async function buildSvg(state: DocState, ab: Artboard) {
         const s = l.shape;
         const ss = s.strokeStyle ?? DEFAULT_STROKE_STYLE;
         const sw = s.stroke ? s.strokeWidth : 0;
-        const gdef = s.fillGradient && s.shape !== 'line' ? svgGradientDef(gid, s.fillGradient, w, h) : null;
+        const gdef = s.fillGradient ? svgGradientDef(gid, s.fillGradient, w, h) : null;
         if (gdef) parts.push(`<defs>${gdef}</defs>`);
-        const fill = s.shape === 'line' ? 'none' : gdef ? `url(#${gid})` : s.fill || 'none';
-        const lw = s.shape === 'line' ? s.h : sw;
+        const fill = gdef ? `url(#${gid})` : s.fill || 'none';
+        const lw = sw;
         const dash = dashArray(ss.dash, lw);
-        const strokeAttrs = s.stroke || s.shape === 'line'
-          ? ` stroke="${s.stroke || s.fill}" stroke-width="${lw}"${ss.dash === 'dotted' ? ' stroke-linecap="round"' : ss.cap !== 'butt' ? ` stroke-linecap="${ss.cap}"` : ''}${ss.join !== 'miter' ? ` stroke-linejoin="${ss.join}"` : ''}${dash.length ? ` stroke-dasharray="${dash.map(v => +v.toFixed(3)).join(' ')}"` : ''}${ss.opacity < 1 ? ` stroke-opacity="${ss.opacity}"` : ''}`
+        const strokeAttrs = s.stroke
+          ? ` stroke="${s.stroke}" stroke-width="${lw}"${ss.dash === 'dotted' ? ' stroke-linecap="round"' : ss.cap !== 'butt' ? ` stroke-linecap="${ss.cap}"` : ''}${ss.join !== 'miter' ? ` stroke-linejoin="${ss.join}"` : ''}${dash.length ? ` stroke-dasharray="${dash.map(v => +v.toFixed(3)).join(' ')}"` : ''}${ss.opacity < 1 ? ` stroke-opacity="${ss.opacity}"` : ''}`
           : '';
         // mismo dibujo que en pantalla: relleno hasta donde indique la posición del contorno, contorno a sw/2 del borde
         const fi = ss.align === 'outside' ? sw : ss.align === 'inside' ? 0 : sw / 2;
         const geom = (inset: number) => {
           if (s.shape === 'ellipse') return `<ellipse cx="${w / 2}" cy="${h / 2}" rx="${Math.max(0.5, w / 2 - inset)}" ry="${Math.max(0.5, h / 2 - inset)}"`;
-          if (s.shape === 'line') return `<line x1="0" y1="${h / 2}" x2="${w}" y2="${h / 2}"`;
           if (s.shape === 'polygon' || s.shape === 'star') {
             const pts = polygonPoints(s.sides ?? (s.shape === 'star' ? 5 : 6), w, h, inset, s.shape === 'star' ? s.inner ?? 0.5 : undefined);
             return `<polygon points="${pts.map(p => `${+p.x.toFixed(3)},${+p.y.toFixed(3)}`).join(' ')}"`;
@@ -203,7 +211,22 @@ async function buildSvg(state: DocState, ab: Artboard) {
           const r = Math.max(0, s.radius + (s.radius > 0 ? sw / 2 - inset : 0));
           return `<rect x="${inset}" y="${inset}" width="${Math.max(1, w - 2 * inset)}" height="${Math.max(1, h - 2 * inset)}" rx="${r}"`;
         };
-        if (fi === sw / 2 || s.shape === 'line') parts.push(`${geom(s.shape === 'line' ? 0 : sw / 2)} fill="${fill}"${strokeAttrs}/>`);
+        if (s.shape === 'line') {
+          const t = lineThickness(s);
+          const cap: CanvasLineCap = ss.dash === 'dotted' ? 'round' : ss.cap;
+          const L = lineGeometry(w, h, t, s.arrowStart, s.arrowEnd, cap);
+          const col = s.stroke || s.fill || '#ffffff';
+          const f3 = (v: number) => +v.toFixed(3);
+          const d = dashArray(ss.dash, t);
+          const seg: string[] = [];
+          if (L.x2 > L.x1) seg.push(`<line x1="${f3(L.x1)}" y1="${f3(L.y)}" x2="${f3(L.x2)}" y2="${f3(L.y)}" stroke="${col}" stroke-width="${t}"${cap !== 'butt' ? ` stroke-linecap="${cap}"` : ''}${d.length ? ` stroke-dasharray="${d.map(f3).join(' ')}"` : ''}/>`);
+          for (const p of L.heads) {
+            if (p.kind === 'circle') seg.push(`<circle cx="${f3(p.cx)}" cy="${f3(p.cy)}" r="${f3(p.r)}" fill="${col}"/>`);
+            else if (p.kind === 'fill') seg.push(`<polygon points="${p.pts.map(q => `${f3(q.x)},${f3(q.y)}`).join(' ')}" fill="${col}"/>`);
+            else seg.push(`<polyline points="${p.pts.map(q => `${f3(q.x)},${f3(q.y)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="${t}" stroke-linejoin="round" stroke-linecap="round"/>`);
+          }
+          parts.push(ss.opacity < 1 ? `<g opacity="${ss.opacity}">${seg.join('')}</g>` : seg.join(''));
+        } else if (fi === sw / 2) parts.push(`${geom(sw / 2)} fill="${fill}"${strokeAttrs}/>`);
         else {
           if (fill !== 'none') parts.push(`${geom(fi)} fill="${fill}"/>`);
           if (strokeAttrs) parts.push(`${geom(sw / 2)} fill="none"${strokeAttrs}/>`);

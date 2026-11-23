@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Doc, DocState, ToolId, Unit, View, Layer } from './types';
+import type { ArrowHead } from './paint';
 import { defaultBrushes, sanitizeBrushes, type BrushSettings, type BrushToolId } from '../engine/brush';
 import { sanitizeUserFormats, emptyUserFormats, type UserFormats } from '../social/presets';
 import { sanitizeSimAppearance, type SimAppearance } from '../social/appearance';
@@ -38,6 +39,9 @@ export interface ToolOptions {
   shapeStroke: boolean;
   shapeStrokeWidth: number;
   shapeRadius: number;
+  /** herramienta Línea: puntas al inicio y al final (flechas) */
+  lineStart: ArrowHead;
+  lineEnd: ArrowHead;
   fillTolerance: number;
   fillContiguous: boolean;
   gradientType: 'linear' | 'radial';
@@ -178,7 +182,7 @@ export const useStore = create<AppState>(() => ({
   opts: {
     brushTarget: 'pixels',
     wandTolerance: 32, wandContiguous: true, wandSampleAll: false, selMode: 'new', feather: 0,
-    shapeType: 'rect', shapeSides: 6, shapeFill: true, shapeStroke: false, shapeStrokeWidth: 8, shapeRadius: 0,
+    shapeType: 'rect', shapeSides: 6, shapeFill: true, shapeStroke: false, shapeStrokeWidth: 8, shapeRadius: 0, lineStart: 'none', lineEnd: 'none',
     fillTolerance: 32, fillContiguous: true, gradientType: 'linear', gradientToTransparent: false,
     fontFamily: 'Inter, sans-serif', fontSize: 160, fontWeight: 700, showTransform: true, autoSelect: true,
   },

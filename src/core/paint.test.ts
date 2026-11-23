@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   defaultGradient, gradientAngle, withAngle, withType, sampleGradient, addStop, removeStop, reverseGradient,
-  svgGradientDef, dashArray, polygonPoints, sanitizeGradient, sanitizeStrokeStyle,
+  svgGradientDef, dashArray, polygonPoints, sanitizeGradient, sanitizeStrokeStyle, lineGeometry, lineBoxHeight, sanitizeArrowHead,
 } from './paint';
 
 describe('degradados', () => {
@@ -61,5 +61,47 @@ describe('contornos y formas', () => {
     expect(star).toHaveLength(10);
     expect(Math.hypot(star[1].x - 50, star[1].y - 50)).toBeCloseTo(25);
     expect(polygonPoints(1, 10, 10)).toHaveLength(3);
+  });
+});
+
+describe('puntas de línea', () => {
+  it('sin puntas la caja mide el grosor y el tramo ocupa todo el ancho', () => {
+    expect(lineBoxHeight(6)).toBe(6);
+    const g = lineGeometry(100, 6, 6);
+    expect(g.x1).toBe(0); expect(g.x2).toBe(100); expect(g.heads).toHaveLength(0);
+  });
+  it('extremos redondos sin punta: el trazo no se sale de la caja', () => {
+    const g = lineGeometry(100, 6, 6, 'none', 'none', 'round');
+    expect(g.x1).toBe(3); expect(g.x2).toBe(97);
+  });
+  it('con punta la caja crece y la punta queda dentro', () => {
+    const t = 4, h = lineBoxHeight(t, 'none', 'triangle');
+    expect(h).toBeGreaterThan(t);
+    const g = lineGeometry(200, h, t, 'none', 'triangle');
+    const tri = g.heads[0];
+    expect(tri.kind).toBe('fill');
+    if (tri.kind !== 'fill') return;
+    for (const p of tri.pts) { expect(p.x).toBeGreaterThanOrEqual(0); expect(p.x).toBeLessThanOrEqual(200); expect(p.y).toBeGreaterThanOrEqual(0); expect(p.y).toBeLessThanOrEqual(h); }
+    expect(Math.max(...tri.pts.map(p => p.x))).toBe(200); // la punta toca el final
+    expect(g.x2).toBeLessThan(200); // el tramo se recorta bajo la punta
+  });
+  it('flecha abierta en el inicio apunta hacia la izquierda', () => {
+    const t = 4, h = lineBoxHeight(t, 'arrow');
+    const g = lineGeometry(200, h, t, 'arrow');
+    const v = g.heads[0];
+    expect(v.kind).toBe('open');
+    if (v.kind !== 'open') return;
+    expect(v.pts[1].x).toBeLessThan(v.pts[0].x); // el vértice está más a la izquierda que los brazos
+    expect(v.pts[1].x - t / 2).toBeGreaterThanOrEqual(0);
+    expect(Math.min(...v.pts.map(p => p.y)) - t / 2).toBeGreaterThanOrEqual(0);
+  });
+  it('una línea más corta que sus puntas no dibuja tramo negativo', () => {
+    const g = lineGeometry(4, lineBoxHeight(4, 'triangle', 'triangle'), 4, 'triangle', 'triangle');
+    expect(g.x2).toBeGreaterThanOrEqual(g.x1);
+  });
+  it('saneado de puntas', () => {
+    expect(sanitizeArrowHead('arrow')).toBe('arrow');
+    expect(sanitizeArrowHead('none')).toBeUndefined();
+    expect(sanitizeArrowHead('<script>')).toBeUndefined();
   });
 });

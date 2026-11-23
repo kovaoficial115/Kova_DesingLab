@@ -18,6 +18,7 @@ import { magicWand } from '../engine/alpha';
 import { hasLayout, layoutSnapLines } from '../editorial/layout';
 import { scalePatch, rotatePatch, applyPatches, handleScale } from '../core/groupTransform';
 import type { Gradient } from '../core/paint';
+import { lineBoxHeight } from '../core/paint';
 import { CROP_ASPECTS, fitAspect, resizeCrop, moveCrop, roundCrop, pivotAfterResize, type CropRect, type CropHandle } from '../core/imageCrop';
 
 export interface ToolEvent {
@@ -1083,10 +1084,14 @@ const shapeTool = {
       const len = Math.hypot(ln.x2 - ln.x1, ln.y2 - ln.y1);
       if (len < 3) return redraw();
       const th = Math.max(1, opts.shapeStrokeWidth);
-      let l = shapeLayer({ shape: 'line', w: len, h: th, fill: fg, stroke: null, strokeWidth: th, radius: 0 }, 0, 0);
+      // con puntas la caja es más alta que el trazo (para que quepan); el grosor se guarda aparte
+      const heads = opts.lineStart !== 'none' || opts.lineEnd !== 'none';
+      const bh = lineBoxHeight(th, opts.lineStart, opts.lineEnd);
+      let l = shapeLayer({ shape: 'line', w: len, h: bh, fill: fg, stroke: null, strokeWidth: th, radius: 0,
+        ...(heads ? { lineWeight: th, ...(opts.lineStart !== 'none' ? { arrowStart: opts.lineStart } : {}), ...(opts.lineEnd !== 'none' ? { arrowEnd: opts.lineEnd } : {}) } : {}) }, 0, 0);
       const ang = (Math.atan2(ln.y2 - ln.y1, ln.x2 - ln.x1) * 180) / Math.PI;
       const cx = (ln.x1 + ln.x2) / 2, cy = (ln.y1 + ln.y2) / 2;
-      l = { ...l, rotation: ang, x: cx - len / 2, y: cy - th / 2 };
+      l = { ...l, rotation: ang, x: cx - len / 2, y: cy - bh / 2 };
       insertLayers([l], 'Línea');
       return;
     }

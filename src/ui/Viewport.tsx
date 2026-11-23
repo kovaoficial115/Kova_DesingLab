@@ -13,6 +13,8 @@ import { MenuList, type Item } from './MenuBar';
 import { placeFiles } from '../io/fileOps';
 import { softProof, channelView } from '../engine/cms';
 import { Slider } from './components/controls';
+import { RunStyleBar } from './components/RunStyleBar';
+import { adjustRuns } from '../core/textruns';
 import { KOVA } from './theme';
 import { findFormat, safeRect } from '../social/presets';
 import { seriesArtboards } from '../social/model';
@@ -981,8 +983,10 @@ function TextEditPop({ size }: { size: { w: number; h: number } }) {
   const doc = useStore(s => s.docs.find(d => d.id === s.activeDocId));
   const view = useStore(s => (s.activeDocId ? s.views[s.activeDocId] : null));
   const ref = useRef<HTMLTextAreaElement>(null);
+  const [sel, setSel] = useState<[number, number]>([0, 0]);
   const l = doc?.state.layers.find(x => x.id === id) as Layer | undefined;
-  useEffect(() => { if (l) setTimeout(() => { ref.current?.focus(); ref.current?.select(); }, 0); }, [id]);
+  useEffect(() => { if (l) setTimeout(() => { ref.current?.focus(); ref.current?.select(); const r = ref.current; if (r) setSel([r.selectionStart, r.selectionEnd]); }, 0); }, [id]);
+  const readSel = () => { const r = ref.current; if (r) setSel([r.selectionStart, r.selectionEnd]); };
   if (!l || !l.text || !view) return null;
   const b = layerBounds(l);
   const left = Math.min(size.w - 300, Math.max(8, b.x * view.zoom + view.panX));
@@ -996,8 +1000,10 @@ function TextEditPop({ size }: { size: { w: number; h: number } }) {
   const wide = !l.text.box && !!ab && b.w > ab.w * 0.9;
   return (
     <div className="text-editor-pop" style={{ left, top }} onPointerDown={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
-      <textarea ref={ref} className="input" rows={l.text.box ? 6 : 3} value={l.text.text} onChange={e => upd({ text: e.target.value })}
+      <textarea ref={ref} className="input" rows={l.text.box ? 6 : 3} value={l.text.text} onChange={e => { upd({ text: e.target.value, runs: adjustRuns(l.text!.runs, l.text!.text, e.target.value) }); readSel(); }}
+        onSelect={readSel}
         onKeyDown={e => { if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) { e.preventDefault(); done(); } }} />
+      <RunStyleBar t={l.text} sel={sel} onRuns={runs => upd({ runs })} />
       <div className="row" style={{ marginTop: 6 }}>
         <div className="grow"><Slider label="Tamaño" value={l.text.fontSize} min={4} max={2000} onChange={v => upd({ fontSize: v })} suffix="px" /></div>
       </div>

@@ -2,8 +2,9 @@
 // guardado automático y recuperación ante cierres inesperados.
 
 import type { Doc, DocState, Layer } from '../core/types';
-import { sanitizeGradient, sanitizeStrokeStyle } from '../core/paint';
+import { sanitizeArrowHead, sanitizeGradient, sanitizeStrokeStyle } from '../core/paint';
 import { sanitizeCrop } from '../core/imageCrop';
+import { sanitizeRuns } from '../core/textruns';
 import { canvasToBlob, blobToCanvas, uid, createCanvas, ctx2d } from '../core/util';
 import { platform, type SaveTarget } from '../platform';
 import { storage, type ProjectBucket, type ProjectRecord } from '../storage';
@@ -88,8 +89,10 @@ export async function deserializeDoc(json: string, opts: OpenOptions = {}): Prom
     const cs = l.cropSource ? await get(l.cropSource.canvas) : undefined;
     const layer: Layer = { ...(l as any), canvas, origin: (await get(l.origin)) ?? canvas, mask: (await get(l.mask)) ?? null };
     // propiedades opcionales nuevas: si vienen dañadas se descartan (el archivo se abre igual)
-    if (layer.shape) layer.shape = { ...layer.shape, fillGradient: sanitizeGradient(layer.shape.fillGradient) ?? undefined, strokeStyle: sanitizeStrokeStyle(layer.shape.strokeStyle) ?? undefined };
-    if (layer.text) layer.text = { ...layer.text, gradient: sanitizeGradient(layer.text.gradient) ?? undefined };
+    if (layer.shape) layer.shape = { ...layer.shape, fillGradient: sanitizeGradient(layer.shape.fillGradient) ?? undefined, strokeStyle: sanitizeStrokeStyle(layer.shape.strokeStyle) ?? undefined,
+      arrowStart: sanitizeArrowHead(layer.shape.arrowStart), arrowEnd: sanitizeArrowHead(layer.shape.arrowEnd),
+      lineWeight: Number.isFinite(layer.shape.lineWeight) && layer.shape.lineWeight! > 0 ? layer.shape.lineWeight : undefined };
+    if (layer.text) layer.text = { ...layer.text, gradient: sanitizeGradient(layer.text.gradient) ?? undefined, runs: sanitizeRuns(layer.text.runs, String(layer.text.text ?? '').length) };
     const crop = sanitizeCrop(l.crop);
     if (crop && cs) { layer.crop = crop; layer.cropSource = { canvas: cs, mask: (await get(l.cropSource!.mask)) ?? null }; }
     else { delete layer.crop; delete layer.cropSource; }

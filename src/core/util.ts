@@ -1,6 +1,7 @@
 import type { Layer, Unit } from './types';
 import { flowText, type FlowLine } from './textflow';
 import { samplePath, layoutOnPath, pathBounds, glyphBounds, type PathGlyph } from './textpath';
+import { normalizeRuns, splitByRuns, type RunStyle } from './textruns';
 
 let counter = 0;
 export const uid = (p = 'id') => `${p}_${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -138,7 +139,11 @@ export interface TextLayout {
   shown: string;
   /** Texto en trayectoria: cada letra con su posición (caja de las líneas) y giro. */
   glyphs?: PathGlyph[];
+  /** Texto con fragmentos de otro estilo: por cada línea, sus trozos (x en la caja de las líneas,
+   *  se dibujan con la línea base alfabética en `ln.y + base`) */
+  pieces?: TextPiece[][];
 }
+export interface TextPiece { text: string; x: number; font: string; color?: string; fontFamily: string; fontWeight: number; italic: boolean }
 
 // medir texto es caro (más en WebKit, la app de escritorio, y con fuentes complejas) y la caja se
 // consulta muchas veces por fotograma al mover o transformar: se guarda por contenido y fuente
@@ -154,7 +159,10 @@ export function decorationLines(t: import('./types').TextProps, base: number) {
 
 export function textLayout(t: import('./types').TextProps): TextLayout {
   const font = textFont(t);
-  const key = `${font}|${t.letterSpacing}|${t.lineHeight}|${t.strokeWidth}|${t.align}|${t.box ? t.box.w + 'x' + t.box.h : ''}|${t.caps ? 1 : 0}${t.underline ? 1 : 0}${t.strike ? 1 : 0}|${t.paraSpacing ?? 0}|${t.indent ?? 0}|${t.path ? JSON.stringify(t.path) : ''}|${t.text}`;
+  const shownText = t.caps ? t.text.toLocaleUpperCase('es') : t.text;
+  // fragmentos con otro estilo (si las mayúsculas cambian la longitud, los índices ya no valen)
+  const runs = !t.path?.d && shownText.length === t.text.length ? normalizeRuns(t.runs, t.text.length) : [];
+  const key = `${runs.length ? JSON.stringify(runs) : ''}|${font}|${t.letterSpacing}|${t.lineHeight}|${t.strokeWidth}|${t.align}|${t.box ? t.box.w + 'x' + t.box.h : ''}|${t.caps ? 1 : 0}${t.underline ? 1 : 0}${t.strike ? 1 : 0}|${t.paraSpacing ?? 0}|${t.indent ?? 0}|${t.path ? JSON.stringify(t.path) : ''}|${t.text}`;
   const hit = layoutCache.get(key);
   if (hit) return hit;
   if (!measureCtx) measureCtx = ctx2d(createCanvas(4, 4));
@@ -169,17 +177,49 @@ export function textLayout(t: import('./types').TextProps): TextLayout {
   g.textAlign = 'left';
   const widths = new Map<string, number>();
   const measure = (s: string) => { let v = widths.get(s); if (v === undefined) { v = g.measureText(s).width; widths.set(s, v); } return v; };
-  const shown = t.caps ? t.text.toLocaleUpperCase('es') : t.text;
+  const shown = shownText;
   const pad = t.strokeWidth + 2, sw = t.strokeWidth;
-  const flow = flowText({ text: shown, fontSize: t.fontSize, lineHeight: t.lineHeight, align: t.align, pad, box: t.box, paraSpacing: t.paraSpacing, indent: t.indent }, measure);
+  // con fragmentos: cada trozo se mide con su tipografía
+  const pieceStyle = (st: RunStyle) => {
+    const fam = st.fontFamily ?? t.fontFamily, wt = st.fontWeight ?? t.fontWeight, it = st.italic ?? t.italic;
+    return { fontFamily: fam, fontWeight: wt, italic: it, font: textFont({ fontFamily: fam, fontWeight: wt, italic: it, fontSize: t.fontSize }) };
+  };
+  const pw = new Map<string, number>();
+  const measureFont = (s: string, f: string) => { if (f === font) return measure(s); const k = f + '\u0000' + s; let v = pw.get(k); if (v === undefined) { g.font = f; v = g.measureText(s).width; g.font = font; pw.set(k, v); } return v; };
+  const measureAt = runs.length ? (s: string, start: number) => splitByRuns(s, start, runs).reduce((a, p) => a + measureFont(p.text, pieceStyle(p.style).font), 0) : undefined;
+  const flow = flowText({ text: shown, fontSize: t.fontSize, lineHeight: t.lineHeight, align: t.align, pad, box: t.box, paraSpacing: t.paraSpacing, indent: t.indent }, measure, measureAt);
   const { bw, bh, lines } = flow;
   // distancia real de la línea superior a la base de las letras (varía mucho entre tipografías)
   const ab = -(g.measureText(shown.trim() ? shown.replace(/\n[\s\S]*/, '') || 'M' : 'M').alphabeticBaseline ?? NaN);
   const base = isFinite(ab) && ab > 0 ? ab : t.fontSize * 0.8;
   const deco = decorationLines(t, base);
+  const pieces = measureAt ? lines.map(ln => (ln.segs ?? []).flatMap(sg => {
+    let x = ln.x + sg.x;
+    return splitByRuns(sg.text, sg.start, runs).map(p => {
+      const ps = pieceStyle(p.style);
+      const out: TextPiece = { text: p.text, x, ...ps, ...(p.style.color ? { color: p.style.color } : {}) };
+      x += measureFont(p.text, ps.font);
+      return out;
+    });
+  })) : undefined;
   // tinta de cada línea, dibujada como en renderText (línea base 'top')
   let x0 = 0, y0 = 0, x1 = bw, y1 = bh;
-  for (const ln of lines) {
+  if (pieces) {
+    // tinta de cada trozo con su tipografía (se dibujan con la base alfabética en ln.y + base)
+    lines.forEach((ln, i) => {
+      for (const p of pieces[i]) {
+        if (!p.text) continue;
+        g.font = p.font; g.textBaseline = 'alphabetic';
+        const m = g.measureText(p.text);
+        const yb = ln.y + base;
+        x0 = Math.min(x0, p.x - (m.actualBoundingBoxLeft || 0) - sw);
+        x1 = Math.max(x1, p.x + (m.actualBoundingBoxRight || m.width) + sw);
+        y0 = Math.min(y0, yb - (m.actualBoundingBoxAscent || 0) - sw);
+        y1 = Math.max(y1, yb + (m.actualBoundingBoxDescent || 0) + sw, t.underline ? ln.y + deco.underline + deco.thickness : 0);
+      }
+    });
+    g.font = font; g.textBaseline = 'top';
+  } else for (const ln of lines) {
     if (!ln.text) continue;
     const m = g.measureText(ln.text);
     // justificada: los huecos crecen, la tinta va del inicio de la primera palabra al final de la última
@@ -193,7 +233,7 @@ export function textLayout(t: import('./types').TextProps): TextLayout {
   const M = 3;
   const ox = x0 < 0 ? Math.ceil(-x0) + M : 0, oy = y0 < 0 ? Math.ceil(-y0) + M : 0;
   const ex = x1 > bw ? Math.ceil(x1 - bw) + M : 0, ey = y1 > bh ? Math.ceil(y1 - bh) + M : 0;
-  const out: TextLayout = { w: bw + ox + ex, h: bh + oy + ey, bw, bh, ox, oy, base, lines, shown };
+  const out: TextLayout = { w: bw + ox + ex, h: bh + oy + ey, bw, bh, ox, oy, base, lines, shown, ...(pieces ? { pieces } : {}) };
   if (layoutCache.size > 500) layoutCache.clear();
   layoutCache.set(key, out);
   return out;

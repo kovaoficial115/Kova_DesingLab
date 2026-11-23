@@ -3,7 +3,8 @@ import type { Garment3DData } from './garment3d';
 import type { ArtboardSocial, DocSocial } from '../social/model';
 import type { ArtboardBehance } from '../behance/model';
 import type { LayoutGrid } from '../editorial/layout';
-import type { Gradient, StrokeStyle } from './paint';
+import type { ArrowHead, Gradient, StrokeStyle } from './paint';
+import type { TextRun } from './textruns';
 
 // Modelo de datos del documento. Los bitmaps (HTMLCanvasElement) se tratan como
 // inmutables: cualquier edición de píxeles crea un canvas nuevo (copy-on-write),
@@ -66,6 +67,8 @@ export interface TextProps {
   path?: TextPath | null;
   /** relleno degradado (sustituye a `color`, que queda como color de reserva) */
   gradient?: Gradient | null;
+  /** partes del texto con otra tipografía, peso, cursiva o color (índices de `text`) */
+  runs?: TextRun[];
 }
 
 /** Trayectoria de un texto. `d` es la curva (SVG, coordenadas de la capa); las formas
@@ -139,6 +142,11 @@ export interface ShapeProps {
   fillGradient?: Gradient | null;
   /** discontinuo/punteado, extremos, uniones, posición y opacidad del contorno */
   strokeStyle?: StrokeStyle | null;
+  /** línea: puntas en el inicio (izquierda) y el final (derecha) */
+  arrowStart?: ArrowHead;
+  arrowEnd?: ArrowHead;
+  /** línea con puntas: grosor del trazo (la caja es más alta para que quepan las puntas) */
+  lineWeight?: number;
 }
 
 export interface VectorProps {

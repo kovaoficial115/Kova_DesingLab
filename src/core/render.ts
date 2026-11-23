@@ -2,12 +2,12 @@
 // ajustes no destructivos) sobre cualquier contexto 2D. Lo usan el visor y la exportación.
 
 import type { Artboard, DocState, Layer } from './types';
-import { createCanvas, ctx2d, cloneCanvas, layerMatrix, layerSize, textFont, textLayout, clearTextMetrics, decorationLines, getImageData } from './util';
+import { createCanvas, ctx2d, cloneCanvas, layerMatrix, layerSize, textFont, textLayout, clearTextMetrics, decorationLines, getImageData, type TextPiece } from './util';
 import { childrenOf, descendants } from './doc';
 import { runOp } from '../engine/workerClient';
 import { bumpRender, get, isLive } from './store';
 import { fxDef } from '../engine/fx/registry';
-import { canvasGradient, dashArray, polygonPoints, DEFAULT_STROKE_STYLE } from './paint';
+import { canvasGradient, dashArray, polygonPoints, lineGeometry, lineThickness, DEFAULT_STROKE_STYLE } from './paint';
 
 // ---------- identidad de objetos para firmas de caché ----------
 const objIds = new WeakMap<object, number>();
@@ -23,12 +23,14 @@ export const oid = (o: object | null | undefined) => {
 const contentCache = new Map<string, { sig: string; canvas: HTMLCanvasElement }>();
 const vectorCache = new Map<string, { svg: string; scale: number; canvas: HTMLCanvasElement | null; loading: boolean }>();
 
-function renderText(l: Layer): HTMLCanvasElement {
+/** `k`: píxeles del lienzo por unidad de la capa (más de 1 = dibujado nítido al verlo ampliado). */
+function renderText(l: Layer, k = 1): HTMLCanvasElement {
   const t = l.text!;
   // caja completa (con lo que sobresale de las letras) y las líneas ya cortadas y alineadas
-  const { w, h, ox, oy, lines, base, glyphs } = textLayout(t);
-  const c = createCanvas(w, h);
+  const { w, h, ox, oy, lines, base, glyphs, pieces: styled } = textLayout(t);
+  const c = createCanvas(w * k, h * k);
   const g = ctx2d(c);
+  g.scale(k, k);
   g.translate(ox, oy);
   g.font = textFont(t);
   if (glyphs) {
@@ -40,11 +42,11 @@ function renderText(l: Layer): HTMLCanvasElement {
     if (t.strokeWidth > 0) { g.strokeStyle = t.strokeColor; g.lineWidth = t.strokeWidth * 2; each(q => g.strokeText(q.ch, -q.w / 2, 0)); }
     if (t.gradient) {
       // el degradado ocupa la caja del texto; cada letra está girada, así que se pinta en una capa aparte
-      const fillC = createCanvas(w, h), fg = ctx2d(fillC);
-      fg.translate(ox, oy); fg.font = g.font; fg.textBaseline = 'alphabetic'; fg.textAlign = 'left';
+      const fillC = createCanvas(w * k, h * k), fg = ctx2d(fillC);
+      fg.scale(k, k); fg.translate(ox, oy); fg.font = g.font; fg.textBaseline = 'alphabetic'; fg.textAlign = 'left';
       for (const q of glyphs) { if (!q.ch.trim()) continue; fg.save(); fg.translate(q.x, q.y); fg.rotate(q.a); fg.fillText(q.ch, -q.w / 2, 0); fg.restore(); }
       fg.setTransform(1, 0, 0, 1, 0, 0); fg.globalCompositeOperation = 'source-in';
-      fg.fillStyle = canvasGradient(fg, t.gradient, w, h); fg.fillRect(0, 0, w, h);
+      fg.fillStyle = canvasGradient(fg, t.gradient, w * k, h * k); fg.fillRect(0, 0, fillC.width, fillC.height);
       g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(fillC, 0, 0); g.restore();
       return c;
     }
@@ -65,6 +67,22 @@ function renderText(l: Layer): HTMLCanvasElement {
     if (t.strike) r.push([ln.x, ln.y + deco.strike, ln.width, deco.thickness]);
     return r;
   };
+  if (styled) {
+    // texto con fragmentos de otro estilo: cada trozo con su tipografía y color, sobre la misma base
+    g.textBaseline = 'alphabetic';
+    const fillDefault = t.gradient ? canvasGradient(g, t.gradient, w, h, -ox, -oy) : t.color;
+    const each = (fn: (p: TextPiece, y: number) => void) => lines.forEach((ln, i) => { for (const p of styled[i]) if (p.text) { g.font = p.font; fn(p, ln.y + base); } });
+    if (t.strokeWidth > 0) {
+      g.strokeStyle = t.strokeColor;
+      g.lineWidth = t.strokeWidth * 2;
+      each((p, y) => g.strokeText(p.text, p.x, y));
+      for (const ln of lines) for (const [x, y, bw, bh] of bars(ln)) g.strokeRect(x, y, bw, bh);
+    }
+    each((p, y) => { g.fillStyle = p.color ?? fillDefault; g.fillText(p.text, p.x, y); });
+    g.fillStyle = fillDefault;
+    for (const ln of lines) for (const [x, y, bw, bh] of bars(ln)) g.fillRect(x, y, bw, bh);
+    return c;
+  }
   if (t.strokeWidth > 0) {
     g.strokeStyle = t.strokeColor;
     g.lineWidth = t.strokeWidth * 2;
@@ -81,11 +99,38 @@ function renderText(l: Layer): HTMLCanvasElement {
   return c;
 }
 
-function renderShape(l: Layer): HTMLCanvasElement {
+function renderShape(l: Layer, k = 1): HTMLCanvasElement {
   const s = l.shape!;
-  const c = createCanvas(s.w, s.h);
+  const c = createCanvas(s.w * k, s.h * k);
   const g = ctx2d(c);
+  g.scale(k, k);
   const st = s.strokeStyle ?? DEFAULT_STROKE_STYLE;
+  if (s.shape === 'line') {
+    // tramo (con su discontinuo) y puntas macizas; la opacidad se aplica al final para que la
+    // punta y el tramo no se oscurezcan donde se tocan
+    const t = lineThickness(s);
+    const cap: CanvasLineCap = st.dash === 'dotted' ? 'round' : st.cap;
+    const L = lineGeometry(s.w, s.h, t, s.arrowStart, s.arrowEnd, cap);
+    const col = s.stroke || s.fill || '#fff';
+    g.strokeStyle = col; g.fillStyle = col; g.lineWidth = t; g.lineCap = cap; g.lineJoin = st.join;
+    g.setLineDash(dashArray(st.dash, t));
+    if (L.x2 > L.x1) { g.beginPath(); g.moveTo(L.x1, L.y); g.lineTo(L.x2, L.y); g.stroke(); }
+    g.setLineDash([]);
+    for (const p of L.heads) {
+      g.beginPath();
+      if (p.kind === 'circle') { g.arc(p.cx, p.cy, p.r, 0, Math.PI * 2); g.fill(); continue; }
+      p.pts.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+      if (p.kind === 'fill') { g.closePath(); g.fill(); }
+      else { g.lineJoin = 'round'; g.lineCap = 'round'; g.stroke(); }
+    }
+    if (st.opacity < 1) {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = 'destination-in';
+      g.fillStyle = `rgba(0,0,0,${st.opacity})`;
+      g.fillRect(0, 0, c.width, c.height);
+    }
+    return c;
+  }
   const sw = s.stroke ? s.strokeWidth : 0;
   // la caja incluye el contorno: se dibuja centrado a sw/2 del borde (como siempre). El relleno llega
   // hasta el centro del contorno (centrado, el modo de siempre), hasta su borde exterior (interior: el
@@ -94,30 +139,27 @@ function renderShape(l: Layer): HTMLCanvasElement {
   const path = (inset: number) => {
     g.beginPath();
     if (s.shape === 'ellipse') g.ellipse(s.w / 2, s.h / 2, Math.max(0.5, s.w / 2 - inset), Math.max(0.5, s.h / 2 - inset), 0, 0, Math.PI * 2);
-    else if (s.shape === 'line') { g.moveTo(0, s.h / 2); g.lineTo(s.w, s.h / 2); }
     else if (s.shape === 'polygon' || s.shape === 'star') {
       const pts = polygonPoints(s.sides ?? (s.shape === 'star' ? 5 : 6), s.w, s.h, inset, s.shape === 'star' ? s.inner ?? 0.5 : undefined);
       pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
       g.closePath();
     } else (g as any).roundRect(inset, inset, Math.max(1, s.w - 2 * inset), Math.max(1, s.h - 2 * inset), Math.max(0, s.radius + (s.radius > 0 ? sw / 2 - inset : 0)));
   };
-  if ((s.fill || s.fillGradient) && s.shape !== 'line') {
+  if (s.fill || s.fillGradient) {
     path(Math.min(fillInset, Math.min(s.w, s.h) / 2 - 0.5));
     g.fillStyle = s.fillGradient ? canvasGradient(g, s.fillGradient, s.w, s.h) : s.fill!;
     g.fill();
   }
-  if (s.stroke || s.shape === 'line') {
-    path(s.shape === 'line' ? 0 : sw / 2);
-    const lw = s.shape === 'line' ? Math.max(1, s.h) : sw;
-    g.strokeStyle = s.stroke || s.fill || '#fff';
+  if (s.stroke) {
+    path(sw / 2);
+    const lw = sw;
+    g.strokeStyle = s.stroke;
     g.lineWidth = lw;
     g.lineCap = st.dash === 'dotted' ? 'round' : st.cap;
     g.lineJoin = st.join;
     g.setLineDash(dashArray(st.dash, lw));
     g.globalAlpha = st.opacity;
-    // una línea larga a lo ancho: el trazo no debe salirse de la caja por los extremos
-    if (s.shape === 'line' && g.lineCap !== 'butt') { g.save(); g.beginPath(); g.moveTo(lw / 2, s.h / 2); g.lineTo(s.w - lw / 2, s.h / 2); g.stroke(); g.restore(); }
-    else g.stroke();
+    g.stroke();
     g.globalAlpha = 1;
   }
   return c;
@@ -181,6 +223,43 @@ export function layerContent(l: Layer): HTMLCanvasElement | null {
   const canvas = l.kind === 'text' ? renderText(l) : l.kind === 'shape' ? renderShape(l) : null;
   if (canvas) contentCache.set(l.id, { sig, canvas });
   return canvas;
+}
+
+// ---------- versión nítida de textos y formas ----------
+// El contenido base se dibuja a 1 píxel por unidad. Si la capa se ve ampliada (zoom del visor, capa
+// escalada o exportación a más resolución) se vuelve a dibujar a la escala a la que se ve, para que
+// letras, bordes y líneas sigan siendo vectoriales en lugar de un mapa de bits estirado.
+const sharpCache = new Map<string, { sig: string; k: number; canvas: HTMLCanvasElement; masked: { mask: HTMLCanvasElement; canvas: HTMLCanvasElement } | null }>();
+const SHARP_MAX_PX = 12_000_000; // por capa
+const SHARP_BUDGET_PX = 80_000_000; // entre todas (equipos con poca memoria)
+const pxOf = (e: { canvas: HTMLCanvasElement; masked: { canvas: HTMLCanvasElement } | null }) =>
+  e.canvas.width * e.canvas.height + (e.masked ? e.masked.canvas.width * e.masked.canvas.height : 0);
+
+/** Escala a la que conviene dibujar el contenido: potencia de 2 ≥ la necesaria, limitada en memoria. */
+export function sharpScale(need: number, w: number, h: number) {
+  if (!(need > 1.05)) return 1;
+  let k = 2 ** Math.ceil(Math.log2(need));
+  const cap = Math.sqrt(SHARP_MAX_PX / Math.max(1, w * h));
+  while (k > 1 && k > cap) k /= 2;
+  return Math.max(1, Math.min(32, k));
+}
+
+function sharpContent(l: Layer, need: number): HTMLCanvasElement | null {
+  if (l.kind !== 'text' && l.kind !== 'shape') return null;
+  const { w, h } = layerSize(l);
+  const k = sharpScale(need, w, h);
+  if (k <= 1) return null;
+  const sig = l.kind === 'text' ? JSON.stringify(l.text) : JSON.stringify(l.shape);
+  let e = sharpCache.get(l.id);
+  sharpCache.delete(l.id); // al reinsertarla queda como la más reciente
+  if (!e || e.sig !== sig || e.k < k) e = { sig, k, canvas: l.kind === 'text' ? renderText(l, k) : renderShape(l, k), masked: null };
+  if (l.mask && l.maskEnabled && e.masked?.mask !== l.mask) e.masked = { mask: l.mask, canvas: applyMask(e.canvas, l.mask) };
+  sharpCache.set(l.id, e);
+  // presupuesto total: se sueltan las versiones nítidas usadas hace más tiempo
+  let total = 0;
+  for (const v of sharpCache.values()) total += pxOf(v);
+  for (const [key, v] of sharpCache) { if (total <= SHARP_BUDGET_PX || key === l.id) break; total -= pxOf(v); sharpCache.delete(key); }
+  return l.mask && l.maskEnabled ? e.masked!.canvas : e.canvas;
 }
 
 // ---------- máscaras ----------
@@ -340,8 +419,8 @@ export async function bakedLayerCanvas(l: Layer): Promise<HTMLCanvasElement | nu
 }
 
 /** Las fuentes disponibles cambiaron: re-rasterizar textos (y formas, que son baratas). */
-export function invalidateTextContent() { clearTextMetrics(); contentCache.clear(); }
-export function invalidateLayer(id: string) { procCache.delete(id); contentCache.delete(id); vectorCache.delete(id); adjCache.delete(id); }
+export function invalidateTextContent() { clearTextMetrics(); contentCache.clear(); sharpCache.clear(); }
+export function invalidateLayer(id: string) { procCache.delete(id); contentCache.delete(id); sharpCache.delete(id); vectorCache.delete(id); adjCache.delete(id); }
 
 // ---------- reducciones (mipmaps) ----------
 // drawImage reduce con muestreo bilineal: al alejar el zoom no promedia los píxeles que se salta
@@ -557,10 +636,14 @@ function drawLayer(g: CanvasRenderingContext2D, l: Layer, o: RenderOpts, all: La
   }
   if (l.kind === 'adjust') return; // se dibujan en drawList (necesitan lo que hay debajo)
   if (o.only && !o.only.has(l.id)) return;
-  const src = processedContent(l, !!o.bypassIds?.has(l.id), !!o.allowDraft);
-  if (!src) return;
+  const bypass = !!o.bypassIds?.has(l.id);
   const { w, h } = layerSize(l);
   const m = o.base.multiply(layerMatrix(l));
+  // textos y formas sin ajustes: si se ven ampliados, se dibujan a esa escala (nítidos)
+  const sharp = (l.kind === 'text' || l.kind === 'shape') && (bypass || !l.adjustments.some(a => a.enabled))
+    ? sharpContent(l, Math.max(Math.hypot(m.a, m.b), Math.hypot(m.c, m.d))) : null;
+  const src = sharp ?? processedContent(l, bypass, !!o.allowDraft);
+  if (!src) return;
   g.save();
   g.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
   g.globalAlpha = forceNormal ? 1 : l.opacity;

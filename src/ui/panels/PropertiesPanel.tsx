@@ -4,13 +4,15 @@ import { useStore, live, finishLive, get, liveBaseState } from '../../core/store
 import type { Doc, Layer, Artboard, TextAlign, ShapeProps as ShapeData } from '../../core/types';
 import { NumberField, Select, Check, ColorInput, Seg } from '../components/controls';
 import { GradientEditor } from '../components/GradientEditor';
-import { DEFAULT_STROKE_STYLE, defaultGradient, type StrokeStyle, type DashKind, type StrokeAlign } from '../../core/paint';
+import { DEFAULT_STROKE_STYLE, defaultGradient, ARROW_HEADS, ARROW_LABELS, lineBoxHeight, lineThickness, type ArrowHead, type StrokeStyle, type DashKind, type StrokeAlign } from '../../core/paint';
 import { fromPx, toPx, layerSize, layerBounds, layerPivot, placeAtPivot, unionRect } from '../../core/util';
 import { groupTarget, hasEditableCrop } from '../../tools/tools';
 import { scalePatch, rotatePatch, applyPatches } from '../../core/groupTransform';
 import * as A from '../../core/actions';
 import { AlignIcon } from '../Chrome';
 import { FontPicker } from '../components/FontPicker';
+import { RunStyleBar } from '../components/RunStyleBar';
+import { adjustRuns } from '../../core/textruns';
 import { runCommand } from '../commands';
 import { TextStyleRow, TextPathProps, VariantProps, BrandAssetProps } from './LinkedProps';
 
@@ -125,11 +127,15 @@ function LayerProps({ l, ab, doc }: { l: Layer; ab: Artboard; doc: Doc }) {
 function TextProps({ l, doc }: { l: Layer; doc: Doc }) {
   const t = l.text!;
   const up = (p: Partial<typeof t>, c = true) => { liveLayer(l.id, x => ({ text: { ...x.text!, ...p }, name: p.text !== undefined ? p.text.split('\n')[0].slice(0, 24) || 'Texto' : x.name })); if (c) finishLive('Texto'); };
+  const [sel, setSel] = useState<[number, number]>([0, 0]);
+  const readSel = (e: React.SyntheticEvent<HTMLTextAreaElement>) => setSel([e.currentTarget.selectionStart, e.currentTarget.selectionEnd]);
   return (
     <>
       <div className="section-title">Texto</div>
       <TextStyleRow l={l} doc={doc} />
-      <textarea className="input" rows={2} value={t.text} onChange={e => up({ text: e.target.value }, false)} onBlur={() => finishLive('Editar texto')} onKeyDown={e => e.stopPropagation()} />
+      <textarea className="input" rows={2} value={t.text} onChange={e => { up({ text: e.target.value, runs: adjustRuns(t.runs, t.text, e.target.value) }, false); readSel(e); }}
+        onSelect={readSel} onBlur={() => finishLive('Editar texto')} onKeyDown={e => e.stopPropagation()} />
+      <RunStyleBar t={t} sel={sel} onRuns={(runs, c) => { up({ runs }, false); if (c) finishLive(c); }} />
       <FontPicker value={t.fontFamily} onChange={v => up({ fontFamily: v })} width="100%" />
       <div className="row">
         <NumberField label="T" value={t.fontSize} min={1} max={5000} digits={0} suffix="px" onChange={v => up({ fontSize: v }, false)} onCommit={v => up({ fontSize: v })} />
@@ -230,6 +236,22 @@ function ShapeProps({ l, doc }: { l: Layer; doc: Doc }) {
   };
   const upStroke = (p: Partial<StrokeStyle>, c: boolean | string = 'Estilo del contorno') => up(x => ({ strokeStyle: { ...(x.strokeStyle ?? DEFAULT_STROKE_STYLE), ...p } }), c);
   const isLine = s.shape === 'line';
+  // líneas: el grosor y las puntas cambian el alto de la caja; la línea se queda en su sitio (mismo centro)
+  const upLine = (p: (x: ShapeData) => Partial<ShapeData>, c: boolean | string) => {
+    live(st => ({ ...st, layers: st.layers.map(x => {
+      if (!ids.has(x.id) || x.shape?.shape !== 'line') return x;
+      const t = lineThickness(x.shape);
+      const next = { ...x.shape, ...p(x.shape) };
+      const nt = next.lineWeight ?? t;
+      const h = lineBoxHeight(nt, next.arrowStart, next.arrowEnd);
+      const heads = (next.arrowStart && next.arrowStart !== 'none') || (next.arrowEnd && next.arrowEnd !== 'none');
+      const shape = { ...next, h, lineWeight: heads ? nt : undefined, arrowStart: next.arrowStart === 'none' ? undefined : next.arrowStart, arrowEnd: next.arrowEnd === 'none' ? undefined : next.arrowEnd };
+      const pv = layerPivot(x);
+      const nl = { ...x, shape };
+      return { ...nl, ...placeAtPivot(nl, pv.x, pv.y) };
+    }) }));
+    if (c) finishLive(typeof c === 'string' ? c : 'Línea');
+  };
   const fillMode = s.fillGradient ? 'gradient' : 'solid';
   return (
     <>
@@ -254,6 +276,8 @@ function ShapeProps({ l, doc }: { l: Layer; doc: Doc }) {
       </div>
       {(s.stroke || isLine) && <>
         <div className="grid2">
+          {isLine && <NumberField label="Grosor" value={+lineThickness(s).toFixed(1)} min={0.5} max={1000} digits={1} suffix="px"
+            onChange={v => upLine(() => ({ lineWeight: Math.max(0.5, v) }), false)} onCommit={v => upLine(() => ({ lineWeight: Math.max(0.5, v) }), 'Grosor de la línea')} />}
           {!isLine && <NumberField label="Grosor" value={s.strokeWidth} min={0} max={1000} digits={0} suffix="px" onChange={v => up({ strokeWidth: v }, false)} onCommit={v => up({ strokeWidth: v }, 'Grosor del contorno')} />}
           <NumberField label="Opac." value={Math.round(ss.opacity * 100)} min={0} max={100} digits={0} suffix="%" onChange={v => upStroke({ opacity: v / 100 }, false)} onCommit={v => upStroke({ opacity: v / 100 })} />
         </div>
@@ -265,6 +289,14 @@ function ShapeProps({ l, doc }: { l: Layer; doc: Doc }) {
                 options={[{ value: 'center', label: 'Centrado' }, { value: 'inside', label: 'Interior' }, { value: 'outside', label: 'Exterior' }]} />
             : <span />}
         </div>
+        {isLine && <div className="grid2">
+          <Select<ArrowHead> value={s.arrowStart ?? 'none'} onChange={v => upLine(() => ({ arrowStart: v }), 'Punta de la línea')} title="Punta en el inicio de la línea"
+            options={ARROW_HEADS.map(v => ({ value: v, label: v === 'none' ? 'Inicio: nada' : `Inicio: ${ARROW_LABELS[v].toLowerCase()}` }))} />
+          <Select<ArrowHead> value={s.arrowEnd ?? 'none'} onChange={v => upLine(() => ({ arrowEnd: v }), 'Punta de la línea')} title="Punta en el final de la línea"
+            options={ARROW_HEADS.map(v => ({ value: v, label: v === 'none' ? 'Final: nada' : `Final: ${ARROW_LABELS[v].toLowerCase()}` }))} />
+        </div>}
+        {isLine && <button className="btn sm" title="Intercambia las puntas del inicio y del final"
+          onClick={() => upLine(x => ({ arrowStart: x.arrowEnd ?? 'none', arrowEnd: x.arrowStart ?? 'none' }), 'Invertir flecha')}>Invertir sentido</button>}
         <div className="grid2">
           <Select<CanvasLineCap> value={ss.cap} onChange={v => upStroke({ cap: v })} title="Extremos de las líneas y de los trazos discontinuos"
             options={[{ value: 'butt', label: 'Extremo recto' }, { value: 'round', label: 'Extremo redondo' }, { value: 'square', label: 'Extremo cuadrado' }]} />
